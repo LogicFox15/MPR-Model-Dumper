@@ -1,4 +1,5 @@
-﻿using System;
+﻿
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -28,7 +29,8 @@ namespace DKCTF
             using (var reader = new FileReader(stream, leaveOpen))
             {
                 //Small "hack" to detect endianness.
-                using (reader.TemporarySeek(4, SeekOrigin.Begin)) {
+                using (reader.TemporarySeek(4, SeekOrigin.Begin))
+                {
                     //Size is a uint64. If the first 4 bytes are present, file is little endian
                     IsLittleEndian = reader.ReadUInt32() != 0;
                     //MPR is only game currently that is little endian
@@ -255,8 +257,8 @@ namespace DKCTF
 
         public bool IsZero()
         {
-            return Guid.Part1 == 0 && 
-                   Guid.Part2 == 0 && 
+            return Guid.Part1 == 0 &&
+                   Guid.Part2 == 0 &&
                    Guid.Part3 == 0 &&
                    Guid.Part4[0] == 0;
         }

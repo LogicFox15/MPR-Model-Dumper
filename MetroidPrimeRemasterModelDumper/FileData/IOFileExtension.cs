@@ -71,6 +71,18 @@ namespace DKCTF
                 case CompressionType.LZSS_32: return DecompressLZSS(data, 3, decompSize);
                 case CompressionType.ZLib:
                     return ZLIB.Decompress(data);
+                case CompressionType.Huffman_LZSS_8:
+                    byte[] output1 = new byte[decompSize];
+                    HuffmanLzssDecompressor.Decompress(data, output1, 0);
+                    return output1;
+                case CompressionType.Huffman_LZSS_16:
+                    byte[] output2 = new byte[decompSize];
+                    HuffmanLzssDecompressor.Decompress(data, output2, 1);
+                    return output2;
+                case CompressionType.Huffman_LZSS_32:
+                    byte[] output3 = new byte[decompSize];
+                    HuffmanLzssDecompressor.Decompress(data, output3, 2);
+                    return output3;
                 default:
                     return new byte[decompSize];
             }
@@ -79,7 +91,7 @@ namespace DKCTF
         public enum CompressionType //8 = byte, 16 = short, 32 = uint32
         {
             None,
-            LZSS_8  = 0x1,
+            LZSS_8 = 0x1,
             LZSS_16 = 0x2,
             LZSS_32 = 0x3,
             ArithmeticStream_LZSS_8 = 0x4,
@@ -88,10 +100,10 @@ namespace DKCTF
             LZSS_8_3Byte = 0x7,
             LZSS_16_3Byte = 0x8,
             LZSS_32_3Byte = 0x9,
-            ArithmeticStream_LZSS_8_3Byte = 0xA,
-            ArithmeticStream_LZSS_16_3Byte = 0xB,
-            ArithmeticStream_LZSS_32_3Byte = 0xC,
-            ZLib = 0xD,
+            Huffman_LZSS_8 = 0xC,
+            Huffman_LZSS_16 = 0xD,
+            Huffman_LZSS_32 = 0xE,
+            ZLib = 0xF,
         }
 
         public static byte[] DecompressLZSS(byte[] input, int mode, uint decompressedLength)

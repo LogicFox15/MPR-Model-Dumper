@@ -1,6 +1,7 @@
 ﻿using AvaloniaToolbox.Core;
 using DKCTF;
 using IONET;
+using IONET.Collada.Core.Scene;
 using IONET.Core;
 using IONET.Core.Model;
 using IONET.Core.Skeleton;
@@ -11,6 +12,8 @@ using System.Linq;
 using System.Numerics;
 using System.Text;
 using System.Threading.Tasks;
+
+#nullable disable
 
 namespace EvilWithin2Tool
 {
@@ -73,17 +76,24 @@ namespace EvilWithin2Tool
                 });
             }
 
-
+            int MatName = 0;
             foreach (var mesh in cmdl.Meshes)
             {
-                var mat = cmdl.Materials[mesh.Header.MaterialIndex];
+
+                //var mat = cmdl.Materials[mesh.Header.MaterialIndex];
 
                 IOMesh iomesh = new IOMesh();
-                iomesh.Name = $"Mesh{iomodel.Meshes.Count}_{mat.Name}";
+                //iomesh.Name = $"Mesh{iomodel.Meshes.Count}_{mat.Name}";
+                iomesh.Name = $"Mesh{iomodel.Meshes.Count}";
                 iomodel.Meshes.Add(iomesh);
 
                 foreach (var vert in mesh.Vertices)
                 {
+                    Console.WriteLine("Vertex Position Check: " + vert.Position);
+                    Console.WriteLine("Vertex Normal Check: " + vert.Normal);
+                    Console.WriteLine("Vertex Tangent Check: " + vert.Tangent);
+                    Console.WriteLine();
+
                     var iovertex = new IOVertex()
                     {
                         Position = new System.Numerics.Vector3(
@@ -136,13 +146,31 @@ namespace EvilWithin2Tool
                 IOPolygon iopoly = new IOPolygon();
                 iomesh.Polygons.Add(iopoly);
 
-                iopoly.MaterialName = mat.Name;
+                iopoly.MaterialName = "Material_" + MatName++;
 
                 iomesh.TransformVertices(Matrix4x4.Identity);
 
                 for (int i = 0; i < mesh.Indices.Length; i++)
                     iopoly.Indicies.Add((int)mesh.Indices[i]);
             }
+
+            /*
+            foreach(IOModel Model in ioscene.Models)
+            {
+                foreach(IOMesh mesh in Model.Meshes)
+                {
+                    foreach(IOVertex vert in mesh.Vertices)
+                    {
+                        Console.WriteLine("Vertex Position Check: " + vert.Position);
+                        Console.WriteLine("Vertex Normal Check: " + vert.Normal);
+                        Console.WriteLine("Vertex Tangent Check: " + vert.Tangent);
+                        Console.WriteLine();
+                    }
+                }
+            }
+            */
+
+            
 
             IOManager.ExportScene(ioscene, path, new ExportSettings()
             {

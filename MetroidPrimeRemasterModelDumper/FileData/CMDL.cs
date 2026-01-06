@@ -88,10 +88,12 @@ namespace DKCTF
                     reader.ReadStruct<SModelHeader>();
                     break;
                 case "MTRL":
+                    /*
                     if (IsSwitch)
                         ReadMaterials(reader);
                     else
                         ReadMaterialsU(reader);
+                    */
                     break;
                 case "MESH":
                     ReadMesh(reader);
@@ -115,8 +117,8 @@ namespace DKCTF
 
                         //Decompress
                         var data = IOFileExtension.DecompressedBuffer(reader, buffer.CompressedSize, buffer.DecompressedSize, IsSwitch);
-                      //  if (buffer.DecompressedSize != data.Length)
-                      //      throw new Exception();
+                        //  if (buffer.DecompressedSize != data.Length)
+                        //      throw new Exception();
 
                         //All indices
                         var indices = BufferHelper.LoadIndexBuffer(data, this.IndexBuffer[i].IndexType, IsSwitch);
@@ -178,6 +180,7 @@ namespace DKCTF
             {
                 CMaterial material = new CMaterial();
                 Materials.Add(material);
+                /*
                 material.Name = reader.ReadStringZeroTerminated();
                 material.ID = reader.ReadStruct<CObjectId>();
                 material.Type = reader.ReadStruct<Magic>();
@@ -231,7 +234,9 @@ namespace DKCTF
                             throw new Exception($"Unsupported material type {dformat}!");
                     }
                 }
+                */
             }
+
         }
 
         private void ReadMaterials(FileReader reader)
@@ -375,7 +380,7 @@ namespace DKCTF
             for (int i = 0; i < numBuffers; i++)
             {
                 VertexBuffer vertexBuffer = new VertexBuffer();
-                vertexBuffer.VertexCount = reader.ReadUInt32();
+                //vertexBuffer.VertexCount = reader.ReadUInt32(); // FIX THIS BEFORE TESTING ON PRIME 4
 
                 uint numAttributes = reader.ReadUInt32();
 
@@ -383,6 +388,7 @@ namespace DKCTF
                     vertexBuffer.Components.Add(reader.ReadStruct<SVertexDataComponent>());
 
                 VertexBuffers.Add(vertexBuffer);
+                reader.ReadUInt32(); // FIX THIS BEFORE TESTING ON PRIME 4
                 if (this.IsMPR || IsR11)
                     reader.ReadByte();
             }
@@ -399,7 +405,7 @@ namespace DKCTF
         {
             public List<SVertexDataComponent> Components = new List<SVertexDataComponent>();
 
-            public uint VertexCount;
+            //public uint VertexCount;
         }
 
         public class CVertex
@@ -450,6 +456,8 @@ namespace DKCTF
                 //Here we optmize the vertices to only use the vertices used by the mesh rather than use one giant list
                 List<CVertex> vertexList = new List<CVertex>();
                 List<uint> remappedIndices = new List<uint>();
+                Console.WriteLine("Vertex Indices Count: " + Indices.Length);
+
                 for (int i = 0; i < Indices.Length; i++)
                 {
                     remappedIndices.Add((uint)vertexList.Count);
@@ -473,7 +481,7 @@ namespace DKCTF
             public byte IndexBufferIndex;
             public uint IndexStart;
             public uint IndexCount;
-            public ushort field_C; 
+            public ushort field_C;
             public ushort field_E; //0x4000
         }
 
@@ -495,7 +503,7 @@ namespace DKCTF
         }
 
         [StructLayout(LayoutKind.Sequential, Pack = 1)]
-        public class SModelHeader 
+        public class SModelHeader
         {
             public uint NumOpaqueMeshes;
             public uint Num1PassTranslucentMeshes;
@@ -595,6 +603,7 @@ namespace DKCTF
             public uint Offset;
             public uint CompressedSize;
             public uint DecompressedSize;
+            public uint unk;  // FIX THIS BEFORE TESTING ON PRIME 4
         }
     }
 }
