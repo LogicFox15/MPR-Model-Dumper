@@ -90,6 +90,9 @@ namespace DKCTF
                             case CMDL.EVertexComponent.in_texCoord2:
                                 vertex.TexCoord2 = ReadData(reader, comp.Format).Xy();
                                 break;
+                            case CMDL.EVertexComponent.in_texCoord3:
+                                vertex.TexCoord3 = ReadData(reader, comp.Format).Xy();
+                                break;
 
                             case CMDL.EVertexComponent.in_boneWeights:
                                 vertex.BoneWeights = ReadData(reader, comp.Format);

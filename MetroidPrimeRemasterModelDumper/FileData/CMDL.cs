@@ -43,6 +43,16 @@ namespace DKCTF
 
         public bool IsR11 = true;
 
+        public byte[] unk1;
+        public byte[] unk2;
+        public uint shortCount;
+        public ushort[] shorts;
+        public byte lodCount;
+        public LODinfo[] lods;
+        public uint hasLODRule;
+        public LodRule[] LodRules;
+
+
         /// <summary>
         /// The meta data header for parsing gpu buffers and decompressing.
         /// </summary>
@@ -371,6 +381,41 @@ namespace DKCTF
                     Header = mesh,
                 });
             }
+
+            this.unk1 = new byte[(numMeshes + 3) / 4];
+            this.unk2 = new byte[(numMeshes + 7) / 8];
+            for(int i = 0; i < unk1.Length; i++)
+            {
+                this.unk1[i] = reader.ReadByte();
+            }
+            for (int i = 0; i < unk2.Length; i++)
+            {
+                this.unk2[i] = reader.ReadByte();
+            }
+
+            this.shortCount = reader.ReadUInt32();
+            this.shorts = new ushort[this.shortCount];
+
+            for (int i = 0; i < shortCount; i++)
+            {
+                this.shorts[i] = reader.ReadUInt16();
+            }
+
+            this.lodCount = reader.ReadByte();
+            this.lods = new LODinfo[lodCount];
+
+            for (int i = 0; i < lodCount; i++)
+            {
+                Console.WriteLine("LOD outer: " + i);
+                LODinfo info = new LODinfo();
+
+                info.ReadInner(reader);
+
+                this.lods[i] = info;
+            }
+
+            this.hasLODRule = reader.ReadUInt32();
+
             Console.WriteLine();
         }
 
@@ -415,6 +460,7 @@ namespace DKCTF
             public Vector2 TexCoord0;
             public Vector2 TexCoord1;
             public Vector2 TexCoord2;
+            public Vector2 TexCoord3;
 
             public Vector4 BoneWeights = new Vector4(1, 0, 0, 0);
             public Vector4 BoneIndices = new Vector4(0);
@@ -450,6 +496,8 @@ namespace DKCTF
             public List<CVertex> Vertices = new List<CVertex>();
 
             public uint[] Indices = new uint[0];
+
+            public int parentLOD;
 
             public void SetupVertices(List<CVertex> vertices)
             {
@@ -605,5 +653,36 @@ namespace DKCTF
             public uint DecompressedSize;
             public uint unk;  // FIX THIS BEFORE TESTING ON PRIME 4
         }
+
+        public class LODinfo
+        {
+            public LODInner[] inner = new LODInner[5];
+
+            public void ReadInner(FileReader reader)
+            {
+                for(int i  = 0; i < inner.Length; i++)
+                {
+                    LODInner tempinner = new LODInner();
+
+                    tempinner.offset = reader.ReadUInt32();
+                    tempinner.count = reader.ReadUInt32();
+
+                    inner[i] = tempinner;
+                }
+            }
+        }
+
+        public class LODInner
+        {
+            public uint offset;
+            public uint count;
+        }
+
+        public class LodRule
+        {
+            public float Value;
+        }
+
+
     }
 }

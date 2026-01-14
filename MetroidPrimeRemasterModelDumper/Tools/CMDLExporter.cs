@@ -7,6 +7,7 @@ using IONET.Core.Model;
 using IONET.Core.Skeleton;
 using RetroStudioPlugin.Files.FileData;
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
@@ -76,24 +77,36 @@ namespace EvilWithin2Tool
                 });
             }
 
+            var lods = new List<ModelLod>();
+            for (int lodIndex = 0; lodIndex < cmdl.lods.Count(); lodIndex++)
+            {
+                var lod = cmdl.lods[lodIndex];
+
+                foreach (var inner in lod.inner)
+                {
+                    int offset = (int)inner.offset;
+                    int end = (int)offset + (int)inner.count;
+
+                    for (int s = offset; s < end; s++)
+                    {
+                        int meshIndex = cmdl.shorts[s];
+                        cmdl.Meshes[meshIndex].parentLOD = lodIndex;
+                    }
+                }
+            }
+
             int MatName = 0;
             foreach (var mesh in cmdl.Meshes)
             {
-
                 //var mat = cmdl.Materials[mesh.Header.MaterialIndex];
 
                 IOMesh iomesh = new IOMesh();
                 //iomesh.Name = $"Mesh{iomodel.Meshes.Count}_{mat.Name}";
-                iomesh.Name = $"Mesh{iomodel.Meshes.Count}";
+                iomesh.Name = $"Mesh{iomodel.Meshes.Count}_LOD{mesh.parentLOD}";
                 iomodel.Meshes.Add(iomesh);
 
                 foreach (var vert in mesh.Vertices)
                 {
-                    Console.WriteLine("Vertex Position Check: " + vert.Position);
-                    Console.WriteLine("Vertex Normal Check: " + vert.Normal);
-                    Console.WriteLine("Vertex Tangent Check: " + vert.Tangent);
-                    Console.WriteLine();
-
                     var iovertex = new IOVertex()
                     {
                         Position = new System.Numerics.Vector3(
@@ -154,27 +167,17 @@ namespace EvilWithin2Tool
                     iopoly.Indicies.Add((int)mesh.Indices[i]);
             }
 
-            /*
-            foreach(IOModel Model in ioscene.Models)
-            {
-                foreach(IOMesh mesh in Model.Meshes)
-                {
-                    foreach(IOVertex vert in mesh.Vertices)
-                    {
-                        Console.WriteLine("Vertex Position Check: " + vert.Position);
-                        Console.WriteLine("Vertex Normal Check: " + vert.Normal);
-                        Console.WriteLine("Vertex Tangent Check: " + vert.Tangent);
-                        Console.WriteLine();
-                    }
-                }
-            }
-            */
 
-            
 
             IOManager.ExportScene(ioscene, path, new ExportSettings()
             {
             });
         }
+    }
+
+    class ModelLod
+    {
+        public BitArray Meshes;
+        public float? Distance;
     }
 }
