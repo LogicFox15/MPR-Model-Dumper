@@ -353,6 +353,11 @@ namespace DKCTF
                             Console.WriteLine("material format: CPLX");
                             {
                                 reader.ReadUInt32();
+                                uint tempSize = reader.ReadUInt32();
+
+                                reader.Position += tempSize;
+
+                                /*
                                 reader.ReadSingles(4); //color
                                 reader.ReadSingles(4); //color
                                 reader.ReadSingles(4); //color
@@ -366,6 +371,7 @@ namespace DKCTF
                                 var texture3 = reader.ReadStruct<CObjectId>();
                                 if (!texture3.IsZero())
                                     reader.ReadStruct<STextureUsageInfo>();
+                                */
                             }
                             break;
                         case "MA4": //Matrix4x4
@@ -774,8 +780,6 @@ namespace DKCTF
             public Dictionary<string, int[]> Int4 = new Dictionary<string, int[]>();
             public Dictionary<string, float[]> Matrices = new Dictionary<string, float[]>();
             public Dictionary<string, Color4f> Colors = new Dictionary<string, Color4f>();
-
-            // New stuff
         }
 
         public class CMaterialNew
