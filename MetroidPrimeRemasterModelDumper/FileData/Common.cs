@@ -199,6 +199,7 @@ namespace DKCTF
         public long DataOffset;
     }
 
+    /*
     [StructLayout(LayoutKind.Sequential, Pack = 1)]
     public class CMayaSpline
     {
@@ -220,6 +221,7 @@ namespace DKCTF
         public float Field14;
         public float Field18;
     }
+    */
 
     /// <summary>
     /// Tag data for an object providing the type and id.

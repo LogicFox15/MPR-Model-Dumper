@@ -1,6 +1,7 @@
 ﻿using AvaloniaToolbox.Core;
 using DKCTF;
 using IONET;
+using IONET.Collada.Core.Geometry;
 using IONET.Collada.Core.Scene;
 using IONET.Core;
 using IONET.Core.Model;
@@ -167,9 +168,53 @@ namespace EvilWithin2Tool
                     iopoly.Indicies.Add((int)mesh.Indices[i]);
             }
 
+            string materialTXT = "Texture IDs: ";
 
+            List<CMDL.CMaterial> mats = new List<CMDL.CMaterial>();
+            List<CMDL.CMaterialNew> matsNew = new List<CMDL.CMaterialNew>();
 
-            IOManager.ExportScene(ioscene, path, new ExportSettings()
+            if (cmdl.Materials.Count > 0)
+            {
+                foreach (var mat in cmdl.Materials)
+                {
+                    mats.Add(mat);
+                }
+            }
+
+            if (cmdl.MaterialsNew.Count > 0)
+            {
+                foreach (var mat in cmdl.MaterialsNew)
+                {
+                    matsNew.Add(mat);
+                }
+            }
+
+            CMDL.CMaterial[] cleanMats = mats.Distinct().ToArray();
+            CMDL.CMaterialNew[] cleanMatsNew = matsNew.Distinct().ToArray();
+
+            foreach (var mat in cleanMats)
+            {
+                materialTXT += (System.Environment.NewLine + "Material: " + mat.Name);
+                foreach (var texture in mat.Textures)
+                {
+                    materialTXT += (System.Environment.NewLine + texture.FileID.ToString());
+                }
+                materialTXT += System.Environment.NewLine;
+            }
+
+            foreach (var mat in cleanMatsNew)
+            {
+                materialTXT += (System.Environment.NewLine + "Material: " + mat.Name);
+                foreach (var texture in mat.Textures)
+                {
+                    materialTXT += (System.Environment.NewLine + texture.type + " " + texture.FileID.ToString());
+                }
+                materialTXT += System.Environment.NewLine;
+            }
+
+            File.WriteAllText(path + ".txt", materialTXT);
+
+            IOManager.ExportScene(ioscene, path + ".gltf", new ExportSettings()
             {
             });
         }

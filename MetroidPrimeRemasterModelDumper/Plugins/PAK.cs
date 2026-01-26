@@ -45,6 +45,8 @@ namespace DKCTF
         public Dictionary<string, FileEntry> TextureFiles = new Dictionary<string, FileEntry>();
         public Dictionary<string, CHAR> CharFiles = new Dictionary<string, CHAR>();
         public Dictionary<string, FileEntry> AnimFiles = new Dictionary<string, FileEntry>();
+        public Dictionary<string, FileEntry> MATIFiles = new Dictionary<string, FileEntry>();
+        public Dictionary<string, FileEntry> MTRLFiles = new Dictionary<string, FileEntry>();
 
         public PACK PakData;
 
@@ -83,11 +85,13 @@ namespace DKCTF
                     case "TXTR": TextureFiles.Add(file.AssetEntry.FileID.ToString(), file); break;
                     case "SKEL": SkeletonFiles.Add(file.AssetEntry.FileID.ToString(), file); break;
                     case "ANIM": AnimFiles.Add(file.AssetEntry.FileID.ToString(), file); break;
-                  /*  case "CHAR":
-                        var c = new CHAR(file.FileData);
-                        file.FileName = $"Characters/{c.Name}/{c.Name}.char";
-                        CharFiles.Add(file.AssetEntry.FileID.ToString(), c);
-                        break;*/
+                    case "MATI": MATIFiles.Add(file.AssetEntry.FileID.ToString(), file); break;
+                    case "MTRL": MTRLFiles.Add(file.AssetEntry.FileID.ToString(), file); break;
+                        /*  case "CHAR":
+                              var c = new CHAR(file.FileData);
+                              file.FileName = $"Characters/{c.Name}/{c.Name}.char";
+                              CharFiles.Add(file.AssetEntry.FileID.ToString(), c);
+                              break;*/
                 }
             }
 
