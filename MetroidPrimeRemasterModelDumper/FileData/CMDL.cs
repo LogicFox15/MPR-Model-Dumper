@@ -545,10 +545,18 @@ namespace DKCTF
                         material.Textures.Add(tempTex);
                         break;
                     case 10: // Another Color?
-                        reader.ReadUInt32();
-                        reader.ReadUInt32();
-                        reader.ReadUInt32();
-                        reader.ReadUInt32();
+                        reader.ReadUInt32s(4);
+                        break;
+                    case 32:
+                        reader.ReadBytes(3);
+                        reader.ReadUInt32s(4);
+                        reader.ReadUInt32s(4);
+                        break;
+                    case 48:
+                        reader.ReadBytes(3);
+                        reader.ReadUInt32s(4);
+                        reader.ReadUInt32s(4);
+                        reader.ReadUInt32s(4);
                         break;
                     default:
                         done = true;
