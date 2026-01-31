@@ -34,12 +34,12 @@ namespace DKCTF
         /// <summary>
         /// The vertex buffer list to read the buffer attributes.
         /// </summary>
-        List<VertexBuffer> VertexBuffers = new List<VertexBuffer>();
+        public List<VertexBuffer> VertexBuffers = new List<VertexBuffer>();
 
         /// <summary>
         /// The index buffer list to read the index buffer data.
         /// </summary>
-        List<CGraphicsIndexBufferToken> IndexBuffer = new List<CGraphicsIndexBufferToken>();
+        public List<CGraphicsIndexBufferToken> IndexBuffer = new List<CGraphicsIndexBufferToken>();
 
         /// <summary>
         /// Determines which variant of the file to parse. Switch reads strings and materials differently.
@@ -63,7 +63,7 @@ namespace DKCTF
         /// <summary>
         /// The meta data header for parsing gpu buffers and decompressing.
         /// </summary>
-        SMetaData Meta;
+        public SMetaData Meta;
 
         public CMDL() { }
 
@@ -118,14 +118,6 @@ namespace DKCTF
                             ReadMaterialShape(reader);
                             break;
                     }
-
-                    /*
-                    if (IsSwitch)
-                        ReadMaterials(reader);
-                    else
-                        ReadMaterialsU(reader);
-                    */
-
                     break;
                 case "MESH":
                     ReadMesh(reader);
@@ -190,8 +182,10 @@ namespace DKCTF
                     {
                         var vertexInfo = VertexBuffers[j];
                         var bufferID = j * 2;
+                        /*
                         if (!this.IsMPR && !IsR11)
                             bufferID = j;
+                        */
 
                         var vertices = BufferHelper.LoadVertexBuffer(vertexData, bufferID, vertexInfo, IsSwitch, this.IsMPR);
 
@@ -920,14 +914,15 @@ namespace DKCTF
 
         public enum EVertexComponent
         {
-            in_position,
-            in_normal,
-            in_tangent0,
-            in_tangent1,
-            in_texCoord0,
-            in_texCoord1,
-            in_texCoord2,
-            in_texCoord3,
+            in_position = 0,
+            in_normal = 1,
+            in_tangent0 = 2,
+            in_tangent1 = 3,
+            in_tangent2 = 4,
+            in_texCoord0 = 5,
+            in_texCoord1 = 6,
+            in_texCoord2 = 7,
+            in_texCoord3 = 8,
             in_color = 9,
             in_boneIndices = 10,
             in_boneWeights = 11,
