@@ -34,12 +34,12 @@ namespace DKCTF
         /// <summary>
         /// The vertex buffer list to read the buffer attributes.
         /// </summary>
-        public List<VertexBuffer> VertexBuffers = new List<VertexBuffer>();
+        List<VertexBuffer> VertexBuffers = new List<VertexBuffer>();
 
         /// <summary>
         /// The index buffer list to read the index buffer data.
         /// </summary>
-        public List<CGraphicsIndexBufferToken> IndexBuffer = new List<CGraphicsIndexBufferToken>();
+        List<CGraphicsIndexBufferToken> IndexBuffer = new List<CGraphicsIndexBufferToken>();
 
         /// <summary>
         /// Determines which variant of the file to parse. Switch reads strings and materials differently.
@@ -63,7 +63,7 @@ namespace DKCTF
         /// <summary>
         /// The meta data header for parsing gpu buffers and decompressing.
         /// </summary>
-        public SMetaData Meta;
+        SMetaData Meta;
 
         public CMDL() { }
 
@@ -118,6 +118,14 @@ namespace DKCTF
                             ReadMaterialShape(reader);
                             break;
                     }
+
+                    /*
+                    if (IsSwitch)
+                        ReadMaterials(reader);
+                    else
+                        ReadMaterialsU(reader);
+                    */
+
                     break;
                 case "MESH":
                     ReadMesh(reader);
@@ -182,10 +190,8 @@ namespace DKCTF
                     {
                         var vertexInfo = VertexBuffers[j];
                         var bufferID = j * 2;
-                        /*
                         if (!this.IsMPR && !IsR11)
                             bufferID = j;
-                        */
 
                         var vertices = BufferHelper.LoadVertexBuffer(vertexData, bufferID, vertexInfo, IsSwitch, this.IsMPR);
 
@@ -347,11 +353,6 @@ namespace DKCTF
                             Console.WriteLine("material format: CPLX");
                             {
                                 reader.ReadUInt32();
-                                uint tempSize = reader.ReadUInt32();
-
-                                reader.Position += tempSize;
-
-                                /*
                                 reader.ReadSingles(4); //color
                                 reader.ReadSingles(4); //color
                                 reader.ReadSingles(4); //color
@@ -365,7 +366,6 @@ namespace DKCTF
                                 var texture3 = reader.ReadStruct<CObjectId>();
                                 if (!texture3.IsZero())
                                     reader.ReadStruct<STextureUsageInfo>();
-                                */
                             }
                             break;
                         case "MA4": //Matrix4x4
@@ -539,18 +539,10 @@ namespace DKCTF
                         material.Textures.Add(tempTex);
                         break;
                     case 10: // Another Color?
-                        reader.ReadUInt32s(4);
-                        break;
-                    case 32:
-                        reader.ReadBytes(3);
-                        reader.ReadUInt32s(4);
-                        reader.ReadUInt32s(4);
-                        break;
-                    case 48:
-                        reader.ReadBytes(3);
-                        reader.ReadUInt32s(4);
-                        reader.ReadUInt32s(4);
-                        reader.ReadUInt32s(4);
+                        reader.ReadUInt32();
+                        reader.ReadUInt32();
+                        reader.ReadUInt32();
+                        reader.ReadUInt32();
                         break;
                     default:
                         done = true;
@@ -782,6 +774,8 @@ namespace DKCTF
             public Dictionary<string, int[]> Int4 = new Dictionary<string, int[]>();
             public Dictionary<string, float[]> Matrices = new Dictionary<string, float[]>();
             public Dictionary<string, Color4f> Colors = new Dictionary<string, Color4f>();
+
+            // New stuff
         }
 
         public class CMaterialNew
@@ -906,6 +900,7 @@ namespace DKCTF
         {
             Byte = 0,
             Format_16_16_HalfSingle = 20,
+            Format_8_8_8_8_UNorm = 21,
             Format_8_8_8_8_Uint = 22,
             Format_16_16_16_HalfSingle = 34,
             Format_32_32_32_Single = 37,
@@ -914,15 +909,14 @@ namespace DKCTF
 
         public enum EVertexComponent
         {
-            in_position = 0,
-            in_normal = 1,
-            in_tangent0 = 2,
-            in_tangent1 = 3,
-            in_tangent2 = 4,
-            in_texCoord0 = 5,
-            in_texCoord1 = 6,
-            in_texCoord2 = 7,
-            in_texCoord3 = 8,
+            in_position,
+            in_normal,
+            in_tangent0,
+            in_tangent1,
+            in_texCoord0,
+            in_texCoord1,
+            in_texCoord2,
+            in_texCoord3,
             in_color = 9,
             in_boneIndices = 10,
             in_boneWeights = 11,
