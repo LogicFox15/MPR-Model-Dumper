@@ -57,6 +57,20 @@ namespace DKCTF
                 {
                     reader.SetByteOrder(!isLittleEndian); // Switch endian
 
+                    if (comp.Type == CMDL.EVertexComponent.in_texCoord1)
+                    {
+                        comp.Offset += 4;
+                    }
+                    if (comp.Type == CMDL.EVertexComponent.in_texCoord2)
+                    {
+                        comp.Offset += 8;
+                    }
+                    if (comp.Type == CMDL.EVertexComponent.in_texCoord3)
+                    {
+                        comp.Offset += 12;
+                    }
+
+
                     for (int i = 0; i < vertexCount; i++)
                     {
                         if (vertices[i] == null)
@@ -64,7 +78,14 @@ namespace DKCTF
 
                         CMDL.CVertex vertex = vertices[i];
 
-                        reader.SeekBegin(comp.Offset + i * comp.Stride);
+                        try
+                        {
+                            reader.SeekBegin(comp.Offset + i * comp.Stride);
+                        }
+                        catch
+                        {
+                            break;
+                        }
 
                         switch (comp.Type)
                         {
@@ -81,18 +102,35 @@ namespace DKCTF
                                 break;
 
                             case CMDL.EVertexComponent.in_texCoord1:
-                                if (swapTexCoord)
-                                    vertex.TexCoord0 = ReadData(reader, comp.Format).Xy();
-                                else
+                                try
+                                {
                                     vertex.TexCoord1 = ReadData(reader, comp.Format).Xy();
-                                break;
-
+                                    break;
+                                }
+                                catch
+                                {
+                                    break;
+                                }
                             case CMDL.EVertexComponent.in_texCoord2:
-                                vertex.TexCoord2 = ReadData(reader, comp.Format).Xy();
-                                break;
+                                try
+                                {
+                                    vertex.TexCoord2 = ReadData(reader, comp.Format).Xy();
+                                    break;
+                                }
+                                catch
+                                {
+                                    break;
+                                }
                             case CMDL.EVertexComponent.in_texCoord3:
-                                vertex.TexCoord3 = ReadData(reader, comp.Format).Xy();
-                                break;
+                                try
+                                {
+                                    vertex.TexCoord3 = ReadData(reader, comp.Format).Xy();
+                                    break;
+                                }
+                                catch
+                                {
+                                    break;
+                                }
 
                             case CMDL.EVertexComponent.in_boneWeights:
                                 vertex.BoneWeights = ReadData(reader, comp.Format);

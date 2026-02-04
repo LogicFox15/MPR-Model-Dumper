@@ -17,15 +17,6 @@
     <Reference Include="IONET">
       <HintPath>..\src\AvaloniaToolbox\Lib\IONET.dll</HintPath>
     </Reference>
-    <Reference Include="SharpGLTF.Core">
-      <HintPath>..\src\AvaloniaToolbox\Lib\SharpGLTF.Core.dll</HintPath>
-    </Reference>
-    <Reference Include="SharpGLTF.Runtime">
-      <HintPath>..\src\AvaloniaToolbox\Lib\SharpGLTF.Runtime.dll</HintPath>
-    </Reference>
-    <Reference Include="SharpGLTF.Toolkit">
-      <HintPath>..\src\AvaloniaToolbox\Lib\SharpGLTF.Toolkit.dll</HintPath>
-    </Reference>
   </ItemGroup>
 
 </Project>
