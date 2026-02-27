@@ -49,7 +49,6 @@ namespace RetroStudioPlugin.Files.FileData
             public List<SModelNode> ModelNodes = new List<SModelNode>();
             public SSubCharData SubCharData;
 
-
             public CharacterInfo(FileReader reader)
             {
                 // Name pool

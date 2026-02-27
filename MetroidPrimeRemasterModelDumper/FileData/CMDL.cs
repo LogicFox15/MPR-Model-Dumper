@@ -6,6 +6,7 @@ using System.Numerics;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
+#nullable disable
 
 namespace DKCTF
 {
@@ -14,6 +15,8 @@ namespace DKCTF
     /// </summary>
     public class CMDL : FileForm
     {
+        public SModelHeader Header;
+
         /// <summary>
         /// The meshes of the model used to display the model.
         /// </summary>
@@ -27,12 +30,15 @@ namespace DKCTF
         /// <summary>
         /// The vertex buffer list to read the buffer attributes.
         /// </summary>
-        List<VertexBuffer> VertexBuffers = new List<VertexBuffer>();
+        public List<VertexBuffer> VertexBuffers = new List<VertexBuffer>();
 
         /// <summary>
         /// The index buffer list to read the index buffer data.
         /// </summary>
         List<CGraphicsIndexBufferToken> IndexBuffer = new List<CGraphicsIndexBufferToken>();
+
+        public List<byte[]> VertexBytes = new List<byte[]>();
+        public List<byte[]> IndexBytes = new List<byte[]>();
 
         /// <summary>
         /// Determines which variant of the file to parse. Switch reads strings and materials differently.
@@ -46,7 +52,7 @@ namespace DKCTF
         /// <summary>
         /// The meta data header for parsing gpu buffers and decompressing.
         /// </summary>
-        SMetaData Meta;
+        public SMetaData Meta;
 
         public CMDL() { }
 
@@ -85,7 +91,7 @@ namespace DKCTF
                     reader.ReadUInt32(); //unk
                     break;
                 case "HEAD":
-                    reader.ReadStruct<SModelHeader>();
+                    Header = reader.ReadStruct<SModelHeader>();
                     break;
                 case "MTRL":
                     if (IsSwitch)
@@ -115,8 +121,10 @@ namespace DKCTF
 
                         //Decompress
                         var data = IOFileExtension.DecompressedBuffer(reader, buffer.CompressedSize, buffer.DecompressedSize, IsSwitch);
-                      //  if (buffer.DecompressedSize != data.Length)
-                      //      throw new Exception();
+                        //  if (buffer.DecompressedSize != data.Length)
+                        //      throw new Exception();
+
+                        IndexBytes.Add(data);
 
                         //All indices
                         var indices = BufferHelper.LoadIndexBuffer(data, this.IndexBuffer[i].IndexType, IsSwitch);
@@ -147,11 +155,12 @@ namespace DKCTF
                         if (buffer.DecompressedSize != data.Length)
                             throw new Exception();
 
+                        VertexBytes.Add(data);
+
                         vertexData.Add(data);
 
                         startPos += buffer.CompressedSize;
                     }
-
 
                     for (int j = 0; j < VertexBuffers.Count; j++)
                     {
@@ -195,19 +204,23 @@ namespace DKCTF
                     switch (dformat)
                     {
                         case 0: //Texture
-                            material.Textures.Add(dtype, reader.ReadStruct<CMaterialTextureTokenData>());
+                            material.Textures.Add(reader.ReadStruct<CMaterialTextureTokenData>());
                             break;
                         case 1: //Color
+                            //material.Colors.Add(reader.ReadStruct<Color4f>());
                             material.Colors.Add(dtype, reader.ReadStruct<Color4f>());
                             break;
                         case 2: //Scaler
+                            //material.Scalars.Add(reader.ReadSingle());
                             material.Scalars.Add(dtype, reader.ReadSingle());
                             break;
                         case 3: //int
+                            //material.Int.Add(reader.ReadInt32());
                             material.Int.Add(dtype, reader.ReadInt32());
                             break;
                         case 4: //CLayeredTextureData
                             {
+                                
                                 reader.ReadUInt32();
                                 reader.ReadSingles(4); //color
                                 reader.ReadSingles(4); //color
@@ -222,9 +235,11 @@ namespace DKCTF
                                 var texture3 = reader.ReadStruct<CObjectId>();
                                 if (!texture3.IsZero())
                                     reader.ReadStruct<STextureUsageInfo>();
+                                
                             }
                             break;
                         case 5: //int4
+                            //material.Int4.Add(reader.ReadInt32s(4));
                             material.Int4.Add(dtype, reader.ReadInt32s(4));
                             break;
                         default:
@@ -287,18 +302,22 @@ namespace DKCTF
                     switch (dformat)
                     {
                         case "TXTR": //Texture
-                            material.Textures.Add(dtype, reader.ReadStruct<CMaterialTextureTokenData>());
+                            material.Textures.Add(reader.ReadStruct<CMaterialTextureTokenData>());
                             break;
                         case "COLR": //Color
+                            //material.Colors.Add(reader.ReadStruct<Color4f>());
                             material.Colors.Add(dtype, reader.ReadStruct<Color4f>());
                             break;
                         case "SCLR": //Scaler
+                            //material.Scalars.Add(reader.ReadSingle());
                             material.Scalars.Add(dtype, reader.ReadSingle());
                             break;
                         case "INT ": //int
+                            //material.Int.Add(reader.ReadInt32());
                             material.Int.Add(dtype, reader.ReadInt32());
                             break;
                         case "INT4": //int4
+                            //material.Int4.Add(reader.ReadInt32s(4));
                             material.Int4.Add(dtype, reader.ReadInt32s(4));
                             break;
                         case "CPLX": //CLayeredTextureData
@@ -308,18 +327,40 @@ namespace DKCTF
                                 reader.ReadSingles(4); //color
                                 reader.ReadSingles(4); //color
                                 reader.ReadByte(); //Flags
+
                                 var texture1 = reader.ReadStruct<CObjectId>();
                                 if (!texture1.IsZero())
-                                    reader.ReadStruct<STextureUsageInfo>();
+                                {
+                                    var info1 = reader.ReadStruct<STextureUsageInfo>();
+                                    CMaterialTextureTokenData TextureData1 = new CMaterialTextureTokenData();
+                                    TextureData1.FileID = texture1;
+                                    TextureData1.UsageInfo = info1;
+                                    material.Textures.Add(TextureData1);
+                                }
+
                                 var texture2 = reader.ReadStruct<CObjectId>();
                                 if (!texture2.IsZero())
-                                    reader.ReadStruct<STextureUsageInfo>();
+                                {
+                                    var info2 = reader.ReadStruct<STextureUsageInfo>();
+                                    CMaterialTextureTokenData TextureData2 = new CMaterialTextureTokenData();
+                                    TextureData2.FileID = texture2;
+                                    TextureData2.UsageInfo = info2;
+                                    material.Textures.Add(TextureData2);
+                                }
+
                                 var texture3 = reader.ReadStruct<CObjectId>();
                                 if (!texture3.IsZero())
-                                    reader.ReadStruct<STextureUsageInfo>();
+                                {
+                                    var info3 = reader.ReadStruct<STextureUsageInfo>();
+                                    CMaterialTextureTokenData TextureData3 = new CMaterialTextureTokenData();
+                                    TextureData3.FileID = texture3;
+                                    TextureData3.UsageInfo = info3;
+                                    material.Textures.Add(TextureData3);
+                                }
                             }
                             break;
                         case "MA4": //Matrix4x4
+                            //material.Matrices.Add(reader.ReadSingles(16));
                             material.Matrices.Add(dtype, reader.ReadSingles(16));
                             break;
                         default:
@@ -409,11 +450,12 @@ namespace DKCTF
             public Vector2 TexCoord0;
             public Vector2 TexCoord1;
             public Vector2 TexCoord2;
+            public Vector2 TexCoord3;
 
             public Vector4 BoneWeights = new Vector4(1, 0, 0, 0);
             public Vector4 BoneIndices = new Vector4(0);
 
-            public Vector4 Color = Vector4.One;
+            public Vector4 Color1 = Vector4.One;
 
             public Vector4 Tangent;
         }
@@ -427,7 +469,16 @@ namespace DKCTF
 
             public uint Flags { get; set; }
 
-            public Dictionary<string, CMaterialTextureTokenData> Textures = new Dictionary<string, CMaterialTextureTokenData>();
+            public List<CMaterialTextureTokenData> Textures = new List<CMaterialTextureTokenData>();
+
+            //public List<float> Scalars = new List<float>();
+            //public List<int> Int = new List<int>();
+            //public List<int[]> Int4 = new List<int[]>();
+            //public List<float[]> Matrices = new List<float[]>();
+
+            //public List<Color4f> Colors = new List<Color4f>();
+
+            //public Dictionary<string, CMaterialTextureTokenData> Textures = new Dictionary<string, CMaterialTextureTokenData>();
 
             public Dictionary<string, float> Scalars = new Dictionary<string, float>();
             public Dictionary<string, int> Int = new Dictionary<string, int>();
@@ -534,40 +585,48 @@ namespace DKCTF
 
         public enum VertexFormat
         {
-            Byte = 0,
-            Format_16_16_HalfSingle = 20,
-            Format_8_8_8_8_Uint = 22,
-            Format_16_16_16_HalfSingle = 34,
-            Format_32_32_32_Single = 37,
-            Format_32_32_32_32_Single = 40,
+            Byte = 0, // Unsigned Byte 5121 SCALAR
+            Format_16_16_HalfSingle = 20, // Float 5126 VEC2
+            Format_8_8_8_8_UNorm = 21, // Float 5126 VEC2
+            Format_8_8_8_8_Uint = 22, // Unsigned Byte 5121 VEC4
+            Format_16_16_16_HalfSingle = 34, // Float 5126 VEC3
+            Format_32_32_32_Single = 37, // Float 5126 VEC3
+            Format_32_32_32_32_Single = 40, // Float 5126 VEC4
         }
 
         public enum EVertexComponent
         {
-            in_position,
-            in_normal,
-            in_tangent0,
-            in_tangent1,
-            in_texCoord0,
-            in_texCoord1,
-            in_texCoord2,
-            in_texCoord3,
+            in_position = 0,
+            in_normal = 1,
+            in_tangent0 = 2,
+            in_tangent1 = 3,
+            in_tangent2 = 4,
+            in_texCoord0 = 5,
+            in_texCoord1 = 6,
+            in_texCoord2 = 7,
+            in_texCoord3 = 8,
             in_color = 9,
             in_boneIndices = 10,
             in_boneWeights = 11,
-            in_bakedLightingCoord,
-            in_bakedLightingTangent,
-            in_vertInstanceColor,
-            //3x4 matrices
-            in_vertTransform0,
-            in_vertTransform1,
-            in_vertTransform2,
-            //3x4 matrices for instancing
-            in_vertTransformIT0,
-            in_vertTransformIT1,
-            in_vertTransformIT2,
-            in_lastPosition,
-            in_currentPosition,
+            in_bakedLightingCoord = 12,
+            in_bakedLightingTangent = 13,
+            in_vertInstanceParams = 14,
+            in_vertInstanceColor = 15,
+            in_vertTransform0 = 16,
+            in_vertTransform1 = 17,
+            in_vertTransform2 = 18,
+            in_currentPosition = 19,
+            in_VertInstanceOpacityParams = 20,
+            in_VertInstanceColorIndexingParams = 21,
+            in_VertInstanceOpacityIndexingParams = 22,
+            in_VertInstancePaintParams = 23,
+            in_BakedLightingLookup = 24,
+            in_MaterialChoice0 = 25,
+            in_MaterialChoice1 = 26,
+            in_MaterialChoice2 = 27,
+            in_MaterialChoice3 = 28,
+
+
         }
 
         //Meta data from PAK archive

@@ -1,16 +1,23 @@
-﻿using AvaloniaToolbox.Core;
+﻿
+using AvaloniaToolbox.Core;
 using DKCTF;
 using IONET;
+using IONET.Collada.Core.Geometry;
+using IONET.Collada.Core.Scene;
+using IONET.Collada.Core.Transform;
 using IONET.Core;
 using IONET.Core.Model;
 using IONET.Core.Skeleton;
 using RetroStudioPlugin.Files.FileData;
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
 using System.Text;
 using System.Threading.Tasks;
+
+#nullable disable
 
 namespace EvilWithin2Tool
 {
@@ -73,13 +80,14 @@ namespace EvilWithin2Tool
                 });
             }
 
-
+            int MatName = 0;
             foreach (var mesh in cmdl.Meshes)
             {
                 var mat = cmdl.Materials[mesh.Header.MaterialIndex];
 
                 IOMesh iomesh = new IOMesh();
                 iomesh.Name = $"Mesh{iomodel.Meshes.Count}_{mat.Name}";
+                //iomesh.Name = $"Mesh{iomodel.Meshes.Count}_LOD{mesh.parentLOD}";
                 iomodel.Meshes.Add(iomesh);
 
                 foreach (var vert in mesh.Vertices)
@@ -89,13 +97,13 @@ namespace EvilWithin2Tool
                         Position = new System.Numerics.Vector3(
                             vert.Position.X,
                             vert.Position.Y,
-                            vert.Position.Z), 
+                            vert.Position.Z),
                         Normal = new System.Numerics.Vector3(
                             vert.Normal.X,
                             vert.Normal.Y,
                             vert.Normal.Z),
                         Tangent = new System.Numerics.Vector3(
-                            vert.Tangent.X, 
+                            vert.Tangent.X,
                             vert.Tangent.Y,
                             vert.Tangent.Z),
                     };
@@ -106,10 +114,10 @@ namespace EvilWithin2Tool
                     iovertex.SetUV(vert.TexCoord2.X, vert.TexCoord2.Y, 2);
 
                     iovertex.SetColor(
-                        vert.Color.X,
-                        vert.Color.Y,
-                        vert.Color.Z,
-                        vert.Color.W, 0);
+                        vert.Color1.X,
+                        vert.Color1.Y,
+                        vert.Color1.Z,
+                        vert.Color1.W, 0);
 
                     for (int j = 0; j < 4; j++)
                     {
@@ -125,10 +133,6 @@ namespace EvilWithin2Tool
                             Weight = vert.BoneWeights[j],
                         });
                     }
-                    iovertex.SetColor(vert.Color.X,
-                                      vert.Color.Y,
-                                      vert.Color.Z,
-                                      vert.Color.W, 0);
 
                     iovertex.Envelope.NormalizeByteType();
                 }
@@ -136,7 +140,7 @@ namespace EvilWithin2Tool
                 IOPolygon iopoly = new IOPolygon();
                 iomesh.Polygons.Add(iopoly);
 
-                iopoly.MaterialName = mat.Name;
+                iopoly.MaterialName = "Material_" + MatName++;
 
                 iomesh.TransformVertices(Matrix4x4.Identity);
 
@@ -144,9 +148,79 @@ namespace EvilWithin2Tool
                     iopoly.Indicies.Add((int)mesh.Indices[i]);
             }
 
-            IOManager.ExportScene(ioscene, path, new ExportSettings()
+            string materialTXT = "Texture IDs: ";
+
+            List<CMDL.CMaterial> mats = new List<CMDL.CMaterial>();
+
+            if (cmdl.Materials.Count > 0)
+            {
+                foreach (var mat in cmdl.Materials)
+                {
+                    mats.Add(mat);
+                }
+            }
+
+            CMDL.CMaterial[] cleanMats = mats.Distinct().ToArray();
+
+            foreach (var mat in cleanMats)
+            {
+                materialTXT += (System.Environment.NewLine + "Material: " + mat.Name);
+                foreach (var texture in mat.Textures)
+                {
+                    materialTXT += (System.Environment.NewLine + "UV Map: " + texture.UsageInfo.Flags.ToString() + "     " + texture.FileID.ToString() );
+                }
+                
+                foreach (var scalar in mat.Scalars)
+                {
+                    materialTXT += (System.Environment.NewLine + "Scalar Type: " + scalar.Key + "     Value: " + scalar.Value.ToString());
+                }
+
+                foreach (var i in mat.Int)
+                {
+                    materialTXT += (System.Environment.NewLine + "Integer Type: " + i.Key + "     Value: " + i.Value.ToString());
+                }
+
+                foreach (var i4 in mat.Int4)
+                {
+                    materialTXT += (System.Environment.NewLine + "Integer 4 Type: " + i4.Key);
+                    materialTXT += (System.Environment.NewLine + i4.Value[0]);
+                    materialTXT += (System.Environment.NewLine + i4.Value[1]);
+                    materialTXT += (System.Environment.NewLine + i4.Value[2]);
+                    materialTXT += (System.Environment.NewLine + i4.Value[3]);
+                }
+
+                foreach (var matrix in mat.Matrices)
+                {
+                    materialTXT += (System.Environment.NewLine + "Matrix Type: " + matrix.Key);
+                    materialTXT += (System.Environment.NewLine + matrix.Value[0].ToString() + ", " + matrix.Value[1].ToString() + ", " + matrix.Value[2].ToString() + ", " + matrix.Value[3].ToString());
+                    materialTXT += (System.Environment.NewLine + matrix.Value[4].ToString() + ", " + matrix.Value[5].ToString() + ", " + matrix.Value[6].ToString() + ", " + matrix.Value[7].ToString());
+                    materialTXT += (System.Environment.NewLine + matrix.Value[8].ToString() + ", " + matrix.Value[9].ToString() + ", " + matrix.Value[10].ToString() + ", " + matrix.Value[11].ToString());
+                    materialTXT += (System.Environment.NewLine + matrix.Value[12].ToString() + ", " + matrix.Value[13].ToString() + ", " + matrix.Value[14].ToString() + ", " + matrix.Value[15].ToString());
+                }
+                
+                foreach (var color in mat.Colors)
+                {
+                    materialTXT += (System.Environment.NewLine + "Color Type: " + color.Key);
+                    materialTXT += (System.Environment.NewLine + "R: " + color.Value.R.ToString());
+                    materialTXT += (System.Environment.NewLine + "G: " + color.Value.G.ToString());
+                    materialTXT += (System.Environment.NewLine + "B: " + color.Value.B.ToString());
+                    materialTXT += (System.Environment.NewLine + "A: " + color.Value.A.ToString());
+                }
+                materialTXT += System.Environment.NewLine;
+            }
+
+            File.WriteAllText(path + ".txt", materialTXT);
+
+            IOManager.ExportScene(ioscene, path + ".gltf", new ExportSettings()
             {
             });
         }
+
+    }
+
+    class ModelLod
+    {
+        public BitArray Meshes;
+        public float? Distance;
     }
 }
