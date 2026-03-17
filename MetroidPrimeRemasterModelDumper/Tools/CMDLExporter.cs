@@ -1,19 +1,11 @@
-﻿using AvaloniaToolbox.Core;
-using DKCTF;
+﻿using DKCTF;
 using IONET;
-using IONET.Collada.Core.Geometry;
-using IONET.Collada.Core.Scene;
 using IONET.Core;
 using IONET.Core.Model;
 using IONET.Core.Skeleton;
 using RetroStudioPlugin.Files.FileData;
-using System;
 using System.Collections;
-using System.Collections.Generic;
-using System.Linq;
 using System.Numerics;
-using System.Text;
-using System.Threading.Tasks;
 
 #nullable disable
 
@@ -173,6 +165,7 @@ namespace EvilWithin2Tool
             List<CMDL.CMaterial> mats = new List<CMDL.CMaterial>();
             List<CMDL.CMaterialNew> matsNew = new List<CMDL.CMaterialNew>();
 
+            
             if (cmdl.Materials.Count > 0)
             {
                 foreach (var mat in cmdl.Materials)
@@ -180,6 +173,7 @@ namespace EvilWithin2Tool
                     mats.Add(mat);
                 }
             }
+            
 
             if (cmdl.MaterialsNew.Count > 0)
             {
@@ -192,6 +186,7 @@ namespace EvilWithin2Tool
             CMDL.CMaterial[] cleanMats = mats.Distinct().ToArray();
             CMDL.CMaterialNew[] cleanMatsNew = matsNew.Distinct().ToArray();
 
+            
             foreach (var mat in cleanMats)
             {
                 materialTXT += (System.Environment.NewLine + "Material: " + mat.Name);
@@ -201,6 +196,7 @@ namespace EvilWithin2Tool
                 }
                 materialTXT += System.Environment.NewLine;
             }
+            
 
             foreach (var mat in cleanMatsNew)
             {

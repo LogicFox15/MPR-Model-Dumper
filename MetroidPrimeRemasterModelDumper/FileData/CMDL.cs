@@ -1,12 +1,8 @@
 ﻿using AvaloniaToolbox.Core.IO;
 using MetroidPrimeRemasterModelDumper;
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Numerics;
 using System.Runtime.InteropServices;
-using System.Text;
-using System.Threading.Tasks;
+#nullable disable
 
 namespace DKCTF
 {
@@ -118,14 +114,6 @@ namespace DKCTF
                             ReadMaterialShape(reader);
                             break;
                     }
-
-                    /*
-                    if (IsSwitch)
-                        ReadMaterials(reader);
-                    else
-                        ReadMaterialsU(reader);
-                    */
-
                     break;
                 case "MESH":
                     ReadMesh(reader);
@@ -204,71 +192,6 @@ namespace DKCTF
             }
         }
 
-        private void ReadMaterialsU(FileReader reader)
-        {
-            uint numMaterials = reader.ReadUInt32();
-            for (int i = 0; i < numMaterials; i++)
-            {
-                CMaterial material = new CMaterial();
-                Materials.Add(material);
-                /*
-                material.Name = reader.ReadStringZeroTerminated();
-                material.ID = reader.ReadStruct<CObjectId>();
-                material.Type = reader.ReadStruct<Magic>();
-                material.Flags = reader.ReadUInt32();
-                uint numData = reader.ReadUInt32();
-
-                //Actual data type data
-                for (int j = 0; j < numData; j++)
-                {
-                    var dtype = reader.ReadStruct<Magic>();
-                    uint dformat = reader.ReadUInt32();
-
-                    Console.WriteLine($"dtype {dtype} {dformat}");
-
-                    switch (dformat)
-                    {
-                        case 0: //Texture
-                            material.Textures.Add(dtype, reader.ReadStruct<CMaterialTextureTokenData>());
-                            break;
-                        case 1: //Color
-                            material.Colors.Add(dtype, reader.ReadStruct<Color4f>());
-                            break;
-                        case 2: //Scaler
-                            material.Scalars.Add(dtype, reader.ReadSingle());
-                            break;
-                        case 3: //int
-                            material.Int.Add(dtype, reader.ReadInt32());
-                            break;
-                        case 4: //CLayeredTextureData
-                            {
-                                reader.ReadUInt32();
-                                reader.ReadSingles(4); //color
-                                reader.ReadSingles(4); //color
-                                reader.ReadSingles(4); //color
-                                reader.ReadByte(); //Flags
-                                var texture1 = reader.ReadStruct<CObjectId>();
-                                if (!texture1.IsZero())
-                                    reader.ReadStruct<STextureUsageInfo>();
-                                var texture2 = reader.ReadStruct<CObjectId>();
-                                if (!texture2.IsZero())
-                                    reader.ReadStruct<STextureUsageInfo>();
-                                var texture3 = reader.ReadStruct<CObjectId>();
-                                if (!texture3.IsZero())
-                                    reader.ReadStruct<STextureUsageInfo>();
-                            }
-                            break;
-                        case 5: //int4
-                            material.Int4.Add(dtype, reader.ReadInt32s(4));
-                            break;
-                        default:
-                            throw new Exception($"Unsupported material type {dformat}!");
-                    }
-                }
-                */
-            }
-        }
-
         private void ReadLegacyMaterials(FileReader reader)
         {
             reader.ReadUInt32();
@@ -317,8 +240,8 @@ namespace DKCTF
                 //Actual data type data
                 for (int j = 0; j < numData; j++)
                 {
-                    var dtype = reader.ReadStruct<Magic>();
-                    var dformat = reader.ReadStruct<Magic>();
+                    var dID = reader.ReadStruct<Magic>();
+                    var dType = reader.ReadStruct<Magic>();
 
                     reader.Position -= 8;
 
@@ -327,50 +250,40 @@ namespace DKCTF
 
                     Console.WriteLine($"dtype {typeCheck} {formatCheck}");
 
-                    switch (dformat)
+                    switch (dType)
                     {
                         case "TXTR": //Texture
+                            material.TextureIDs.Add(dID);
                             material.Textures.Add(reader.ReadStruct<CMaterialTextureTokenData>());
                             Console.WriteLine("material format: TXTR");
                             break;
                         case "COLR": //Color
-                            material.Colors.Add(dtype, reader.ReadStruct<Color4f>());
+                            material.Colors.Add(dID, reader.ReadStruct<Color4f>());
                             Console.WriteLine("material format: COLR");
                             break;
                         case "SCLR": //Scaler
-                            material.Scalars.Add(dtype, reader.ReadSingle());
+                            material.Scalars.Add(dID, reader.ReadSingle());
                             Console.WriteLine("material format: SCLR");
                             break;
                         case "INT ": //int
-                            material.Int.Add(dtype, reader.ReadInt32());
+                            material.Int.Add(dID, reader.ReadInt32());
                             Console.WriteLine("material format: INT");
                             break;
                         case "INT4": //int4
-                            material.Int4.Add(dtype, reader.ReadInt32s(4));
+                            material.Int4.Add(dID, reader.ReadInt32s(4));
                             Console.WriteLine("material format: INT4");
                             break;
                         case "CPLX": //CLayeredTextureData
                             Console.WriteLine("material format: CPLX");
                             {
                                 reader.ReadUInt32();
-                                reader.ReadSingles(4); //color
-                                reader.ReadSingles(4); //color
-                                reader.ReadSingles(4); //color
-                                reader.ReadByte(); //Flags
-                                var texture1 = reader.ReadStruct<CObjectId>();
-                                if (!texture1.IsZero())
-                                    reader.ReadStruct<STextureUsageInfo>();
-                                var texture2 = reader.ReadStruct<CObjectId>();
-                                if (!texture2.IsZero())
-                                    reader.ReadStruct<STextureUsageInfo>();
-                                var texture3 = reader.ReadStruct<CObjectId>();
-                                if (!texture3.IsZero())
-                                    reader.ReadStruct<STextureUsageInfo>();
+                                uint cplxSize = reader.ReadUInt32();
+                                reader.ReadBytes((int)cplxSize);
                             }
                             break;
                         case "MA4": //Matrix4x4
                             Console.WriteLine("material format: MA4");
-                            material.Matrices.Add(dtype, reader.ReadSingles(16));
+                            material.Matrices.Add(dID, reader.ReadSingles(16));
                             break;
                         default:
                             throw new Exception($"Unsupported material type {formatCheck}!");
@@ -765,6 +678,7 @@ namespace DKCTF
 
             public uint Flags { get; set; }
 
+            public List<Magic> TextureIDs = new List<Magic>();
             public List<CMaterialTextureTokenData> Textures = new List<CMaterialTextureTokenData>();
 
             //public Dictionary<string, CMaterialTextureTokenData> Textures = new Dictionary<string, CMaterialTextureTokenData>();
@@ -825,7 +739,7 @@ namespace DKCTF
 
         public class SSkinnedModelHeader : CChunkDescriptor
         {
-            public uint Unknown;
+            public uint unknown;
         }
 
         [StructLayout(LayoutKind.Sequential, Pack = 1)]

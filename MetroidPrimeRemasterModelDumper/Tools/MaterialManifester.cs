@@ -1,13 +1,14 @@
-﻿using System;
+﻿using DKCTF;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading.Tasks;
-#nullable enable
+#nullable disable
 
-namespace DKCTF
+namespace MetroidPrimeRemasterModelDumper
 {
     public static class MaterialManifester
     {
@@ -94,7 +95,7 @@ namespace DKCTF
                 WriteIndented = true
             });
 
-            System.IO.File.WriteAllText(AppContext.BaseDirectory + "/MaterialManifest.json", jsonOutput);
+            File.WriteAllText(AppContext.BaseDirectory + "/MaterialManifest.json", jsonOutput);
 
         }
 

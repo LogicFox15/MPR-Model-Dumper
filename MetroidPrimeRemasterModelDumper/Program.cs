@@ -1,7 +1,6 @@
-﻿using DKCTF;
-using MetroidPrimeRemasterModelDumper;
-
+﻿using MetroidPrimeRemasterModelDumper;
 string manifest = AppContext.BaseDirectory + "/MaterialManifest.json";
+#nullable disable
 
 if (!File.Exists(manifest))
 {

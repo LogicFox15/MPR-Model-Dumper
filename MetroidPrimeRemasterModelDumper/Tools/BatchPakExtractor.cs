@@ -1,17 +1,7 @@
-﻿using AvaloniaToolbox.Core.IO;
-using DKCTF;
+﻿using DKCTF;
 using EvilWithin2Tool;
-using IONET.Collada.Core.Extensibility;
 using RetroStudioPlugin.Files.FileData;
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using System.Text;
-using System.Text.Json.Serialization;
-using System.Threading.Tasks;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 #nullable disable
 
 namespace MetroidPrimeRemasterModelDumper
@@ -19,6 +9,7 @@ namespace MetroidPrimeRemasterModelDumper
     public class BatchPakExtractor
     {
         public static PAK currentPak;
+        public static string savedMode = "Empty";
 
         public static void ExtractModels(string pakFile)
         {
@@ -34,46 +25,65 @@ namespace MetroidPrimeRemasterModelDumper
 
             currentPak = pak;
 
-            Console.WriteLine("Please specify the mode to run in: ");
-            Console.WriteLine("");
-            Console.WriteLine("    0 = Only SMDL files");
-            Console.WriteLine("    1 = Only CMDL files");
-            Console.WriteLine("    2 = Both SMDL and CMDL files");
-            Console.WriteLine("");
+            string mode;
 
-            string mode = Console.ReadLine();
+            if (savedMode == "Empty")
+            {
+                Console.WriteLine("Please specify the mode to run in: ");
+                Console.WriteLine("");
+                Console.WriteLine("    0 = Only CMDL files");
+                Console.WriteLine("    1 = Only SMDL files");
+                Console.WriteLine("    2 = Both CMDL and SMDL files");
+                Console.WriteLine("    3 = Only CMDL files All");
+                Console.WriteLine("    4 = Only CHPR files All");
+                Console.WriteLine("    5 = Both CMDL and SMDL files All");
+                Console.WriteLine("");
+
+                mode = Console.ReadLine();
+            }
+            else
+            {
+                mode = savedMode;
+            }
+
+            
 
             foreach (var fileInfo in pak.files)
             {
                 switch (mode)
                 {
                     case "0":
-                        if (fileInfo.AssetEntry.Type == "SMDL")
-                        {
-                            ExtractSMDL(fileInfo.FileData, fileInfo, pak);
-                        }
+                        if (fileInfo.AssetEntry.Type == "CMDL")
+                            ExtractCMDL(fileInfo.FileData, fileInfo, pak);
                         break;
                     case "1":
-                        if (fileInfo.AssetEntry.Type == "CMDL")
-                        {
-                            ExtractCMDL(fileInfo.FileData, fileInfo, pak);
-                        }
+                        if (fileInfo.AssetEntry.Type == "SMDL")
+                            ExtractSMDL(fileInfo.FileData, fileInfo, pak);
                         break;
                     case "2":
-                        if (fileInfo.AssetEntry.Type == "SMDL")
-                        {
-                            ExtractSMDL(fileInfo.FileData, fileInfo, pak);
-                        }
                         if (fileInfo.AssetEntry.Type == "CMDL")
-                        {
                             ExtractCMDL(fileInfo.FileData, fileInfo, pak);
-                        }
-                        break;
-                    default:
                         if (fileInfo.AssetEntry.Type == "SMDL")
-                        {
                             ExtractSMDL(fileInfo.FileData, fileInfo, pak);
-                        }
+
+                        break;
+                    case "3":
+                        if (fileInfo.AssetEntry.Type == "CMDL")
+                            ExtractCMDL(fileInfo.FileData, fileInfo, pak);
+                        savedMode = "3";
+                        break;
+                    case "4":
+                        if (fileInfo.AssetEntry.Type == "SMDL")
+                            ExtractSMDL(fileInfo.FileData, fileInfo, pak);
+                        savedMode = "4";
+                        break;
+
+                    case "5":
+                        if (fileInfo.AssetEntry.Type == "CMDL")
+                            ExtractCMDL(fileInfo.FileData, fileInfo, pak);
+                        if (fileInfo.AssetEntry.Type == "SMDL")
+                            ExtractSMDL(fileInfo.FileData, fileInfo, pak);
+                        savedMode = "5";
                         break;
                 }
             }
