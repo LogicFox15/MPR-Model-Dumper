@@ -189,10 +189,11 @@ namespace EvilWithin2Tool
             
             foreach (var mat in cleanMats)
             {
+                int count = 0;
                 materialTXT += (System.Environment.NewLine + "Material: " + mat.Name);
                 foreach (var texture in mat.Textures)
                 {
-                    materialTXT += (System.Environment.NewLine + texture.FileID.ToString());
+                    materialTXT += (System.Environment.NewLine + "UV Map: " + texture.UsageInfo.Flags.ToString() + "     Type: " + mat.TextureIDs[count].ToString() + "     " + texture.FileID.ToString());
                 }
                 materialTXT += System.Environment.NewLine;
             }
@@ -203,7 +204,7 @@ namespace EvilWithin2Tool
                 materialTXT += (System.Environment.NewLine + "Material: " + mat.Name);
                 foreach (var texture in mat.Textures)
                 {
-                    materialTXT += (System.Environment.NewLine + texture.type + " " + texture.FileID.ToString());
+                    materialTXT += (System.Environment.NewLine + "Unknown: " + texture.unkUint.ToString() + "     Type: " + texture.type + " " + texture.FileID.ToString());
                 }
                 materialTXT += System.Environment.NewLine;
             }
