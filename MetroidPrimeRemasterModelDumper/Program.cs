@@ -1,16 +1,23 @@
 ﻿using MetroidPrimeRemasterModelDumper;
-string manifest = AppContext.BaseDirectory + "/MaterialManifest.json";
 #nullable disable
 
-if (!File.Exists(manifest))
+
+string matManifest = AppContext.BaseDirectory + "/MaterialManifest.json";
+string modelManifest = AppContext.BaseDirectory + "/ModelManifest.json";
+string TextureManifest = AppContext.BaseDirectory + "/TextureManifest.json";
+
+if (!File.Exists(matManifest) || !File.Exists(modelManifest) || !File.Exists(TextureManifest))
 {
-    Console.WriteLine("The material manifest does not exist. Please provide the ROMFS directory so ");
-    Console.WriteLine("that a material manifest can be created. Please do not move the ROMFS once the");
+    Console.WriteLine("A manifest file does not exist. Please provide the ROMFS directory so ");
+    Console.WriteLine("that the manifest files can be created. Please do not move the ROMFS once the");
     Console.WriteLine("manifest is created, as the paths to the paks will be saved for future use.");
     string romDir = Console.ReadLine();
 
     MaterialManifester.ProcessMP4Materials(romDir);
+    ModelManifester.ProcessModels(romDir);
+    TextureManifester.ProcessMP4Textures(romDir);
 }
+
 
 foreach (var arg in args)
 {

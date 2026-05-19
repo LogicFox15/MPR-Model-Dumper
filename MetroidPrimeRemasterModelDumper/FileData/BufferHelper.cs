@@ -70,6 +70,8 @@ namespace DKCTF
                         comp.Offset += 12;
                     }
 
+                    Console.WriteLine("Offset: " + comp.Offset);
+
 
                     for (int i = 0; i < vertexCount; i++)
                     {
@@ -133,10 +135,12 @@ namespace DKCTF
                                 }
 
                             case CMDL.EVertexComponent.in_boneWeights:
+                                //Console.WriteLine("Found bone weights when processing models");
                                 vertex.BoneWeights = ReadData(reader, comp.Format);
                                 break;
 
                             case CMDL.EVertexComponent.in_boneIndices:
+                                //Console.WriteLine("Found bone indices when processing models");
                                 vertex.BoneIndices = ReadData(reader, comp.Format);
                                 break;
 
@@ -178,30 +182,30 @@ namespace DKCTF
             return vertexCount;
         }
 
-
-
-
         static Vector4 ReadData(FileReader reader, CMDL.VertexFormat format)
         {
             switch (format)
             {
-                case CMDL.VertexFormat.Format_16_16_HalfSingle: return new Vector4(
+                case CMDL.VertexFormat.Format_16_16_HalfSingle: return new Vector4( // 20
                      (float)reader.ReadHalf(), (float)reader.ReadHalf(), 0, 0);
-                case CMDL.VertexFormat.Format_32_32_32_Single: return new Vector4(reader.ReadSingle(), reader.ReadSingle(), reader.ReadSingle(), 0);
-                case CMDL.VertexFormat.Format_16_16_16_HalfSingle:  return new Vector4(
+                case CMDL.VertexFormat.Format_32_32_32_Single: return new Vector4( // 37
+                    reader.ReadSingle(), reader.ReadSingle(), 
+                    reader.ReadSingle(), 0); 
+                case CMDL.VertexFormat.Format_16_16_16_HalfSingle:  return new Vector4( // 34
                      (float)reader.ReadHalf(), (float)reader.ReadHalf(),
                      (float)reader.ReadHalf(), (float)reader.ReadHalf());
-                case CMDL.VertexFormat.Format_8_8_8_8_UNorm:
-                    return new Vector4(
+                case CMDL.VertexFormat.Format_8_8_8_8_UNorm: return new Vector4( // 21
                        (float)reader.ReadByte() / 255, (float)reader.ReadByte() / 255,
                        (float)reader.ReadByte() / 255, (float)reader.ReadByte() / 255);
-                case CMDL.VertexFormat.Format_8_8_8_8_Uint:
-                    return new Vector4(
+                case CMDL.VertexFormat.Format_8_8_8_8_Uint: return new Vector4( // 22
                        reader.ReadByte(), reader.ReadByte(),
                        reader.ReadByte(), reader.ReadByte());
-                case CMDL.VertexFormat.Format_32_32_32_32_Single: return new Vector4(
+                case CMDL.VertexFormat.Format_32_32_32_32_Single: return new Vector4( // 40
                     reader.ReadSingle(), reader.ReadSingle(),
                     reader.ReadSingle(), reader.ReadSingle());
+                case CMDL.VertexFormat.Format_16_16_16_16_UNorm: return new Vector4( // 30
+                    (float)reader.ReadUInt16() / 65535f, (float)reader.ReadUInt16() / 65535f,
+                    (float)reader.ReadUInt16() / 65535f, (float)reader.ReadUInt16() / 65535f);
             }
             return new Vector4();
         }

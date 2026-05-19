@@ -10,12 +10,12 @@ using System.Threading.Tasks;
 
 namespace MetroidPrimeRemasterModelDumper
 {
-    public static class MaterialManifester
+    public static class TextureManifester
     {
         static List<FileInfo> RomFiles = new List<FileInfo>();
-        static List<MaterialManifestEntry> PakManifestEntry = new List<MaterialManifestEntry>();
+        static List<TextureManifestEntry> PakManifestEntry = new List<TextureManifestEntry>();
 
-        public static void ProcessMP4Materials(string romDir)
+        public static void ProcessMP4Textures(string romDir)
         {
             DirectoryInfo DirInfo = new DirectoryInfo(@romDir);
 
@@ -43,48 +43,37 @@ namespace MetroidPrimeRemasterModelDumper
                 PAK pak = new PAK() { FileInfo = ctx };
                 pak.Load(ctx);
 
-                MaterialManifestEntry entry = new MaterialManifestEntry();
-                entry.MatiPakName = ctx.FileName;
-                entry.MatiPakPath = ctx.FilePath;
+                TextureManifestEntry entry = new TextureManifestEntry();
+                entry.TxtrPakName = ctx.FileName;
+                entry.TxtrPakPath = ctx.FilePath;
 
                 foreach (var fileInfo in pak.files)
                 {
-                    if (fileInfo.AssetEntry.Type == "MATI")
+                    if (fileInfo.AssetEntry.Type == "TXTR")
                     {
-                        entry.MATIFiles.Add(fileInfo.AssetEntry.FileID);
-                    }
-                    if (fileInfo.AssetEntry.Type == "MTRL")
-                    {
-                        entry.MTRLFiles.Add(fileInfo.AssetEntry.FileID);
+                        entry.TXTRFiles.Add(fileInfo.AssetEntry.FileID);
                     }
                 }
 
                 PakManifestEntry.Add(entry);
             }
 
-            List<MaterialManifestSerializableEntry> SerialEntry = new List<MaterialManifestSerializableEntry>();
+            List<TextureManifestSerializableEntry> SerialEntry = new List<TextureManifestSerializableEntry>();
 
             foreach (var entry in PakManifestEntry)
             {
-                List<string> mati = new List<string>();
-                List<string> mtrl = new List<string>();
+                List<string> txtr = new List<string>();
 
-                foreach(var matiEntry in entry.MATIFiles)
+                foreach(var txtrEntry in entry.TXTRFiles)
                 {
-                    mati.Add(matiEntry.ToString());
+                    txtr.Add(txtrEntry.ToString());
                 }
 
-                foreach (var mtrlEntry in entry.MTRLFiles)
+                var newEntry = new TextureManifestSerializableEntry
                 {
-                    mati.Add(mtrlEntry.ToString());
-                }
-
-                var newEntry = new MaterialManifestSerializableEntry
-                {
-                    MatiPakName = entry.MatiPakName,
-                    MatiPakPath = entry.MatiPakPath,
-                    MATIFiles = mati,
-                    MTRLFiles = mtrl
+                    TxtrPakName = entry.TxtrPakName,
+                    TxtrPakPath = entry.TxtrPakPath,
+                    TXTRFiles = txtr,
                 };
 
                 SerialEntry.Add(newEntry);
@@ -95,7 +84,7 @@ namespace MetroidPrimeRemasterModelDumper
                 WriteIndented = true
             });
 
-            File.WriteAllText(AppContext.BaseDirectory + "/MaterialManifest.json", jsonOutput);
+            File.WriteAllText(AppContext.BaseDirectory + "/TextureManifest.json", jsonOutput);
 
         }
 
@@ -131,26 +120,22 @@ namespace MetroidPrimeRemasterModelDumper
         }
     }
 
-    public class MaterialManifestEntry()
+    public class TextureManifestEntry()
     {
-        public string MatiPakName = "";
-        public string MatiPakPath = "";
-        public List<CObjectId> MATIFiles = new List<CObjectId>();
-        public List<CObjectId> MTRLFiles = new List<CObjectId>();
+        public string TxtrPakName = "";
+        public string TxtrPakPath = "";
+        public List<CObjectId> TXTRFiles = new List<CObjectId>();
     }
 
-    public class MaterialManifestSerializableEntry()
+    public class TextureManifestSerializableEntry()
     {
         [JsonPropertyName("PakName")]
-        public string MatiPakName { get; set; }
+        public string TxtrPakName { get; set; }
         [JsonPropertyName("PakPath")]
-        public string MatiPakPath { get; set; }
+        public string TxtrPakPath { get; set; }
 
-        [JsonPropertyName("MATIFiles")]
-        public List<string> MATIFiles { get; set; }
-
-        [JsonPropertyName("MTRLFiles")]
-        public List<string> MTRLFiles { get; set; }
+        [JsonPropertyName("TXTRFiles")]
+        public List<string> TXTRFiles { get; set; }
     }
 
 }

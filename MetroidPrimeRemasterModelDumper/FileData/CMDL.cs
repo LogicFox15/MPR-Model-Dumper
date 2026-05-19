@@ -1,7 +1,13 @@
 ﻿using AvaloniaToolbox.Core.IO;
 using MetroidPrimeRemasterModelDumper;
+using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Numerics;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
+using System.Text;
+using System.Threading.Tasks;
 #nullable disable
 
 namespace DKCTF
@@ -103,8 +109,7 @@ namespace DKCTF
                 case "MTRL":
                     // A check test that might not even work.
                     string MagicCheck = new string(reader.ReadChars(4));
-                    Console.WriteLine("Material Type: " + MagicCheck);
-
+                    //Console.WriteLine("Material Type: " + MagicCheck);
                     switch (MagicCheck)
                     {
                         case "LEGA":
@@ -137,8 +142,6 @@ namespace DKCTF
 
                         //Decompress
                         var data = IOFileExtension.DecompressedBuffer(reader, buffer.CompressedSize, buffer.DecompressedSize, IsSwitch);
-                        //  if (buffer.DecompressedSize != data.Length)
-                        //      throw new Exception();
 
                         //All indices
                         var indices = BufferHelper.LoadIndexBuffer(data, this.IndexBuffer[i].IndexType, IsSwitch);
@@ -163,6 +166,7 @@ namespace DKCTF
                         var info = Meta.ReadBufferInfo[(int)buffer.ReadBufferIndex];
                         //Seek into the buffer region
                         reader.SeekBegin(info.Offset + buffer.Offset);
+                        Console.WriteLine("Vertex Buffer Position: " + reader.BaseStream.Position.ToString("X8"));
 
                         //Decompress
                         var data = IOFileExtension.DecompressedBuffer(reader, buffer.CompressedSize, buffer.DecompressedSize, IsSwitch);
@@ -197,7 +201,7 @@ namespace DKCTF
             reader.ReadUInt32();
 
             uint numMaterials = reader.ReadUInt32();
-            Console.WriteLine("Number of Materials?: " + numMaterials);
+            //Console.WriteLine("Number of Materials?: " + numMaterials);
 
             for (int i = 0; i < numMaterials; i++)
             {
@@ -214,7 +218,6 @@ namespace DKCTF
                 Console.WriteLine("Data Check: " + check.ToString("X8"));
 
                 reader.ReadUInt32(); // unk2
-
                 uint traitCount = reader.ReadUInt32();
                 Console.WriteLine("Trait Count Check: " + traitCount.ToString("X8"));
 
@@ -222,7 +225,6 @@ namespace DKCTF
                 {
                     reader.ReadChars(4); // This stuff. RLTG.
                 }
-
                 uint variableDescCount = reader.ReadUInt32();
                 Console.WriteLine("Variable Desc Count Check: " + variableDescCount.ToString("X8"));
 
@@ -232,9 +234,7 @@ namespace DKCTF
 
                     variableDesc = reader.ReadStruct<CVariableDesc>();
                 }
-
                 uint numData = reader.ReadUInt32();
-
                 Console.WriteLine("Data Number Check: " + numData.ToString("X8"));
 
                 //Actual data type data
@@ -255,34 +255,32 @@ namespace DKCTF
                         case "TXTR": //Texture
                             material.TextureIDs.Add(dID);
                             material.Textures.Add(reader.ReadStruct<CMaterialTextureTokenData>());
-                            Console.WriteLine("material format: TXTR");
+                            //Console.WriteLine("material format: TXTR");
                             break;
                         case "COLR": //Color
                             material.Colors.Add(dID, reader.ReadStruct<Color4f>());
-                            Console.WriteLine("material format: COLR");
+                            //Console.WriteLine("material format: COLR");
                             break;
                         case "SCLR": //Scaler
                             material.Scalars.Add(dID, reader.ReadSingle());
-                            Console.WriteLine("material format: SCLR");
+                            //Console.WriteLine("material format: SCLR");
                             break;
                         case "INT ": //int
                             material.Int.Add(dID, reader.ReadInt32());
-                            Console.WriteLine("material format: INT");
+                            //Console.WriteLine("material format: INT");
                             break;
                         case "INT4": //int4
                             material.Int4.Add(dID, reader.ReadInt32s(4));
-                            Console.WriteLine("material format: INT4");
+                            //Console.WriteLine("material format: INT4");
                             break;
                         case "CPLX": //CLayeredTextureData
-                            Console.WriteLine("material format: CPLX");
-                            {
-                                reader.ReadUInt32();
-                                uint cplxSize = reader.ReadUInt32();
-                                reader.ReadBytes((int)cplxSize);
-                            }
+                            //Console.WriteLine("material format: CPLX");
+                            reader.ReadUInt32();
+                            uint cplxSize = reader.ReadUInt32();
+                            reader.ReadBytes((int)cplxSize);
                             break;
                         case "MA4": //Matrix4x4
-                            Console.WriteLine("material format: MA4");
+                            //Console.WriteLine("material format: MA4");
                             material.Matrices.Add(dID, reader.ReadSingles(16));
                             break;
                         default:
@@ -318,12 +316,12 @@ namespace DKCTF
 
             foreach (var item in MSHPEntries)
             {
-                FileEntry file = BatchPakExtractor.SearchForFile(item.MatiID.ToString(), 0);
+                FileEntry file = BatchPakExtractor.SearchForMaterial(item.MatiID.ToString(), 0);
                 //BatchPakExtractor.SearchForFile(item.MtrlID.ToString(), 1);
 
                 // Time to brute force this crap, because apparently no one ever looked into it.
                 FileReader MATIReader = new FileReader(file.FileData);
-                Console.WriteLine("Material name!!! " + file.FileName.ToString());
+                //Console.WriteLine("Material name!!! " + file.FileName.ToString());
                 ReadMATI(MATIReader, file.FileName.ToString());
             }
         }
@@ -337,7 +335,6 @@ namespace DKCTF
             MaterialsNew.Add(material);
             material.Name = name;
 
-            Console.WriteLine("Okay, testing with materials.");
             //CFormDescriptor form = new CFormDescriptor();
 
             currentMat.form = reader.ReadStruct<CFormDescriptor>();
@@ -419,7 +416,7 @@ namespace DKCTF
             for(int i = 0; i < EntryCount; i++)
             {
                 string Type = new string(reader.ReadChars(4));
-                Console.WriteLine("Material Data Type: " + Type);
+                
 
                 if (done)
                 {
@@ -427,35 +424,56 @@ namespace DKCTF
                 }
 
                 byte Format = reader.ReadByte();
+
+                Console.WriteLine("Material Data Type: " + Type + " Format: " + Format.ToString());
                 switch (Format)
                 {
                     case 2: // Single 4Byte value
+                        //material.Scalars.Add(Type, reader.ReadSingle());
                         break;
                     case 3: // Color
+                        material.Colors.Add(Type, reader.ReadStruct<Color4f>());
+                        break;
                     case 4: // Color
+                        material.Colors.Add(Type, reader.ReadStruct<Color4f>());
+                        break;
                     case 12: // Color
-                        reader.ReadUInt32();
-                        reader.ReadUInt32();
-                        reader.ReadUInt32();
-                        reader.ReadUInt32();
+                        material.Colors.Add(Type, reader.ReadStruct<Color4f>());
                         break;
                     case 5: // Texture
+                        CTextureNew tempTex0 = new CTextureNew();
+                        tempTex0.FileID = reader.ReadStruct<CObjectId>();
+                        tempTex0.unkUint = reader.ReadUInt32();
+                        tempTex0.unkGUID = reader.ReadStruct<CObjectId>();
+                        tempTex0.type = Type;
+                        material.Textures.Add(tempTex0);
+                        break;
                     case 6: // Texture
+                        CTextureNew tempTex1 = new CTextureNew();
+                        tempTex1.FileID = reader.ReadStruct<CObjectId>();
+                        tempTex1.unkUint = reader.ReadUInt32();
+                        tempTex1.unkGUID = reader.ReadStruct<CObjectId>();
+                        tempTex1.type = Type;
+                        material.Textures.Add(tempTex1);
+                        break;
                     case 7: // Texture
+                        CTextureNew tempTex2 = new CTextureNew();
+                        tempTex2.FileID = reader.ReadStruct<CObjectId>();
+                        tempTex2.unkUint = reader.ReadUInt32();
+                        tempTex2.unkGUID = reader.ReadStruct<CObjectId>();
+                        tempTex2.type = Type;
+                        material.Textures.Add(tempTex2);
+                        break;
                     case 8: // Texture
-                        CTextureNew tempTex = new CTextureNew();
-                        tempTex.FileID = reader.ReadStruct<CObjectId>();
-                        tempTex.unkUint = reader.ReadUInt32();
-                        tempTex.unkGUID = reader.ReadStruct<CObjectId>();
-                        tempTex.type = Type;
-                        //tempTex = reader.ReadStruct<CTextureNew>();
-                        material.Textures.Add(tempTex);
+                        CTextureNew tempTex3 = new CTextureNew();
+                        tempTex3.FileID = reader.ReadStruct<CObjectId>();
+                        tempTex3.unkUint = reader.ReadUInt32();
+                        tempTex3.unkGUID = reader.ReadStruct<CObjectId>();
+                        tempTex3.type = Type;
+                        material.Textures.Add(tempTex3);
                         break;
                     case 10: // Another Color?
-                        reader.ReadUInt32();
-                        reader.ReadUInt32();
-                        reader.ReadUInt32();
-                        reader.ReadUInt32();
+                        material.Colors.Add(Type, reader.ReadStruct<Color4f>());
                         break;
                     default:
                         done = true;
@@ -463,10 +481,12 @@ namespace DKCTF
                 }
             }
 
+            /*
             foreach(var texture in material.Textures)
             {
                 Console.WriteLine("Texture found: " + texture.FileID.ToString());
             }
+            */
 
             //throw new Exception("Kill the reader");
         }
@@ -533,7 +553,7 @@ namespace DKCTF
 
             for (int i = 0; i < lodCount; i++)
             {
-                Console.WriteLine("LOD outer: " + i);
+                //Console.WriteLine("LOD outer: " + i);
                 LODinfo info = new LODinfo();
 
                 info.ReadInner(reader);
@@ -543,7 +563,7 @@ namespace DKCTF
 
             this.hasLODRule = reader.ReadUInt32();
 
-            Console.WriteLine();
+            //Console.WriteLine();
         }
 
         private void ReadVertexBuffer(FileReader reader)
@@ -699,6 +719,12 @@ namespace DKCTF
             public List<CTextureNew> Textures = new List<CTextureNew>();
             public List<CMayaSpline> MayaSplines = new List<CMayaSpline>();
             public List<CVariableDesc> VariableDescs = new List<CVariableDesc>();
+
+            public Dictionary<string, float> Scalars = new Dictionary<string, float>();
+            public Dictionary<string, int> Int = new Dictionary<string, int>();
+            public Dictionary<string, int[]> Int4 = new Dictionary<string, int[]>();
+            public Dictionary<string, float[]> Matrices = new Dictionary<string, float[]>();
+            public Dictionary<string, Color4f> Colors = new Dictionary<string, Color4f>();
         }
 
         [StructLayout(LayoutKind.Sequential, Pack = 1)]
@@ -725,7 +751,8 @@ namespace DKCTF
                 //Here we optmize the vertices to only use the vertices used by the mesh rather than use one giant list
                 List<CVertex> vertexList = new List<CVertex>();
                 List<uint> remappedIndices = new List<uint>();
-                Console.WriteLine("Vertex Indices Count: " + Indices.Length);
+
+                //Console.WriteLine("Vertex Indices Count: " + Indices.Length);
 
                 for (int i = 0; i < Indices.Length; i++)
                 {
@@ -816,6 +843,7 @@ namespace DKCTF
             Format_16_16_HalfSingle = 20,
             Format_8_8_8_8_UNorm = 21,
             Format_8_8_8_8_Uint = 22,
+            Format_16_16_16_16_UNorm = 30,
             Format_16_16_16_HalfSingle = 34,
             Format_32_32_32_Single = 37,
             Format_32_32_32_32_Single = 40,

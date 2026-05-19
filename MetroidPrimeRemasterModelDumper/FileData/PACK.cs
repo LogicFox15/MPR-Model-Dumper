@@ -1,5 +1,4 @@
-﻿
-using AvaloniaToolbox.Core.IO;
+﻿using AvaloniaToolbox.Core.IO;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -142,7 +141,7 @@ namespace DKCTF
                     Offset = reader.ReadInt64();
                     DecompressedSize = reader.ReadInt64();
                     Size = reader.ReadInt64();
-                    reader.ReadUInt64();  // FIX THIS BEFORE TESTING ON PRIME 4
+                    reader.ReadUInt64();
                 }
                 else
                 {
