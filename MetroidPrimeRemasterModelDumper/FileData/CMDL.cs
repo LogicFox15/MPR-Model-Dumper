@@ -497,43 +497,6 @@ namespace DKCTF
                 });
             }
 
-            /*
-            for (int i = 0; i < numMeshes; i++)
-            {
-                var mesh = new CRenderMesh();
-
-                if (this.IsMPR)
-                    mesh = reader.ReadStruct<CRenderMesh>();
-                else if (IsR11)
-                {
-                    mesh.MaterialIndex = reader.ReadUInt16();
-                    mesh.VertexBufferIndex = reader.ReadByte();
-                    mesh.IndexBufferIndex = reader.ReadByte();
-                    mesh.IndexStart = reader.ReadUInt32();
-                    mesh.IndexCount = reader.ReadUInt32();
-                    reader.ReadByte();
-                }
-                else
-                {
-                    uint type = reader.ReadUInt32(); //prim type
-                    mesh.MaterialIndex = reader.ReadUInt16();
-                    mesh.VertexBufferIndex = reader.ReadByte();
-                    mesh.IndexBufferIndex = reader.ReadByte();
-                    mesh.IndexStart = reader.ReadUInt32();
-                    mesh.IndexCount = reader.ReadUInt32();
-                    reader.ReadUInt16(); //0x10
-                    reader.ReadByte(); //0x12
-                    reader.ReadByte(); //0x13
-                    reader.ReadByte(); //flags
-                }
-
-                Meshes.Add(new CMesh()
-                {
-                    Header = mesh,
-                });
-            }
-            */
-
             this.unk1 = new byte[(numMeshes + 3) / 4];
             this.unk2 = new byte[(numMeshes + 7) / 8];
             for (int i = 0; i < unk1.Length; i++)

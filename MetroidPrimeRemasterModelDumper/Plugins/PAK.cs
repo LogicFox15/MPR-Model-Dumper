@@ -8,6 +8,7 @@ using System.IO;
 using AvaloniaToolbox.Core;
 using AvaloniaToolbox.Core.IO;
 using ImageLibrary;
+using ImageLibrary.Utils;
 
 namespace DKCTF
 {
@@ -77,8 +78,6 @@ namespace DKCTF
                     file.MetaPointer = pack.MetaDataOffset + pack.MetaOffsets[pack.Assets[i].FileID.ToString()];
                 files.Add(file);
 
-                
-
                 try
                 {
                     switch (file.AssetEntry.Type)
@@ -92,19 +91,7 @@ namespace DKCTF
                 catch
                 {
                     continue;
-                }
-
-                /*
-                try
-                {
-                    
-                }
-                catch
-                {
-                    continue;
-                }
-                */
-                
+                }                
             }
 
             foreach (var c in CharFiles)
@@ -226,7 +213,8 @@ namespace DKCTF
                 }
             }
         }
-/*
+
+        /*
         public override IFileFormat OpenFile()
         {
             var pak = this.ParentArchive;
