@@ -317,11 +317,9 @@ namespace DKCTF
             foreach (var item in MSHPEntries)
             {
                 FileEntry file = BatchPakExtractor.SearchForMaterial(item.MatiID.ToString(), 0);
-                //BatchPakExtractor.SearchForFile(item.MtrlID.ToString(), 1);
 
-                // Time to brute force this crap, because apparently no one ever looked into it.
+                // Time to brute force this crap, because apparently no one ever fully looked into it.
                 FileReader MATIReader = new FileReader(file.FileData);
-                //Console.WriteLine("Material name!!! " + file.FileName.ToString());
                 ReadMATI(MATIReader, file.FileName.ToString());
             }
         }
@@ -481,19 +479,25 @@ namespace DKCTF
                 }
             }
 
-            /*
-            foreach(var texture in material.Textures)
-            {
-                Console.WriteLine("Texture found: " + texture.FileID.ToString());
-            }
-            */
-
             //throw new Exception("Kill the reader");
         }
 
         private void ReadMesh(FileReader reader)
         {
             uint numMeshes = reader.ReadUInt32();
+            for (int i = 0; i < numMeshes; i++)
+            {
+                // Simply read the 16-byte struct to match the Rust implementation
+                // and keep the binary stream perfectly aligned.
+                var meshHeader = reader.ReadStruct<CRenderMesh>();
+
+                Meshes.Add(new CMesh()
+                {
+                    Header = meshHeader,
+                });
+            }
+
+            /*
             for (int i = 0; i < numMeshes; i++)
             {
                 var mesh = new CRenderMesh();
@@ -528,10 +532,11 @@ namespace DKCTF
                     Header = mesh,
                 });
             }
+            */
 
             this.unk1 = new byte[(numMeshes + 3) / 4];
             this.unk2 = new byte[(numMeshes + 7) / 8];
-            for(int i = 0; i < unk1.Length; i++)
+            for (int i = 0; i < unk1.Length; i++)
             {
                 this.unk1[i] = reader.ReadByte();
             }
@@ -563,7 +568,43 @@ namespace DKCTF
 
             this.hasLODRule = reader.ReadUInt32();
 
-            //Console.WriteLine();
+            // Conditionally read the LOD rules if the flag is set to 1
+            if (this.hasLODRule == 1)
+            {
+                this.LodRules = new LodRule[this.lodCount];
+                for (int i = 0; i < this.lodCount; i++)
+                {
+                    this.LodRules[i] = new LodRule
+                    {
+                        Value = reader.ReadSingle() // SRenderModelLODRule is just a standard f32
+                    };
+                }
+            }
+            else
+            {
+                // Initialize empty to avoid null reference exceptions down the line
+                this.LodRules = new LodRule[0];
+            }
+
+
+            // Map meshes to ALL LODs they appear in
+            for (int lodIndex = 0; lodIndex < this.lodCount; lodIndex++)
+            {
+                LODinfo currentLOD = this.lods[lodIndex];
+
+                foreach (LODInner inner in currentLOD.inner)
+                {
+                    for (uint i = 0; i < inner.count; i++)
+                    {
+                        ushort meshIndex = this.shorts[inner.offset + i];
+
+                        if (meshIndex < this.Meshes.Count)
+                        {
+                            this.Meshes[meshIndex].LODs.Add(lodIndex);
+                        }
+                    }
+                }
+            }
         }
 
         private void ReadVertexBuffer(FileReader reader)
@@ -739,12 +780,14 @@ namespace DKCTF
         public class CMesh
         {
             public CRenderMesh Header;
-
             public List<CVertex> Vertices = new List<CVertex>();
-
             public uint[] Indices = new uint[0];
 
-            public int parentLOD;
+            public HashSet<int> LODs = new HashSet<int>();
+
+            //public List<int> LODs = new List<int>();
+
+            //public int parentLOD;
 
             public void SetupVertices(List<CVertex> vertices)
             {
@@ -772,7 +815,7 @@ namespace DKCTF
         [StructLayout(LayoutKind.Sequential, Pack = 1)]
         public class CRenderMesh
         {
-            public ushort MaterialIndex;
+            public ushort MaterialIndex; // 2 bytes
             public byte VertexBufferIndex;
             public byte IndexBufferIndex;
             public uint IndexStart;

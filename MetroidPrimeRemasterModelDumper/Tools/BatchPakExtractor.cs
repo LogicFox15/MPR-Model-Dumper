@@ -1,17 +1,8 @@
-﻿using AvaloniaToolbox.Core.IO;
-using DKCTF;
+﻿using DKCTF;
 using EvilWithin2Tool;
-using IONET.Collada.Core.Extensibility;
 using RetroStudioPlugin.Files.FileData;
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using System.Text;
-using System.Text.Json.Serialization;
-using System.Threading.Tasks;
 using System.Text.Json;
-using System.Text.Json.Serialization;
+using ImageLibrary;
 #nullable disable
 
 namespace MetroidPrimeRemasterModelDumper
@@ -43,9 +34,11 @@ namespace MetroidPrimeRemasterModelDumper
                 Console.WriteLine("");
                 Console.WriteLine("    0 = Only CMDL files");
                 Console.WriteLine("    1 = Only CHPR files");
-                //Console.WriteLine("    2 = Only SMDL files (Skinned models as CMDL)");
-                Console.WriteLine("    2 = Only CMDL files All");
-                Console.WriteLine("    3 = Only CHPR files All");
+                Console.WriteLine("    2 = Only TXTR files");
+                Console.WriteLine("    3 = Only CMDL files All");
+                Console.WriteLine("    4 = Only CHPR files All");
+                Console.WriteLine("    5 = Only TXTR files All");
+
                 //Console.WriteLine("    5 = Only SMDL files All (Skinned models as CMDL)");
                 Console.WriteLine("");
 
@@ -72,29 +65,25 @@ namespace MetroidPrimeRemasterModelDumper
                             if (fileInfo.AssetEntry.Type == "CHPR")
                                 ExtractCharacterProject(fileInfo.FileData, fileInfo, pak);
                             break;
-                        /*
                         case "2":
-                            if (fileInfo.AssetEntry.Type == "SMDL")
-                                ExtractCMDL(fileInfo.FileData, fileInfo, pak);
-                            break;
-                        */
-                        case "2":
-                            if (fileInfo.AssetEntry.Type == "CMDL")
-                                ExtractCMDL(fileInfo.FileData, fileInfo, pak);
-                            savedMode = "2";
+                            if (fileInfo.AssetEntry.Type == "TXTR")
+                                ExtractTXTR(fileInfo.FileData, fileInfo, pak);
                             break;
                         case "3":
-                            if (fileInfo.AssetEntry.Type == "CHPR")
-                                ExtractCharacterProject(fileInfo.FileData, fileInfo, pak);
+                            if (fileInfo.AssetEntry.Type == "CMDL")
+                                ExtractCMDL(fileInfo.FileData, fileInfo, pak);
                             savedMode = "3";
                             break;
-                        /*
+                        case "4":
+                            if (fileInfo.AssetEntry.Type == "CHPR")
+                                ExtractCharacterProject(fileInfo.FileData, fileInfo, pak);
+                            savedMode = "4";
+                            break;
                         case "5":
-                            if (fileInfo.AssetEntry.Type == "SMDL")
-                                ExtractCMDL(fileInfo.FileData, fileInfo, pak);
+                            if (fileInfo.AssetEntry.Type == "TXTR")
+                                ExtractTXTR(fileInfo.FileData, fileInfo, pak);
                             savedMode = "5";
                             break;
-                        */
                     }
                 }
                 catch
@@ -174,23 +163,27 @@ namespace MetroidPrimeRemasterModelDumper
             CMDLExporter.Export(cmdl, path);
         }
 
-        static void ExtractSMDL(Stream stream, FileEntry Entry, PAK pak)
+        static void ExtractTXTR(Stream stream, FileEntry Entry, PAK pak)
         {
-            Console.WriteLine("Asset ID: " + Entry.AssetEntry.FileID.ToString());
-
-            var cmdl = new CMDL(Entry.FileData);
-            string modelName = Entry.AssetEntry.FileID.ToString();
+            var txtr = new TXTR(Entry.FileData);
+            string textureName = Entry.AssetEntry.FileID.ToString();
 
             //string modelName = fileEntry.AssetEntry.FileID.ToString();
-            string folder = Path.Combine(Path.GetFileNameWithoutExtension(pak.FileInfo.FilePath), "SMDL_" + modelName);
+            string folder = Path.Combine(Path.GetFileNameWithoutExtension(pak.FileInfo.FilePath));
 
             if (!Directory.Exists(folder))
             {
                 Directory.CreateDirectory(folder);
             }
+            string path = Path.Combine(folder, textureName);
 
-            string path = Path.Combine(folder, modelName);
-            CMDLExporter.Export(cmdl, path);
+            ExportToPng(path, txtr);
+        }
+
+        static void ExportToPng(string outputPath, TXTR txtr)
+        {
+
+
         }
 
 

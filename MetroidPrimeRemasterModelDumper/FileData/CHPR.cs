@@ -707,26 +707,26 @@ namespace RetroStudioPlugin.Files.FileData
 
             public SUnkContext5(FileReader reader)
             {
-                Console.WriteLine("Has Unknown Context 5");
+                //Console.WriteLine("Has Unknown Context 5");
                 // FUN_710060910c & FUN_7100692dd8
                 List1Count1 = reader.ReadByte();
                 List1Count2 = reader.ReadUInt16();
 
                 // FUN_71000d5760
                 List1Data = reader.ReadBytes(List1Count1 * 6);
-                Console.WriteLine("Unknown Context 5: Position after first data list: " + reader.BaseStream.Position.ToString("X8")); // for debugging
+                //Console.WriteLine("Unknown Context 5: Position after first data list: " + reader.BaseStream.Position.ToString("X8")); // for debugging
 
                 // FUN_7100692edc
                 List2Count = reader.ReadUInt16();
                 List2Unk = reader.ReadUInt16();
                 List2Data = reader.ReadUInt32s(List2Count);
-                Console.WriteLine("Unknown Context 5: Position after second data list: " + reader.BaseStream.Position.ToString("X8")); // for debugging
+                //Console.WriteLine("Unknown Context 5: Position after second data list: " + reader.BaseStream.Position.ToString("X8")); // for debugging
 
                 HasPolyList = reader.ReadBoolean();
                 if (HasPolyList)
                 {
-                    Console.WriteLine("Unknown Context 5: Has polymorphic list");
-                    Console.WriteLine("Unknown Context 5: Position of polymorphic list: " + reader.BaseStream.Position.ToString("X8")); // for debugging
+                    //Console.WriteLine("Unknown Context 5: Has polymorphic list");
+                    //Console.WriteLine("Unknown Context 5: Position of polymorphic list: " + reader.BaseStream.Position.ToString("X8")); // for debugging
 
                     // FUN_71006930c8
                     uint polyCount = reader.ReadUInt32();
@@ -832,22 +832,6 @@ namespace RetroStudioPlugin.Files.FileData
                     el.Read(reader);
                     ElementsB.Add(el);
                 }
-
-                /*
-                // Inner polymorphic loop based on short cast of CountB
-                for (int i = 0; i < (ushort)CountB; i++)
-                {
-                    uint typeHash = reader.ReadUInt32();
-                    ElementB el = null;
-
-                    if (typeHash == 0x0ae72740) el = new ElementB_0ae72740();
-                    else if (typeHash == 0xf651a9f7) el = new ElementB_f651a9f7();
-                    else if (typeHash == 0xa5628f01) el = new ElementB_a5628f01();
-
-                    el?.Read(reader);
-                    ElementsB.Add(el);
-                }
-                */
             }
         }
 

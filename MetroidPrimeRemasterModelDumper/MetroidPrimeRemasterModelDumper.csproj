@@ -8,6 +8,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Reference Include="AvaloniaToolbox.Core">
       <HintPath>Lib\AvaloniaToolbox.Core.dll</HintPath>
     </Reference>

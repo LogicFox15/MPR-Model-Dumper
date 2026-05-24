@@ -1,11 +1,5 @@
 ﻿using AvaloniaToolbox.Core.IO;
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
 using System.Runtime.InteropServices;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace DKCTF
 {
@@ -15,17 +9,13 @@ namespace DKCTF
     internal class TXTR : FileForm
     {
         public STextureHeader TextureHeader;
-
+        public STextureSamplerData SamplerData; // Replaces TextureSize and Unknown
         public SMetaData Meta;
-
         public byte[] BufferData;
-
         public uint[] MipSizes = new uint[0];
 
         public uint TextureSize { get; set; }
-
         public uint Unknown { get; set; }
-
         public bool IsSwitch => this.FileHeader.VersionA >= 0x0F;
 
         public TXTR() { }
@@ -59,17 +49,68 @@ namespace DKCTF
                 if (pakHeader.VersionA >= 1 && pakHeader.VersionB >= 1)
                 {
                     //Decompress all buffers
-                    foreach (var info in Meta.TextureInfo)
+                    // --- FIRST BUFFER ---
+                    if (Meta.Buffers.FirstSize > 0)
                     {
-                        var buff = Meta.BufferInfo[info.Index];
+                        var readInfo = Meta.TextureInfo[(int)Meta.Buffers.FirstIndex];
 
-                        //Go to the buffer
-                        reader.SeekBegin(info.StartOffset + buff.StartOffset);
-                        //Decompress the buffer
-                        byte[] BufferData = IOFileExtension.DecompressedBuffer(reader, buff.CompressedSize, buff.DestSize, IsSwitch || isLittleEndian);
-                        combinedBuffer.Add(BufferData);
+                        reader.SeekBegin(readInfo.Offset);
 
-                        Array.Copy(BufferData, 0, textureData, (int)buff.DestOffset, (int)buff.DestSize);
+                        // Read the block to check if it's actually compressed
+                        byte[] compBuf = reader.ReadBytes((int)Meta.Buffers.FirstSize);
+
+                        if (compBuf.Length == Meta.Buffers.FirstDestSize)
+                        {
+                            // Data is uncompressed, copy directly
+                            Array.Copy(compBuf, 0, textureData, (int)Meta.Buffers.FirstDestOffset, compBuf.Length);
+                        }
+                        else
+                        {
+                            // Data is compressed, rewind and decompress
+                            reader.SeekBegin(readInfo.Offset);
+                            byte[] decBuf = IOFileExtension.DecompressedBuffer(reader, Meta.Buffers.FirstSize, Meta.Buffers.FirstDestSize, IsSwitch || isLittleEndian);
+                            Array.Copy(decBuf, 0, textureData, (int)Meta.Buffers.FirstDestOffset, decBuf.Length);
+                        }
+                    }
+
+                    // --- SECOND BUFFER ---
+                    if (Meta.Buffers.SecondSize > 0)
+                    {
+                        var readInfo = Meta.TextureInfo[(int)Meta.Buffers.SecondIndex];
+
+                        // Part A: Compressed portion of the second buffer
+                        if (Meta.Buffers.SecondCompressedOffset < Meta.Buffers.SecondSize)
+                        {
+                            reader.SeekBegin(readInfo.Offset + Meta.Buffers.SecondCompressedOffset);
+
+                            uint dstStart = Meta.Buffers.SecondDestOffset;
+
+                            byte[] decBuf = IOFileExtension.DecompressedBuffer(reader, Meta.Buffers.SecondCompressedLen, Meta.Buffers.SecondDecompressedLen, IsSwitch || isLittleEndian);
+                            Array.Copy(decBuf, 0, textureData, (int)dstStart, decBuf.Length);
+                        }
+
+                        // Part B: Uncompressed start of the second buffer
+                        if (Meta.Buffers.SecondCompressedOffset > 0)
+                        {
+                            reader.SeekBegin(readInfo.Offset);
+                            byte[] uncompStart = reader.ReadBytes((int)Meta.Buffers.SecondCompressedOffset);
+
+                            uint dstStart = Meta.Buffers.SecondDestOffset + Meta.Buffers.SecondDecompressedLen;
+                            Array.Copy(uncompStart, 0, textureData, (int)dstStart, uncompStart.Length);
+                        }
+
+                        // Part C: Uncompressed end of the second buffer
+                        uint endCompOffset = Meta.Buffers.SecondCompressedOffset + Meta.Buffers.SecondCompressedLen;
+                        if (endCompOffset < Meta.Buffers.SecondSize)
+                        {
+                            reader.SeekBegin(readInfo.Offset + endCompOffset);
+
+                            uint uncompEndSize = Meta.Buffers.SecondSize - endCompOffset;
+                            byte[] uncompEnd = reader.ReadBytes((int)uncompEndSize);
+
+                            uint dstStart = Meta.Buffers.SecondDestOffset + Meta.Buffers.SecondCompressedOffset + Meta.Buffers.SecondDecompressedLen;
+                            Array.Copy(uncompEnd, 0, textureData, (int)dstStart, uncompEnd.Length);
+                        }
                     }
                 }
                 else
@@ -97,21 +138,91 @@ namespace DKCTF
             {
                 case "HEAD":
                     TextureHeader = reader.ReadStruct<STextureHeader>();
-                    uint numMips = reader.ReadUInt32();
-                    MipSizes = reader.ReadUInt32s((int)numMips);
-                    TextureSize = reader.ReadUInt32();
-                    Unknown = reader.ReadUInt32();
+                    // MipCount is directly in the header now
+                    MipSizes = reader.ReadUInt32s((int)TextureHeader.MipCount);
+                    // Read the appended sampler data
+                    SamplerData = reader.ReadStruct<STextureSamplerData>();
                     break;
+
                 case "GPU ":
                     if (Meta != null)
                     {
-                        var buffer = Meta.BufferInfo[0];
-                        reader.SeekBegin(buffer.StartOffset);
-                        BufferData = IOFileExtension.DecompressedBuffer(reader, (uint)buffer.CompressedSize, (uint)buffer.DestSize, IsSwitch);
+                        if (this.FileHeader.VersionA >= 1 && this.FileHeader.VersionB >= 1)
+                        {
+                            // NEW FORMAT: Decompress both buffers into a single BufferData array
+                            BufferData = new byte[Meta.DecompressedSize];
+
+                            // --- FIRST BUFFER ---
+                            if (Meta.Buffers.FirstSize > 0)
+                            {
+                                var readInfo = Meta.TextureInfo[(int)Meta.Buffers.FirstIndex];
+
+                                reader.SeekBegin(readInfo.Offset);
+                                byte[] compBuf = reader.ReadBytes((int)Meta.Buffers.FirstSize);
+
+                                if (compBuf.Length == Meta.Buffers.FirstDestSize)
+                                {
+                                    // Data is uncompressed, copy directly
+                                    Array.Copy(compBuf, 0, BufferData, (int)Meta.Buffers.FirstDestOffset, compBuf.Length);
+                                }
+                                else
+                                {
+                                    // Data is compressed, rewind and decompress
+                                    reader.SeekBegin(readInfo.Offset);
+                                    byte[] decBuf = IOFileExtension.DecompressedBuffer(reader, Meta.Buffers.FirstSize, Meta.Buffers.FirstDestSize, IsSwitch);
+                                    Array.Copy(decBuf, 0, BufferData, (int)Meta.Buffers.FirstDestOffset, decBuf.Length);
+                                }
+                            }
+
+                            // --- SECOND BUFFER ---
+                            if (Meta.Buffers.SecondSize > 0)
+                            {
+                                var readInfo = Meta.TextureInfo[(int)Meta.Buffers.SecondIndex];
+
+                                // Part A: Compressed portion of the second buffer
+                                if (Meta.Buffers.SecondCompressedOffset < Meta.Buffers.SecondSize)
+                                {
+                                    reader.SeekBegin(readInfo.Offset + Meta.Buffers.SecondCompressedOffset);
+                                    uint dstStart = Meta.Buffers.SecondDestOffset;
+                                    byte[] decBuf = IOFileExtension.DecompressedBuffer(reader, Meta.Buffers.SecondCompressedLen, Meta.Buffers.SecondDecompressedLen, IsSwitch);
+                                    Array.Copy(decBuf, 0, BufferData, (int)dstStart, decBuf.Length);
+                                }
+
+                                // Part B: Uncompressed start of the second buffer
+                                if (Meta.Buffers.SecondCompressedOffset > 0)
+                                {
+                                    reader.SeekBegin(readInfo.Offset);
+                                    byte[] uncompStart = reader.ReadBytes((int)Meta.Buffers.SecondCompressedOffset);
+                                    uint dstStart = Meta.Buffers.SecondDestOffset + Meta.Buffers.SecondDecompressedLen;
+                                    Array.Copy(uncompStart, 0, BufferData, (int)dstStart, uncompStart.Length);
+                                }
+
+                                // Part C: Uncompressed end of the second buffer
+                                uint endCompOffset = Meta.Buffers.SecondCompressedOffset + Meta.Buffers.SecondCompressedLen;
+                                if (endCompOffset < Meta.Buffers.SecondSize)
+                                {
+                                    reader.SeekBegin(readInfo.Offset + endCompOffset);
+                                    uint uncompEndSize = Meta.Buffers.SecondSize - endCompOffset;
+                                    byte[] uncompEnd = reader.ReadBytes((int)uncompEndSize);
+                                    uint dstStart = Meta.Buffers.SecondDestOffset + Meta.Buffers.SecondCompressedOffset + Meta.Buffers.SecondDecompressedLen;
+                                    Array.Copy(uncompEnd, 0, BufferData, (int)dstStart, uncompEnd.Length);
+                                }
+                            }
+                        }
+                        else
+                        {
+                            // OLD FORMAT: Use the V1 fallback logic
+                            if (Meta.BufferInfoV1.Count > 0)
+                            {
+                                var buffer = Meta.BufferInfoV1[0];
+                                reader.SeekBegin(Meta.GPUDataStart + buffer.Offset);
+                                BufferData = IOFileExtension.DecompressedBuffer(reader, buffer.CompressedSize, buffer.DecompressedSize, IsSwitch);
+                            }
+                        }
                     }
                     else
                     {
-                        BufferData = reader.ReadBytes((int)chunk.DataSize); 
+                        BufferData = reader.ReadBytes((int)chunk.DataSize);
                     }
                     break;
             }
@@ -120,21 +231,29 @@ namespace DKCTF
         public override void ReadMetaData(FileReader reader, CFormDescriptor pakVersion)
         {
             Meta = new SMetaData();
-            // MPR
             if (pakVersion.VersionA >= 1 && pakVersion.VersionB >= 1)
             {
-                reader.ReadUInt32(); //Extra uint in MPR
-                Meta.Unknown = reader.ReadUInt32();
+                Meta.Unknown1 = reader.ReadUInt32();
+                Meta.Unknown2 = reader.ReadUInt32();
                 Meta.AllocCategory = reader.ReadUInt32();
                 Meta.GPUOffset = reader.ReadUInt32();
                 Meta.BaseAlignment = reader.ReadUInt32();
-                Meta.DecompressedSize = reader.ReadUInt32(); //total decomp size
-                Meta.TextureInfo = IOFileExtension.ReadList<STextureInfo>(reader);
-                Meta.BufferInfo = IOFileExtension.ReadList<SCompressedBufferInfo>(reader);
+                Meta.DecompressedSize = reader.ReadUInt32();
+
+                // Read the info count and explicitly loop it
+                uint infoCount = reader.ReadUInt32();
+                Meta.TextureInfo = new List<STextureReadInfo>((int)infoCount);
+                for (int i = 0; i < infoCount; i++)
+                {
+                    Meta.TextureInfo.Add(reader.ReadStruct<STextureReadInfo>());
+                }
+
+                // Read the single fixed buffer struct
+                Meta.Buffers = reader.ReadStruct<SCompressedBufferInfo2>();
             }
             else
             {
-                Meta.Unknown = reader.ReadUInt32();
+                Meta.Unknown1 = reader.ReadUInt32();
                 Meta.AllocCategory = reader.ReadUInt32();
                 Meta.GPUOffset = reader.ReadUInt32();
                 Meta.BaseAlignment = reader.ReadUInt32();
@@ -148,18 +267,40 @@ namespace DKCTF
         {
             if (pakVersion.VersionA >= 1 && pakVersion.VersionB >= 1)
             {
-                writer.Write(Meta.Unknown);
-                writer.Write(0);
+                writer.Write(Meta.Unknown1);
+                writer.Write(Meta.Unknown2);
                 writer.Write(Meta.AllocCategory);
                 writer.Write(Meta.GPUOffset);
                 writer.Write(Meta.BaseAlignment);
                 writer.Write(Meta.DecompressedSize);
-                IOFileExtension.WriteList(writer, Meta.TextureInfo);
-                IOFileExtension.WriteList(writer, Meta.BufferInfo);
+
+                // Write Texture Info array
+                writer.Write((uint)Meta.TextureInfo.Count);
+                foreach (var info in Meta.TextureInfo)
+                {
+                    writer.Write(info.Index);
+                    writer.Write(info.Offset);
+                    writer.Write(info.Size);
+                }
+
+                // Write the single buffer struct
+                writer.Write(Meta.Buffers.FirstIndex);
+                writer.Write(Meta.Buffers.FirstSize);
+                writer.Write(Meta.Buffers.FirstDestOffset);
+                writer.Write(Meta.Buffers.FirstDestSize);
+                writer.Write(Meta.Buffers.Unknown);
+                writer.Write(Meta.Buffers.SecondIndex);
+                writer.Write(Meta.Buffers.SecondSize);
+                writer.Write(Meta.Buffers.SecondDestOffset);
+                writer.Write(Meta.Buffers.SecondDestSize);
+                writer.Write(Meta.Buffers.SecondDecompressedLen);
+                writer.Write(Meta.Buffers.SecondCompressedLen);
+                writer.Write(Meta.Buffers.SecondCompressedOffset);
             }
             else
             {
-                writer.Write(Meta.Unknown);
+                // V1 Fallback
+                writer.Write(Meta.Unknown1);
                 writer.Write(Meta.AllocCategory);
                 writer.Write(Meta.GPUOffset);
                 writer.Write(Meta.BaseAlignment);
@@ -172,19 +313,35 @@ namespace DKCTF
         [StructLayout(LayoutKind.Sequential, Pack = 1)]
         public class STextureHeader
         {
-            public uint Type; //1 = 2D 3 = Cubemap
+            public uint Type; // 1 = 2D, 3 = Cubemap
             public uint Format;
             public uint Width;
             public uint Height;
             public uint Depth;
-            public uint TileMode;
-            public uint Swizzle;
+
+            [MarshalAs(UnmanagedType.ByValArray, SizeConst = 4)]
+            public byte[] Components;
+
+            public uint MipCount;
+        }
+
+        // NEW: Replaces TextureSize and Unknown
+        [StructLayout(LayoutKind.Sequential, Pack = 1)]
+        public class STextureSamplerData
+        {
+            public uint Unk;
+            public byte Filter;
+            public byte MipFilter;
+            public byte WrapX;
+            public byte WrapY;
+            public byte WrapZ;
+            public byte Aniso;
         }
 
         //Meta data from PAK archive
         public class SMetaData
         {
-            public uint Unknown; //4
+            public uint Unknown1;
             public uint Unknown2;
             public uint AllocCategory;
             public uint GPUOffset;
@@ -192,27 +349,42 @@ namespace DKCTF
             public uint GPUDataSize;
             public uint BaseAlignment;
             public uint DecompressedSize;
-            public List<STextureInfo> TextureInfo = new List<STextureInfo>();
-            public List<SCompressedBufferInfo> BufferInfo = new List<SCompressedBufferInfo>();
+
+            // Updated to use the new Info struct
+            public List<STextureReadInfo> TextureInfo = new List<STextureReadInfo>();
+
+            // NEW: Replaces the List<SCompressedBufferInfo>
+            public SCompressedBufferInfo2 Buffers;
+
             public List<SCompressedBufferInfoV1> BufferInfoV1 = new List<SCompressedBufferInfoV1>();
         }
 
         [StructLayout(LayoutKind.Sequential, Pack = 1)]
-        public class STextureInfo
+        public class STextureReadInfo // Replaces STextureInfo
         {
             public byte Index;
-            public uint StartOffset;
-            public uint EndOffset;
+            public uint Offset; // Rust uses Offset and Size instead of Start/End offsets
+            public uint Size;
         }
 
+
+
         [StructLayout(LayoutKind.Sequential, Pack = 1)]
-        public class SCompressedBufferInfo
+        public class SCompressedBufferInfo2 // Replaces SCompressedBufferInfo
         {
-            public uint Index;
-            public uint StartOffset;
-            public uint CompressedSize;
-            public uint DestOffset;
-            public uint DestSize;
+            public uint FirstIndex;
+            public uint FirstSize;
+            public uint FirstDestOffset;
+            public uint FirstDestSize;
+            public uint Unknown;
+            public uint SecondIndex;
+            public uint SecondSize;
+            public uint SecondDestOffset;
+            public uint SecondDestSize;
+            // The new format allows the second buffer to be partially uncompressed
+            public uint SecondDecompressedLen;
+            public uint SecondCompressedLen;
+            public uint SecondCompressedOffset;
         }
 
         [StructLayout(LayoutKind.Sequential, Pack = 1)]

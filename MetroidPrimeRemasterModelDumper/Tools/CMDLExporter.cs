@@ -81,24 +81,6 @@ namespace EvilWithin2Tool
                 });
             }
 
-            var lods = new List<ModelLod>();
-            for (int lodIndex = 0; lodIndex < cmdl.lods.Count(); lodIndex++)
-            {
-                var lod = cmdl.lods[lodIndex];
-
-                foreach (var inner in lod.inner)
-                {
-                    int offset = (int)inner.offset;
-                    int end = (int)offset + (int)inner.count;
-
-                    for (int s = offset; s < end; s++)
-                    {
-                        int meshIndex = cmdl.shorts[s];
-                        cmdl.Meshes[meshIndex].parentLOD = lodIndex;
-                    }
-                }
-            }
-
             int MatName = 0;
             int meshnum = 0;
             foreach (var mesh in cmdl.Meshes)
@@ -106,8 +88,12 @@ namespace EvilWithin2Tool
                 //var mat = cmdl.Materials[mesh.Header.MaterialIndex];
 
                 IOMesh iomesh = new IOMesh();
+
                 //iomesh.Name = $"Mesh{iomodel.Meshes.Count}_{mat.Name}";
-                iomesh.Name = $"Mesh{iomodel.Meshes.Count}_LOD{mesh.parentLOD}";
+                string lodLevels = mesh.LODs.Count > 0 ? string.Join("_", mesh.LODs) : "None";
+
+                iomesh.Name = $"Mesh{iomodel.Meshes.Count}_LOD{lodLevels}";
+
                 iomodel.Meshes.Add(iomesh);
 
                 int vertnum = 0;
@@ -173,13 +159,12 @@ namespace EvilWithin2Tool
                 meshnum++;
             }
 
-            //System.IO.File.WriteAllText(AppContext.BaseDirectory + "/VertexCheck.json", vertexContents);
 
 
-            // Temporary kill switch
-            //throw new Exception("Kill application.");
 
-            // Log the important material info
+            //****************************//
+            //    MATERIAL INFO LOGGER    //
+            //****************************//
             string materialTXT = "Texture IDs: ";
 
             List<CMDL.CMaterial> mats = new List<CMDL.CMaterial>();
@@ -277,6 +262,12 @@ namespace EvilWithin2Tool
 
             File.WriteAllText(path + ".txt", materialTXT);
 
+            //****************************//
+            //  MATERIAL INFO LOGGER END  //
+            //****************************//
+
+
+
             IOManager.ExportScene(ioscene, path + ".gltf", new ExportSettings()
             {
             });
@@ -285,11 +276,5 @@ namespace EvilWithin2Tool
             //throw new Exception("Exported a rig, hopefully");
 
         }
-    }
-
-    class ModelLod
-    {
-        public BitArray Meshes;
-        public float? Distance;
     }
 }
