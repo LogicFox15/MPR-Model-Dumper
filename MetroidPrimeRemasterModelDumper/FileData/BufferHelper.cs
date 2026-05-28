@@ -50,7 +50,7 @@ namespace DKCTF
 
             foreach (var comp in vertexInfo.Components)
             {
-                Console.WriteLine($"comp {comp.Type} {comp.Format}");
+                //Console.WriteLine($"comp {comp.Type} {comp.Format}");
 
                 var buffer = buffers[startIndex + (int)comp.BufferID];
                 using (var reader = new FileReader(buffer))
@@ -70,7 +70,7 @@ namespace DKCTF
                         comp.Offset += 12;
                     }
 
-                    Console.WriteLine("Offset: " + comp.Offset);
+                    //Console.WriteLine("Offset: " + comp.Offset);
 
 
                     for (int i = 0; i < vertexCount; i++)

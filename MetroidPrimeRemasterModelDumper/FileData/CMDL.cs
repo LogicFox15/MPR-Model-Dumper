@@ -1,4 +1,5 @@
 ﻿using AvaloniaToolbox.Core.IO;
+using IONET.Collada.FX.Texturing;
 using MetroidPrimeRemasterModelDumper;
 using System;
 using System.Collections.Generic;
@@ -314,6 +315,7 @@ namespace DKCTF
                 MSHPEntries.Add(Entry);
             }
 
+            
             foreach (var item in MSHPEntries)
             {
                 FileEntry file = BatchPakExtractor.SearchForMaterial(item.MatiID.ToString(), 0);
@@ -408,22 +410,34 @@ namespace DKCTF
             }
             currentMat.materialInstance.unk4 = reader.ReadByte();
 
+            for(int i = 0; i < currentMat.materialInstance.unk4; i++)
+            {
+                reader.ReadUInt32();
+                reader.ReadUInt32();
+                reader.ReadUInt32();
+                reader.ReadUInt32();
+                reader.ReadUInt32();
+                reader.ReadUInt32();
+                reader.ReadUInt32();
+                reader.ReadUInt32();
+            }
+
+
             // The important stuff
             uint EntryCount = reader.ReadUInt32();
             bool done = false;
             for(int i = 0; i < EntryCount; i++)
             {
                 string Type = new string(reader.ReadChars(4));
-                
+                byte Format = reader.ReadByte();
 
                 if (done)
                 {
                     break;
                 }
 
-                byte Format = reader.ReadByte();
-
-                Console.WriteLine("Material Data Type: " + Type + " Format: " + Format.ToString());
+                //Swapped value used for check to stop inconsistencies with not having every type implemented.
+                
                 switch (Format)
                 {
                     case 2: // Single 4Byte value
@@ -738,6 +752,7 @@ namespace DKCTF
             public uint unkUint;
             public CObjectId unkGUID;
             public string type;
+            public byte format;
         }
 
         public class CMesh

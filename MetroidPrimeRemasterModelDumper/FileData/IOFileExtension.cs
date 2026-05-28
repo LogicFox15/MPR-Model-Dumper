@@ -73,15 +73,17 @@ namespace DKCTF
                     return ZLIB.Decompress(data);
                 case CompressionType.Huffman_LZSS_8:
                     byte[] output1 = new byte[decompSize];
-                    HuffmanLzssDecompressor.Decompress(data, output1, 0);
+                    if (!HuffmanLzssDecompressor.Decompress(data, output1, 0)) return null;
                     return output1;
+
                 case CompressionType.Huffman_LZSS_16:
                     byte[] output2 = new byte[decompSize];
-                    HuffmanLzssDecompressor.Decompress(data, output2, 1);
+                    if (!HuffmanLzssDecompressor.Decompress(data, output2, 1)) return null;
                     return output2;
+
                 case CompressionType.Huffman_LZSS_32:
                     byte[] output3 = new byte[decompSize];
-                    HuffmanLzssDecompressor.Decompress(data, output3, 2);
+                    if (!HuffmanLzssDecompressor.Decompress(data, output3, 2)) return null;
                     return output3;
                 default:
                     return new byte[decompSize];
@@ -106,6 +108,110 @@ namespace DKCTF
             ZLib = 0xF,
         }
 
+        public static byte[] DecompressLZSS(byte[] input, int mode, uint decompressedLength)
+        {
+            byte[] decomp = new byte[decompressedLength];
+            int src = 0;
+            int dst = 0;
+
+            byte header_byte = 0;
+            byte group = 0;
+
+            while (src < input.Length && dst < decompressedLength)
+            {
+                if (group == 0)
+                {
+                    if (src >= input.Length) break; // Guard EOF
+                    header_byte = input[src++];
+                    group = 8;
+                }
+
+                if ((header_byte & 0x80) != 0)
+                {
+                    if (src + 1 >= input.Length) break; // Guard EOF
+
+                    byte[] bytes = new byte[] { input[src++], input[src++] };
+                    uint count = 0, length = 0;
+                    uint groupSize = 1;
+
+                    switch (mode)
+                    {
+                        case 1: //byte
+                            count = (uint)((bytes[0] >> 4) + 3);
+                            length = (uint)(((bytes[0] & 0xF) << 0x8) | bytes[1]);
+                            groupSize = 1;
+                            break;
+                        case 2: //short
+                            count = (uint)((bytes[0] >> 4) + 2);
+                            length = (uint)((((bytes[0] & 0xF) << 0x8) | bytes[1]) << 1);
+                            groupSize = 2;
+                            break;
+                        case 3: //uint
+                            count = (uint)((bytes[0] >> 4) + 1);
+                            length = (uint)((((bytes[0] & 0xF) << 0x8) | bytes[1]) << 2);
+                            groupSize = 4;
+                            break;
+                    }
+
+                    int seek = (dst - (int)length);
+
+                    // FIX: Match Rust's `if offset > out_cur` and `if copy_len > output.len() - out_cur`
+                    if (seek < 0 || dst + (count * groupSize) > decompressedLength)
+                        break;
+
+                    for (uint yb = 0; yb < count; yb++)
+                    {
+                        switch (mode)
+                        {
+                            case 1:
+                                decomp[dst++] = decomp[seek++];
+                                break;
+                            case 2:
+                                decomp[dst++] = decomp[seek++];
+                                decomp[dst++] = decomp[seek++];
+                                break;
+                            case 3:
+                                decomp[dst++] = decomp[seek++];
+                                decomp[dst++] = decomp[seek++];
+                                decomp[dst++] = decomp[seek++];
+                                decomp[dst++] = decomp[seek++];
+                                break;
+                        }
+                    }
+                }
+                else
+                {
+                    uint groupSize = mode == 1 ? 1u : (mode == 2 ? 2u : 4u);
+
+                    // FIX: Match Rust's literal bounds check
+                    if (src + groupSize > input.Length || dst + groupSize > decompressedLength)
+                        break;
+
+                    switch (mode)
+                    {
+                        case 1:
+                            decomp[dst++] = input[src++];
+                            break;
+                        case 2:
+                            decomp[dst++] = input[src++];
+                            decomp[dst++] = input[src++];
+                            break;
+                        case 3:
+                            decomp[dst++] = input[src++];
+                            decomp[dst++] = input[src++];
+                            decomp[dst++] = input[src++];
+                            decomp[dst++] = input[src++];
+                            break;
+                    }
+                }
+                header_byte <<= 1;
+                group--;
+            }
+            return decomp;
+        }
+
+
+        /*
         public static byte[] DecompressLZSS(byte[] input, int mode, uint decompressedLength)
         {
             byte[] decomp = new byte[decompressedLength];
@@ -196,6 +302,7 @@ namespace DKCTF
             }
             return decomp;
         }
+        */
 
         public static byte[] DecompressArithmeticStream(byte[] input, int mode, uint decompressedLength)
         {
