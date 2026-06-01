@@ -254,7 +254,6 @@ namespace MetroidPrimeRemasterModelDumper
             
         }
 
-
         public static FileEntry LocateModel(string ModelName)
         {
             string ManifestContent = File.ReadAllText(AppContext.BaseDirectory + "/ModelManifest.json");
@@ -334,7 +333,7 @@ namespace MetroidPrimeRemasterModelDumper
 
         public static FileEntry LocateMATIFile(string MaterialName)
         {
-            string ManifestContent = File.ReadAllText(@"MaterialManifest.json");
+            string ManifestContent = File.ReadAllText(AppContext.BaseDirectory + "/MaterialManifest.json");
             MaterialManifestSerializableEntry[] manifestEntries = JsonSerializer.Deserialize<MaterialManifestSerializableEntry[]>(ManifestContent);
             //Console.WriteLine("Total manifest entries: " + manifestEntries.Count());
 

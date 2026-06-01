@@ -270,6 +270,7 @@ namespace EvilWithin2Tool
 
             IOManager.ExportScene(ioscene, path + ".gltf", new ExportSettings()
             {
+                Optimize = true,
             });
 
             // Temporary kill switch

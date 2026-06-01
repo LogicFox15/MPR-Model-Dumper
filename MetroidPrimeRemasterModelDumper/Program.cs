@@ -23,6 +23,22 @@ foreach (var arg in args)
 {
     if (arg.EndsWith(".pak"))
     {
-        BatchPakExtractor.ExtractModels(arg);
+        try
+        {
+            BatchPakExtractor.ExtractModels(arg);
+        }
+        catch (Exception e)
+        {
+
+            Console.WriteLine(e.ToString());
+
+            Console.Write("Press any key to continue");
+            Console.ReadKey();
+
+            throw;
+        }
+
+
+       
     }
 }
