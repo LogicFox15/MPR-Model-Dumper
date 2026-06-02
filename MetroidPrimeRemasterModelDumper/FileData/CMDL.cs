@@ -199,47 +199,15 @@ namespace DKCTF
 
         private void ReadLegacyMaterials(FileReader reader)
         {
-            reader.ReadUInt32();
+            uint Type = reader.ReadUInt32();
 
-            uint numMaterials = reader.ReadUInt32();
-            //Console.WriteLine("Number of Materials?: " + numMaterials);
-
-            for (int i = 0; i < numMaterials; i++)
+            if(Type == 3)
             {
                 CMaterial material = new CMaterial();
                 Materials.Add(material);
 
-                uint size = reader.ReadUInt32();
-                material.Name = reader.ReadFixedString((int)size);
-                material.ID = reader.ReadStruct<CObjectId>();
-                reader.ReadStruct<CObjectId>(); // Not sure.
-                Console.WriteLine("Material Name Check: " + material.Name.ToString());
-
-                uint check = reader.ReadUInt32(); // unk1
-                Console.WriteLine("Data Check: " + check.ToString("X8"));
-
-                reader.ReadUInt32(); // unk2
-                uint traitCount = reader.ReadUInt32();
-                Console.WriteLine("Trait Count Check: " + traitCount.ToString("X8"));
-
-                for (int v = 0; v < traitCount; v++)
-                {
-                    reader.ReadChars(4); // This stuff. RLTG.
-                }
-                uint variableDescCount = reader.ReadUInt32();
-                Console.WriteLine("Variable Desc Count Check: " + variableDescCount.ToString("X8"));
-
-                for (int v = 0; v < variableDescCount; v++)
-                {
-                    CVariableDesc variableDesc = new CVariableDesc();
-
-                    variableDesc = reader.ReadStruct<CVariableDesc>();
-                }
-                uint numData = reader.ReadUInt32();
-                Console.WriteLine("Data Number Check: " + numData.ToString("X8"));
-
                 //Actual data type data
-                for (int j = 0; j < numData; j++)
+                for (int j = 0; j < 3; j++)
                 {
                     var dID = reader.ReadStruct<Magic>();
                     var dType = reader.ReadStruct<Magic>();
@@ -253,11 +221,6 @@ namespace DKCTF
 
                     switch (dType)
                     {
-                        case "TXTR": //Texture
-                            material.TextureIDs.Add(dID);
-                            material.Textures.Add(reader.ReadStruct<CMaterialTextureTokenData>());
-                            //Console.WriteLine("material format: TXTR");
-                            break;
                         case "COLR": //Color
                             material.Colors.Add(dID, reader.ReadStruct<Color4f>());
                             //Console.WriteLine("material format: COLR");
@@ -266,29 +229,154 @@ namespace DKCTF
                             material.Scalars.Add(dID, reader.ReadSingle());
                             //Console.WriteLine("material format: SCLR");
                             break;
-                        case "INT ": //int
-                            material.Int.Add(dID, reader.ReadInt32());
-                            //Console.WriteLine("material format: INT");
-                            break;
-                        case "INT4": //int4
-                            material.Int4.Add(dID, reader.ReadInt32s(4));
-                            //Console.WriteLine("material format: INT4");
-                            break;
                         case "CPLX": //CLayeredTextureData
-                            //Console.WriteLine("material format: CPLX");
+                                     //Console.WriteLine("material format: CPLX");
                             reader.ReadUInt32();
                             uint cplxSize = reader.ReadUInt32();
                             reader.ReadBytes((int)cplxSize);
                             break;
-                        case "MA4": //Matrix4x4
-                            //Console.WriteLine("material format: MA4");
-                            material.Matrices.Add(dID, reader.ReadSingles(16));
-                            break;
-                        default:
-                            throw new Exception($"Unsupported material type {formatCheck}!");
                     }
                 }
             }
+            else
+            {
+                uint numMaterials = reader.ReadUInt32();
+                //Console.WriteLine("Number of Materials?: " + numMaterials);
+
+                for (int i = 0; i < numMaterials; i++)
+                {
+                    CMaterial material = new CMaterial();
+                    Materials.Add(material);
+
+                    uint size = reader.ReadUInt32();
+                    material.Name = reader.ReadFixedString((int)size);
+                    material.ID = reader.ReadStruct<CObjectId>();
+                    reader.ReadStruct<CObjectId>(); // Not sure.
+                    Console.WriteLine("Material Name Check: " + material.Name.ToString());
+
+                    uint check = reader.ReadUInt32(); // unk1
+                    Console.WriteLine("Data Check: " + check.ToString("X8"));
+
+                    reader.ReadUInt32(); // unk2
+                    uint traitCount = reader.ReadUInt32();
+                    Console.WriteLine("Trait Count Check: " + traitCount.ToString("X8"));
+
+                    for (int v = 0; v < traitCount; v++)
+                    {
+                        reader.ReadChars(4); // This stuff. RLTG.
+                    }
+                    uint variableDescCount = reader.ReadUInt32();
+                    Console.WriteLine("Variable Desc Count Check: " + variableDescCount.ToString("X8"));
+
+                    for (int v = 0; v < variableDescCount; v++)
+                    {
+                        CVariableDesc variableDesc = new CVariableDesc();
+
+                        variableDesc = reader.ReadStruct<CVariableDesc>();
+                    }
+                    uint numData = reader.ReadUInt32();
+                    Console.WriteLine("Data Number Check: " + numData.ToString("X8"));
+
+                    //Actual data type data
+                    for (int j = 0; j < numData; j++)
+                    {
+                        var dID = reader.ReadStruct<Magic>();
+                        var dType = reader.ReadStruct<Magic>();
+
+                        reader.Position -= 8;
+
+                        string typeCheck = new string(reader.ReadChars(4));
+                        string formatCheck = new string(reader.ReadChars(4));
+
+                        Console.WriteLine($"dtype {typeCheck} {formatCheck}");
+
+                        switch (dType)
+                        {
+                            case "TXTR": //Texture
+                                material.TextureIDs.Add(dID);
+                                material.Textures.Add(reader.ReadStruct<CMaterialTextureTokenData>());
+                                //Console.WriteLine("material format: TXTR");
+                                break;
+                            case "COLR": //Color
+                                material.Colors.Add(dID, reader.ReadStruct<Color4f>());
+                                //Console.WriteLine("material format: COLR");
+                                break;
+                            case "SCLR": //Scaler
+                                material.Scalars.Add(dID, reader.ReadSingle());
+                                //Console.WriteLine("material format: SCLR");
+                                break;
+                            case "INT ": //int
+                                material.Int.Add(dID, reader.ReadInt32());
+                                //Console.WriteLine("material format: INT");
+                                break;
+                            case "INT4": //int4
+                                material.Int4.Add(dID, reader.ReadInt32s(4));
+                                //Console.WriteLine("material format: INT4");
+                                break;
+                            case "CPLX": //CLayeredTextureData
+                                         //Console.WriteLine("material format: CPLX      LOOK HERE");
+
+                                uint cplxType = reader.ReadUInt32();
+
+                                if( cplxType != 0)
+                                {
+                                    uint cplxSize = reader.ReadUInt32();
+                                    reader.ReadBytes((int)cplxSize);
+                                }
+                                else
+                                {
+                                    reader.ReadByte();
+                                    reader.ReadUInt32();
+                                    
+
+                                    var texture1 = reader.ReadStruct<CObjectId>();
+                                    if (!texture1.IsZero())
+                                    {
+                                        var info1 = reader.ReadStruct<STextureUsageInfo>();
+                                        CMaterialTextureTokenData TextureData1 = new CMaterialTextureTokenData();
+                                        TextureData1.FileID = texture1;
+                                        TextureData1.UsageInfo = info1;
+                                        material.Textures.Add(TextureData1);
+                                    }
+
+                                    var texture2 = reader.ReadStruct<CObjectId>();
+                                    if (!texture2.IsZero())
+                                    {
+                                        var info2 = reader.ReadStruct<STextureUsageInfo>();
+                                        CMaterialTextureTokenData TextureData2 = new CMaterialTextureTokenData();
+                                        TextureData2.FileID = texture2;
+                                        TextureData2.UsageInfo = info2;
+                                        material.Textures.Add(TextureData2);
+                                    }
+
+                                    var texture3 = reader.ReadStruct<CObjectId>();
+                                    if (!texture3.IsZero())
+                                    {
+                                        var info3 = reader.ReadStruct<STextureUsageInfo>();
+                                        CMaterialTextureTokenData TextureData3 = new CMaterialTextureTokenData();
+                                        TextureData3.FileID = texture3;
+                                        TextureData3.UsageInfo = info3;
+                                        material.Textures.Add(TextureData3);
+                                    }
+                                }
+
+
+                                break;
+                            case "MA4": //Matrix4x4
+                                        //Console.WriteLine("material format: MA4");
+                                material.Matrices.Add(dID, reader.ReadSingles(16));
+                                break;
+                            default:
+                                Console.WriteLine($"Unsupported material type {formatCheck}!");
+                                break;
+                                //throw new Exception($"Unsupported material type {formatCheck}!");
+                        }
+                    }
+                }
+            }
+
+
+                
         }
 
         private void ReadMaterialShape(FileReader reader)
