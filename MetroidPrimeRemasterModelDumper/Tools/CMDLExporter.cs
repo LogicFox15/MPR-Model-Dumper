@@ -81,12 +81,21 @@ namespace EvilWithin2Tool
                 });
             }
 
-            List<CMDL.CMesh> HighestLOD = cmdl.GetHighestLODMeshes();
+            List<CMDL.CMesh> ExportMeshes;
+
+            if (saveLODs)
+            {
+                ExportMeshes = cmdl.Meshes;
+            }
+            else
+            {
+                ExportMeshes = cmdl.GetHighestLODMeshes();
+            }
 
 
             int MatName = 0;
             int meshnum = 0;
-            foreach (var mesh in HighestLOD)
+            foreach (var mesh in ExportMeshes)
             {
                 //var mat = cmdl.Materials[mesh.Header.MaterialIndex];
 
