@@ -23,7 +23,7 @@ namespace EvilWithin2Tool
 {
     public class CMDLExporter
     {
-        public static void Export(CMDL cmdl, string path, CHPR charProject = null)
+        public static void Export(CMDL cmdl, string path, CHPR charProject = null, bool saveLODs = false)
         {
             //string vertexContents = "";
             IOScene ioscene = new IOScene();
@@ -81,9 +81,12 @@ namespace EvilWithin2Tool
                 });
             }
 
+            List<CMDL.CMesh> HighestLOD = cmdl.GetHighestLODMeshes();
+
+
             int MatName = 0;
             int meshnum = 0;
-            foreach (var mesh in cmdl.Meshes)
+            foreach (var mesh in HighestLOD)
             {
                 //var mat = cmdl.Materials[mesh.Header.MaterialIndex];
 
@@ -117,8 +120,14 @@ namespace EvilWithin2Tool
                     iomesh.Vertices.Add(iovertex);
 
                     iovertex.SetUV(vert.TexCoord0.X, vert.TexCoord0.Y, 0);
-                    iovertex.SetUV(vert.TexCoord1.X, vert.TexCoord1.Y, 1);
-                    iovertex.SetUV(vert.TexCoord2.X, vert.TexCoord2.Y, 2);
+                    if (mesh.hasTexCoord1)
+                    {
+                        iovertex.SetUV(vert.TexCoord1.X, vert.TexCoord1.Y, 1);
+                    }
+                    if (mesh.hasTexCoord2)
+                    {
+                        iovertex.SetUV(vert.TexCoord2.X, vert.TexCoord2.Y, 2);
+                    }
 
                     iovertex.SetColor(
                         vert.Color.X,
@@ -261,6 +270,35 @@ namespace EvilWithin2Tool
             }
 
             File.WriteAllText(path + ".txt", materialTXT);
+
+
+            string vertexBufferTXT = "Vertex Buffer Information: ";
+
+
+
+            foreach (var VBuf in cmdl.VertexBuffers)
+            {
+                //vertexBufferTXT += (System.Environment.NewLine + "Vertex Count: " + VBuf.VertexCount);
+                int j = 0;
+                foreach (var Comp in VBuf.Components)
+                {
+                    vertexBufferTXT += System.Environment.NewLine + "Component " + j + ": ";
+                    vertexBufferTXT += System.Environment.NewLine + "Buffer ID: " + Comp.BufferID.ToString();
+                    vertexBufferTXT += System.Environment.NewLine + "Offset: " + Comp.Offset.ToString();
+                    vertexBufferTXT += System.Environment.NewLine + "Stride: " + Comp.Stride.ToString();
+                    vertexBufferTXT += System.Environment.NewLine + "Vertex Data Format: " + Comp.Format.ToString();
+                    vertexBufferTXT += System.Environment.NewLine + "Vertex Component Type: " + Comp.Type.ToString();
+                    vertexBufferTXT += System.Environment.NewLine;
+                    j++;
+                }
+            }
+
+            //File.WriteAllText(path + "_BufferDebugInfo.txt", vertexBufferTXT);
+
+
+
+
+
 
             //****************************//
             //  MATERIAL INFO LOGGER END  //

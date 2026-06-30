@@ -23,6 +23,9 @@ namespace DKCTF
         /// </summary>
         public List<CMesh> Meshes = new List<CMesh>();
 
+        public List<ModelLOD> ParsedLODs = new List<ModelLOD>();
+
+
         /// <summary>
         /// The materials of the model for rendering the mesh.
         /// </summary>
@@ -37,7 +40,7 @@ namespace DKCTF
         /// <summary>
         /// The vertex buffer list to read the buffer attributes.
         /// </summary>
-        List<VertexBuffer> VertexBuffers = new List<VertexBuffer>();
+        public List<VertexBuffer> VertexBuffers = new List<VertexBuffer>();
 
         /// <summary>
         /// The index buffer list to read the index buffer data.
@@ -651,25 +654,60 @@ namespace DKCTF
                 this.LodRules = new LodRule[0];
             }
 
-
-            // Map meshes to ALL LODs they appear in
+            // Map meshes to their respective LOD buckets
             for (int lodIndex = 0; lodIndex < this.lodCount; lodIndex++)
             {
                 LODinfo currentLOD = this.lods[lodIndex];
+                ModelLOD parsedLOD = new ModelLOD();
+
+                if (this.hasLODRule == 1 && lodIndex < this.LodRules.Length)
+                {
+                    parsedLOD.Distance = this.LodRules[lodIndex].Value;
+                }
 
                 foreach (LODInner inner in currentLOD.inner)
                 {
                     for (uint i = 0; i < inner.count; i++)
                     {
-                        ushort meshIndex = this.shorts[inner.offset + i];
+                        int meshIndex = this.shorts[inner.offset + i];
 
+                        // Add the index to our LOD bucket if it isn't there already
+                        if (!parsedLOD.MeshIndices.Contains(meshIndex))
+                        {
+                            parsedLOD.MeshIndices.Add(meshIndex);
+                        }
+
+                        // Keep your original tagging, it's still useful!
                         if (meshIndex < this.Meshes.Count)
                         {
                             this.Meshes[meshIndex].LODs.Add(lodIndex);
                         }
                     }
                 }
+
+                this.ParsedLODs.Add(parsedLOD);
             }
+        }
+
+        /// <summary>
+        /// Extracts only the meshes associated with LOD 0.
+        /// </summary>
+        public List<CMesh> GetHighestLODMeshes()
+        {
+            if (this.ParsedLODs.Count == 0) return new List<CMesh>();
+
+            List<CMesh> highLodMeshes = new List<CMesh>();
+
+            // ParsedLODs[0] contains the indices for the highest level of detail
+            foreach (int index in this.ParsedLODs[0].MeshIndices)
+            {
+                if (index < this.Meshes.Count)
+                {
+                    highLodMeshes.Add(this.Meshes[index]);
+                }
+            }
+
+            return highLodMeshes;
         }
 
         private void ReadVertexBuffer(FileReader reader)
@@ -717,6 +755,10 @@ namespace DKCTF
 
             public Vector4 BoneWeights = new Vector4(1, 0, 0, 0);
             public Vector4 BoneIndices = new Vector4(0);
+
+            public bool hasTexCoord1 = false;
+            public bool hasTexCoord2 = false;
+            public bool hasTexCoord3 = false;
 
             public Vector4 Color = Vector4.One;
 
@@ -855,6 +897,11 @@ namespace DKCTF
 
             //public int parentLOD;
 
+            public bool hasTexCoord1 = false;
+            public bool hasTexCoord2 = false;
+            public bool hasTexCoord3 = false;
+
+            /*
             public void SetupVertices(List<CVertex> vertices)
             {
                 //Here we optmize the vertices to only use the vertices used by the mesh rather than use one giant list
@@ -868,9 +915,73 @@ namespace DKCTF
                     remappedIndices.Add((uint)vertexList.Count);
                     vertexList.Add(vertices[(int)Indices[i]]);
                 }
+
+                if (vertexList[0].hasTexCoord1)
+                {
+                    hasTexCoord1 = true;
+                }
+                if (vertexList[0].hasTexCoord2)
+                {
+                    hasTexCoord2 = true;
+                }
+                if (vertexList[0].hasTexCoord3)
+                {
+                    hasTexCoord3 = true;
+                }
+
                 this.Vertices = vertexList;
                 this.Indices = remappedIndices.ToArray();
             }
+            */
+
+            public void SetupVertices(List<CVertex> vertices)
+            {
+                if (Indices.Length == 0) return;
+
+                // 1. Find the absolute minimum and maximum indices used by this mesh
+                uint minIndex = uint.MaxValue;
+                uint maxIndex = uint.MinValue;
+
+                for (int i = 0; i < Indices.Length; i++)
+                {
+                    if (Indices[i] < minIndex) minIndex = Indices[i];
+                    if (Indices[i] > maxIndex) maxIndex = Indices[i];
+                }
+
+                // 2. Slice out only the continuous range of vertices this mesh needs
+                List<CVertex> vertexList = new List<CVertex>();
+                int vertexCount = (int)(maxIndex - minIndex + 1);
+
+                for (int i = 0; i < vertexCount; i++)
+                {
+                    vertexList.Add(vertices[(int)(minIndex + i)]);
+                }
+
+                // 3. Remap the index buffer by subtracting the minimum index
+                // This preserves vertex sharing perfectly.
+                List<uint> remappedIndices = new List<uint>();
+                for (int i = 0; i < Indices.Length; i++)
+                {
+                    remappedIndices.Add(Indices[i] - minIndex);
+                }
+
+                // Assign texture coordinate flags safely
+                if (vertexList.Count > 0)
+                {
+                    hasTexCoord1 = vertexList[0].hasTexCoord1;
+                    hasTexCoord2 = vertexList[0].hasTexCoord2;
+                    hasTexCoord3 = vertexList[0].hasTexCoord3;
+                }
+
+                this.Vertices = vertexList;
+                this.Indices = remappedIndices.ToArray();
+            }
+        }
+
+        public class ModelLOD
+        {
+            public List<int> MeshIndices = new List<int>();
+            public float Distance;
         }
 
         public class SSkinnedModelHeader : CChunkDescriptor

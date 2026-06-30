@@ -17,6 +17,8 @@ namespace MetroidPrimeRemasterModelDumper
     {
         public static PAK currentPak;
         public static string savedMode = "Empty";
+        public static bool saveLODs = false;
+        public static bool makeFolders = false;
 
         public static void ExtractModels(string pakFile)
         {
@@ -38,14 +40,16 @@ namespace MetroidPrimeRemasterModelDumper
             {
                 Console.WriteLine("Please specify the mode to run in: ");
                 Console.WriteLine("");
-                Console.WriteLine("    0 = Only CMDL files");
-                Console.WriteLine("    1 = Only CHPR files");
-                Console.WriteLine("    2 = Only TXTR files");
-                Console.WriteLine("    3 = Only CMDL files All");
-                Console.WriteLine("    4 = Only CHPR files All");
-                Console.WriteLine("    5 = Only TXTR files All");
+                Console.WriteLine("    0 = Dump CMDL files");
+                Console.WriteLine("    1 = Dump CHPR files");
+                Console.WriteLine("    2 = Dump CMDL files With LODs");
+                Console.WriteLine("    3 = Dump CHPR files with LODS");
+                Console.WriteLine("    4 = Dump TXTR files");
+                Console.WriteLine("    5 = Dump TXTR files with folders for array textures");
+                Console.WriteLine("");
+                Console.WriteLine("WARNING: LOD identification is still buggy. Also, there are still");
+                Console.WriteLine("issues with the UV maps. Dumps may not be 100% accurate.");
 
-                //Console.WriteLine("    5 = Only SMDL files All (Skinned models as CMDL)");
                 Console.WriteLine("");
 
                 mode = Console.ReadLine();
@@ -66,26 +70,32 @@ namespace MetroidPrimeRemasterModelDumper
                         case "0":
                             if (fileInfo.AssetEntry.Type == "CMDL")
                                 ExtractCMDL(fileInfo.FileData, fileInfo, pak);
+                            savedMode = "0";
                             break;
                         case "1":
                             if (fileInfo.AssetEntry.Type == "CHPR")
                                 ExtractCharacterProject(fileInfo.FileData, fileInfo, pak);
+                            savedMode = "1";
                             break;
                         case "2":
-                            if (fileInfo.AssetEntry.Type == "TXTR")
-                                ExtractTXTR(fileInfo.FileData, fileInfo, pak);
-                            break;
-                        case "3":
+                            saveLODs = true;
                             if (fileInfo.AssetEntry.Type == "CMDL")
                                 ExtractCMDL(fileInfo.FileData, fileInfo, pak);
+                            savedMode = "2";
+                            break;
+                        case "3":
+                            saveLODs = true;
+                            if (fileInfo.AssetEntry.Type == "CHPR")
+                                ExtractCharacterProject(fileInfo.FileData, fileInfo, pak);
                             savedMode = "3";
                             break;
                         case "4":
-                            if (fileInfo.AssetEntry.Type == "CHPR")
-                                ExtractCharacterProject(fileInfo.FileData, fileInfo, pak);
+                            if (fileInfo.AssetEntry.Type == "TXTR")
+                                ExtractTXTR(fileInfo.FileData, fileInfo, pak);
                             savedMode = "4";
                             break;
                         case "5":
+                            makeFolders = true;
                             if (fileInfo.AssetEntry.Type == "TXTR")
                                 ExtractTXTR(fileInfo.FileData, fileInfo, pak);
                             savedMode = "5";
@@ -140,7 +150,7 @@ namespace MetroidPrimeRemasterModelDumper
                     string modelName = charInfo.NamePool.GetString(model.Name);
 
                     string path = Path.Combine(folder, modelName);
-                    CMDLExporter.Export(cmdl, path, chpr);
+                    CMDLExporter.Export(cmdl, path, chpr, saveLODs);
                     Console.WriteLine("Exported file " + file.AssetEntry.FileID.ToString());
                     Console.WriteLine("");
                     //throw new Exception("Kill application.");
@@ -165,7 +175,7 @@ namespace MetroidPrimeRemasterModelDumper
             }
 
             string path = Path.Combine(folder, modelName);
-            CMDLExporter.Export(cmdl, path);
+            CMDLExporter.Export(cmdl, path, null, saveLODs);
         }
 
         static void ExtractTXTR(Stream stream, FileEntry Entry, PAK pak)
@@ -183,13 +193,40 @@ namespace MetroidPrimeRemasterModelDumper
                 ImageFormat = new ImageFormat(TXTR.FormatList[txtr.TextureHeader.Format]),
             };
 
-            string folder = Path.Combine(Path.GetFileNameWithoutExtension(pak.FileInfo.FilePath));
+            string folder;
+            string path;
 
-            if (!Directory.Exists(folder))
+            if (makeFolders && txtr.TextureHeader.Type >= 4)
             {
-                Directory.CreateDirectory(folder);
+                folder = Path.Combine(Path.GetFileNameWithoutExtension(pak.FileInfo.FilePath));
+
+                if (!Directory.Exists(folder))
+                {
+                    Directory.CreateDirectory(folder);
+                }
+
+                folder += "/" + textureName;
+
+                if (!Directory.Exists(folder))
+                {
+                    Directory.CreateDirectory(folder);
+                }
+
+                path = Path.Combine(folder, $"{textureName}.png");
             }
-            string path = Path.Combine(folder, $"{textureName}.png");
+            else
+            {
+                folder = Path.Combine(Path.GetFileNameWithoutExtension(pak.FileInfo.FilePath));
+
+                if (!Directory.Exists(folder))
+                {
+                    Directory.CreateDirectory(folder);
+                }
+                path = Path.Combine(folder, $"{textureName}.png");
+            }
+
+
+            
 
             try
             {
@@ -197,15 +234,15 @@ namespace MetroidPrimeRemasterModelDumper
             }
             catch
             {
-                if (!File.Exists(@"ErroredTextures.txt"))
+                if (!File.Exists(AppContext.BaseDirectory + "/ErroredTextures.txt"))
                 {
                     string brokenTex = textureName + "     Format: " + txtr.TextureHeader.Format;
-                    File.WriteAllText(@"ErroredTextures.txt", brokenTex);
+                    File.WriteAllText(AppContext.BaseDirectory + "/ErroredTextures.txt", brokenTex);
                 }
                 else
                 {
                     string brokenTexCont = Environment.NewLine + textureName + "     Format: " + txtr.TextureHeader.Format;
-                    File.AppendAllText(@"ErroredTextures.txt", brokenTexCont);
+                    File.AppendAllText(AppContext.BaseDirectory + "/ErroredTextures.txt", brokenTexCont);
                 }
                 File.WriteAllBytes(Path.Combine(folder, $"{textureName}" + ".bin"), txtr.BufferData);
             }
@@ -215,23 +252,31 @@ namespace MetroidPrimeRemasterModelDumper
         {
             // Type 2 = 3D Texture. If it is 3D, use Depth. Otherwise, Depth is 1.
             uint actualDepth = txtr.TextureHeader.Type == 2 ? txtr.TextureHeader.Depth : 1;
-            //byte[] linearData = TXTR.Deswizzle(txtr.TextureHeader, txtr.BufferData);
+            //Console.WriteLine("Texture Size: " + txtr.TextureSize.ToString());
 
-            GenericTextureBase genericTexture = new()
+            GenericTextureBase genericTexture = new GenericTextureBase();
+
+            genericTexture.Width = txtr.TextureHeader.Width;
+            genericTexture.Height = txtr.TextureHeader.Height;
+            genericTexture.Depth = actualDepth;
+            genericTexture.MipCount = (uint)txtr.MipSizes.Length;
+            genericTexture.ImageFormat = new ImageFormat(TXTR.FormatList[txtr.TextureHeader.Format]);
+            genericTexture.PlatformSwizzle = new PlatformSwizzleSwitch();
+            genericTexture.Data = txtr.BufferData;
+
+            if (txtr.TextureHeader.Type == 3)
             {
-                Width = txtr.TextureHeader.Width,
-                Height = txtr.TextureHeader.Height,
-                Depth = actualDepth,
-                MipCount = txtr.TextureHeader.MipCount,
-                ImageFormat = new ImageFormat(TXTR.FormatList[txtr.TextureHeader.Format]),
-                PlatformSwizzle = new PlatformSwizzleSwitch(),
-                Data = txtr.BufferData,
-            };
-            
+                genericTexture.ArrayCount = 6;
+            }
+
+            if (txtr.TextureHeader.Type >= 4)
+            {
+                Console.WriteLine("Found a 3D texture. Type " + txtr.TextureHeader.Type + ".");
+                genericTexture.ArrayCount = txtr.TextureHeader.Depth;
+            }
+
             genericTexture.Export(outputPath);
         }
-
-
 
         public static FileEntry SearchForModel(string FileID)
         {
