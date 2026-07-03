@@ -47,6 +47,9 @@ namespace DKCTF
         {
             var vertices = new CMDL.CVertex[vertexInfo.VertexCount];
 
+            uint texCoord0Offset = 0;
+
+
             foreach (var comp in vertexInfo.Components)
             {
                 Console.WriteLine($"comp {comp.Type} {comp.Format}");
@@ -54,39 +57,35 @@ namespace DKCTF
                 var buffer = buffers[startIndex + (int)comp.BufferID];
                 using (var reader = new FileReader(buffer))
                 {
+                    uint trueOffset = comp.Offset;
+
                     reader.SetByteOrder(!isLittleEndian); //switch is little endianness
-
-                    
-                    if(comp.Type == CMDL.EVertexComponent.in_texCoord1)
-                    {
-                        comp.Offset += 4;
-                    }
-                    if (comp.Type == CMDL.EVertexComponent.in_texCoord2)
-                    {
-                        comp.Offset += 8;
-                    }
-                    if (comp.Type == CMDL.EVertexComponent.in_texCoord3)
-                    {
-                        comp.Offset += 12;
-                    }
-
                     Console.WriteLine("Offset: " + comp.Offset);
-
+                    Console.WriteLine("Buffer Size: " + buffer.Length.ToString());
+                    // Attempt to fix the UV reader
+                    if (comp.Type == CMDL.EVertexComponent.in_texCoord1)
+                    {
+                        if(comp.Format == CMDL.VertexFormat.Format_16_16_16_HalfSingle)
+                        {
+                            if (comp.Offset == texCoord0Offset)
+                            {
+                                trueOffset += 4;
+                            }
+                            
+                            else if (comp.Offset == texCoord0Offset + 8)
+                            {
+                                trueOffset -= 4;
+                            }
+                            
+                        }
+                    }
 
                     for (int i = 0; i < vertexInfo.VertexCount; i++)
                     {
                         if (vertices[i] == null) vertices[i] = new CMDL.CVertex();
 
                         CMDL.CVertex vertex = vertices[i];
-
-                        try
-                        {
-                            reader.SeekBegin(comp.Offset + i * comp.Stride);
-                        }
-                        catch
-                        {
-                            break;
-                        }
+                        reader.SeekBegin(trueOffset + i * comp.Stride);
 
                         switch (comp.Type)
                         {
@@ -98,38 +97,34 @@ namespace DKCTF
                                 break;
                             case CMDL.EVertexComponent.in_texCoord0:
                                 vertex.TexCoord0 = ReadData(reader, comp.Format).Xy();
+                                texCoord0Offset = comp.Offset;
                                 break;
 
                             case CMDL.EVertexComponent.in_texCoord1:
+                                vertex.hasTexCoord1 = true;
                                 try
                                 {
                                     vertex.TexCoord1 = ReadData(reader, comp.Format).Xy();
-                                    break;
                                 }
                                 catch
                                 {
-                                    break;
+                                    Console.WriteLine("Bad Tex Coord 1 data. Use Tex Coord 0.");
+                                    reader.SeekBegin((comp.Offset) + i * comp.Stride);
+                                    vertex.TexCoord1 = ReadData(reader, comp.Format).Xy();
+                                    //throw;
                                 }
+                                break;
+
                             case CMDL.EVertexComponent.in_texCoord2:
-                                try
-                                {
-                                    vertex.TexCoord2 = ReadData(reader, comp.Format).Xy();
-                                    break;
-                                }
-                                catch
-                                {
-                                    break;
-                                }
+                                vertex.hasTexCoord2 = true;
+                                vertex.TexCoord2 = ReadData(reader, comp.Format).Xy();
+                                break;
+
                             case CMDL.EVertexComponent.in_texCoord3:
-                                try
-                                {
-                                    vertex.TexCoord3 = ReadData(reader, comp.Format).Xy();
-                                    break;
-                                }
-                                catch
-                                {
-                                    break;
-                                }
+                                vertex.hasTexCoord3 = true;
+                                vertex.TexCoord3 = ReadData(reader, comp.Format).Xy();
+                                break;
+
                             case CMDL.EVertexComponent.in_boneWeights:
                                 vertex.BoneWeights = ReadData(reader, comp.Format);
                                 break;

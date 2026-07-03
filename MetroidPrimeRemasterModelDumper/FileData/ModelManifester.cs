@@ -53,11 +53,12 @@ namespace MetroidPrimeRemasterModelDumper
                         entry.SMDLFiles.Add(fileInfo.AssetEntry.FileID);
                     }
                     /*
-                    if (fileInfo.AssetEntry.Type == "CMDL")
+                    if (fileInfo.AssetEntry.Type == "WMDL")
                     {
-                        entry.CMDLFiles.Add(fileInfo.AssetEntry.FileID);
+                        entry.SMDLFiles.Add(fileInfo.AssetEntry.FileID);
                     }
                     */
+                    
                 }
 
                 PakManifestEntry.Add(entry);

@@ -1,5 +1,4 @@
-﻿
-using AvaloniaToolbox.Core;
+﻿using AvaloniaToolbox.Core;
 using DKCTF;
 using IONET;
 using IONET.Collada.Core.Geometry;
@@ -23,7 +22,7 @@ namespace EvilWithin2Tool
 {
     public class CMDLExporter
     {
-        public static void Export(CMDL cmdl, string path, CHPR charProject = null)
+        public static void Export(CMDL cmdl, string path, CHPR charProject = null, bool saveLODs = false)
         {
             IOScene ioscene = new IOScene();
 
@@ -80,8 +79,19 @@ namespace EvilWithin2Tool
                 });
             }
 
+            List<CMDL.CMesh> ExportMeshes;
+
+            if (saveLODs)
+            {
+                ExportMeshes = cmdl.Meshes;
+            }
+            else
+            {
+                ExportMeshes = cmdl.GetHighestLODMeshes();
+            }
+
             int MatName = 0;
-            foreach (var mesh in cmdl.Meshes)
+            foreach (var mesh in ExportMeshes)
             {
                 var mat = cmdl.Materials[mesh.Header.MaterialIndex];
 
@@ -110,8 +120,14 @@ namespace EvilWithin2Tool
                     iomesh.Vertices.Add(iovertex);
 
                     iovertex.SetUV(vert.TexCoord0.X, vert.TexCoord0.Y, 0);
-                    iovertex.SetUV(vert.TexCoord1.X, vert.TexCoord1.Y, 1);
-                    iovertex.SetUV(vert.TexCoord2.X, vert.TexCoord2.Y, 2);
+                    if (mesh.hasTexCoord1)
+                    {
+                        iovertex.SetUV(vert.TexCoord1.X, vert.TexCoord1.Y, 1);
+                    }
+                    if (mesh.hasTexCoord2)
+                    {
+                        iovertex.SetUV(vert.TexCoord2.X, vert.TexCoord2.Y, 2);
+                    }
 
                     iovertex.SetColor(
                         vert.Color1.X,

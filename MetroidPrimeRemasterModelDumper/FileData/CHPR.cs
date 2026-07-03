@@ -1,7 +1,10 @@
 ﻿using AvaloniaToolbox.Core.IO;
 using DKCTF;
+using System;
 using System.Numerics;
 using System.Reflection.Metadata.Ecma335;
+using System.Xml.Linq;
+using static RetroStudioPlugin.Files.FileData.CHPR;
 using static RetroStudioPlugin.Files.FileData.CHPR.SBaseInfo;
 
 namespace RetroStudioPlugin.Files.FileData
@@ -146,6 +149,8 @@ namespace RetroStudioPlugin.Files.FileData
                     this.SkinnedBones.Add(boneName);
                 }
 
+                //string boneIDContents = "Bone Building Information: ";
+
                 for (int i = 0; i < renderContext.InverseMatrices.Length; i++)
                 {
                     // Bone ID
@@ -172,6 +177,7 @@ namespace RetroStudioPlugin.Files.FileData
                         LocalTransform = worldSpace, // Adjusted afterward
                     });
                 }
+
 
                 for (int i = 0; i < Bones.Count; i++)
                 {
@@ -250,6 +256,7 @@ namespace RetroStudioPlugin.Files.FileData
             {
                 return (int)(NodeIDs[index] & 0xFFFF);
             }
+
         }
 
         public class SAnimContext
@@ -282,24 +289,35 @@ namespace RetroStudioPlugin.Files.FileData
         {
             public SNodeSet NodeSet;
 
+            public byte[] section1;
+            public byte[] section2;
+            public byte[] section3;
+            public byte[] section4;
+
             public (ushort, ushort)[] Section5;
+
+            public byte num1;
+            public ushort num2;
+            public ushort num3;
+            public ushort num4;
+            public ushort num5;
 
             public SAbsContext(FileReader reader)
             {
                 /* SAbsContext::Load  */
 
-                byte num1 = reader.ReadByte();
-                ushort num2 = reader.ReadUInt16();
-                ushort num3 = reader.ReadUInt16();
-                ushort num4 = reader.ReadUInt16();
-                ushort num5 = reader.ReadUInt16();
+                num1 = reader.ReadByte();
+                num2 = reader.ReadUInt16();
+                num3 = reader.ReadUInt16();
+                num4 = reader.ReadUInt16();
+                num5 = reader.ReadUInt16();
 
                 /* SAbsContext::ReadIntoMemory */
 
-                byte[] section1 = reader.ReadBytes(num1 * 6);
-                byte[] section2 = reader.ReadBytes(num3);
-                byte[] section3 = reader.ReadBytes(num4);
-                byte[] section4 = reader.ReadBytes(num5);
+                section1 = reader.ReadBytes(num1 * 6);
+                section2 = reader.ReadBytes(num3);
+                section3 = reader.ReadBytes(num4);
+                section4 = reader.ReadBytes(num5);
 
                 NodeSet = new SNodeSet(reader);
 
@@ -313,28 +331,38 @@ namespace RetroStudioPlugin.Files.FileData
 
         public class SRenderContext
         {
-            public Matrix4x4[] InverseMatrices;
+            public Matrix4x4[] InverseMatrices; // DO NOT USE
             public Matrix4x4[] SkinnedInverseMatrices;
 
             public ushort[] SkinnedMatrixBoneIDs;
-            public ushort[] InverseMatrixBoneIds;
+            public ushort[] InverseMatrixBoneIds; // DO NOT USE
+
+            public ushort[] section2;
+            public ushort[] section3;
+            public byte[] section4;
+
+            public ushort num1;
+            public ushort num2;
+            public ushort num3;
+            public ushort num4;
+            public uint num5;
 
             public SRenderContext(FileReader reader)
             {
-                ushort num1 = reader.ReadUInt16();
-                ushort num2 = reader.ReadUInt16();
-                ushort num3 = reader.ReadUInt16();
-                ushort num4 = reader.ReadUInt16();
-                uint num5 = reader.ReadUInt32();
+                num1 = reader.ReadUInt16();
+                num2 = reader.ReadUInt16();
+                num3 = reader.ReadUInt16();
+                num4 = reader.ReadUInt16();
+                num5 = reader.ReadUInt32();
 
                 SkinnedMatrixBoneIDs = reader.ReadUInt16s((int)num1);
-                ushort[] section2 = reader.ReadUInt16s((int)num2);
-                ushort[] section3 = reader.ReadUInt16s((int)num3);
+                section2 = reader.ReadUInt16s((int)num2);
+                section3 = reader.ReadUInt16s((int)num3);
                 InverseMatrixBoneIds = reader.ReadUInt16s((int)num4);
 
                 SkinnedInverseMatrices = reader.ReadMatrix3x4s(num1 + 1);
                 InverseMatrices = reader.ReadMatrix3x4s(num4);
-                byte[] section4 = reader.ReadBytes((int)num5);
+                section4 = reader.ReadBytes((int)num5);
             }
         }
 

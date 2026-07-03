@@ -1,11 +1,6 @@
 ﻿using AvaloniaToolbox.Core.IO;
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Numerics;
-using System.Runtime.InteropServices;
-using System.Text;
-using System.Threading.Tasks;
+#nullable disable
 
 namespace DKCTF
 {
@@ -106,7 +101,7 @@ namespace DKCTF
             {
                 var rot = reader.ReadQuaternion();
                 JointCoords.Add(new BoneCoord()
-                {   
+                {
                     Rotation = new Quaternion(rot.Y, rot.Z, rot.W, rot.X),
                     Scale = reader.ReadVector3(),
                     Position = reader.ReadVector3(),

@@ -1,11 +1,14 @@
 ﻿using AvaloniaToolbox.Core.IO;
+using EvilWithin2Tool;
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
+using static AvaloniaToolbox.Core.ConsoleLogger;
 #nullable disable
 
 namespace DKCTF
@@ -21,6 +24,8 @@ namespace DKCTF
         /// The meshes of the model used to display the model.
         /// </summary>
         public List<CMesh> Meshes = new List<CMesh>();
+
+        public List<ModelLOD> ParsedLODs = new List<ModelLOD>();
 
         /// <summary>
         /// The materials of the model for rendering the mesh.
@@ -48,6 +53,17 @@ namespace DKCTF
                          this.FileHeader.FormType == "WMDL" && this.FileHeader.VersionA >= 0x36;
 
         public bool IsR11 = true;
+
+        public byte[] unk1;
+        public byte[] unk2;
+        public uint shortCount;
+        public ushort[] shorts;
+        public byte lodCount;
+        public LODinfo[] lods;
+        public uint hasLODRule;
+        public LodRule[] LodRules;
+
+
 
         /// <summary>
         /// The meta data header for parsing gpu buffers and decompressing.
@@ -123,6 +139,7 @@ namespace DKCTF
                         var data = IOFileExtension.DecompressedBuffer(reader, buffer.CompressedSize, buffer.DecompressedSize, IsSwitch);
                         //  if (buffer.DecompressedSize != data.Length)
                         //      throw new Exception();
+
 
                         IndexBytes.Add(data);
 
@@ -407,7 +424,115 @@ namespace DKCTF
                     Header = mesh,
                 });
             }
+
+            this.unk1 = new byte[(numMeshes + 3) / 4];
+            this.unk2 = new byte[(numMeshes + 7) / 8];
+            for (int i = 0; i < unk1.Length; i++)
+            {
+                this.unk1[i] = reader.ReadByte();
+            }
+            for (int i = 0; i < unk2.Length; i++)
+            {
+                this.unk2[i] = reader.ReadByte();
+            }
+
+            this.shortCount = reader.ReadUInt32();
+            this.shorts = new ushort[this.shortCount];
+
+            for (int i = 0; i < shortCount; i++)
+            {
+                this.shorts[i] = reader.ReadUInt16();
+            }
+
+            this.lodCount = reader.ReadByte();
+            this.lods = new LODinfo[lodCount];
+
+            for (int i = 0; i < lodCount; i++)
+            {
+                //Console.WriteLine("LOD outer: " + i);
+                LODinfo info = new LODinfo();
+
+                info.ReadInner(reader);
+
+                this.lods[i] = info;
+            }
+
+            this.hasLODRule = reader.ReadUInt32();
+
+            // Conditionally read the LOD rules if the flag is set to 1
+            if (this.hasLODRule == 1)
+            {
+                this.LodRules = new LodRule[this.lodCount];
+                for (int i = 0; i < this.lodCount; i++)
+                {
+                    this.LodRules[i] = new LodRule
+                    {
+                        Value = reader.ReadSingle() // SRenderModelLODRule is just a standard f32
+                    };
+                }
+            }
+            else
+            {
+                // Initialize empty to avoid null reference exceptions down the line
+                this.LodRules = new LodRule[0];
+            }
+
+            // Map meshes to their respective LOD buckets
+            for (int lodIndex = 0; lodIndex < this.lodCount; lodIndex++)
+            {
+                LODinfo currentLOD = this.lods[lodIndex];
+                ModelLOD parsedLOD = new ModelLOD();
+
+                if (this.hasLODRule == 1 && lodIndex < this.LodRules.Length)
+                {
+                    parsedLOD.Distance = this.LodRules[lodIndex].Value;
+                }
+
+                foreach (LODInner inner in currentLOD.inner)
+                {
+                    for (uint i = 0; i < inner.count; i++)
+                    {
+                        int meshIndex = this.shorts[inner.offset + i];
+
+                        // Add the index to our LOD bucket if it isn't there already
+                        if (!parsedLOD.MeshIndices.Contains(meshIndex))
+                        {
+                            parsedLOD.MeshIndices.Add(meshIndex);
+                        }
+
+                        // Keep your original tagging, it's still useful!
+                        if (meshIndex < this.Meshes.Count)
+                        {
+                            this.Meshes[meshIndex].LODs.Add(lodIndex);
+                        }
+                    }
+                }
+
+                this.ParsedLODs.Add(parsedLOD);
+            }
+
             Console.WriteLine();
+        }
+
+        /// <summary>
+        /// Extracts only the meshes associated with LOD 0.
+        /// </summary>
+        public List<CMesh> GetHighestLODMeshes()
+        {
+            if (this.ParsedLODs.Count == 0) return new List<CMesh>();
+
+            List<CMesh> highLodMeshes = new List<CMesh>();
+
+            // ParsedLODs[0] contains the indices for the highest level of detail
+            foreach (int index in this.ParsedLODs[0].MeshIndices)
+            {
+                if (index < this.Meshes.Count)
+                {
+                    highLodMeshes.Add(this.Meshes[index]);
+                }
+            }
+
+            return highLodMeshes;
         }
 
         private void ReadVertexBuffer(FileReader reader)
@@ -457,6 +582,10 @@ namespace DKCTF
 
             public Vector4 Color1 = Vector4.One;
 
+            public bool hasTexCoord1 = false;
+            public bool hasTexCoord2 = false;
+            public bool hasTexCoord3 = false;
+
             public Vector4 Tangent;
         }
 
@@ -491,11 +620,16 @@ namespace DKCTF
         public class CMesh
         {
             public CRenderMesh Header;
-
             public List<CVertex> Vertices = new List<CVertex>();
-
             public uint[] Indices = new uint[0];
 
+            public HashSet<int> LODs = new HashSet<int>();
+
+            public bool hasTexCoord1 = false;
+            public bool hasTexCoord2 = false;
+            public bool hasTexCoord3 = false;
+
+            /*
             public void SetupVertices(List<CVertex> vertices)
             {
                 //Here we optmize the vertices to only use the vertices used by the mesh rather than use one giant list
@@ -506,14 +640,78 @@ namespace DKCTF
                     remappedIndices.Add((uint)vertexList.Count);
                     vertexList.Add(vertices[(int)Indices[i]]);
                 }
+
+                if (vertexList[0].hasTexCoord1)
+                {
+                    hasTexCoord1 = true;
+                }
+                if (vertexList[0].hasTexCoord2)
+                {
+                    hasTexCoord2 = true;
+                }
+                if (vertexList[0].hasTexCoord3)
+                {
+                    hasTexCoord3 = true;
+                }
+
+                this.Vertices = vertexList;
+                this.Indices = remappedIndices.ToArray();
+            }
+            */
+
+            public void SetupVertices(List<CVertex> vertices)
+            {
+                if (Indices.Length == 0) return;
+
+                // 1. Find the absolute minimum and maximum indices used by this mesh
+                uint minIndex = uint.MaxValue;
+                uint maxIndex = uint.MinValue;
+
+                for (int i = 0; i < Indices.Length; i++)
+                {
+                    if (Indices[i] < minIndex) minIndex = Indices[i];
+                    if (Indices[i] > maxIndex) maxIndex = Indices[i];
+                }
+
+                // 2. Slice out only the continuous range of vertices this mesh needs
+                List<CVertex> vertexList = new List<CVertex>();
+                int vertexCount = (int)(maxIndex - minIndex + 1);
+
+                for (int i = 0; i < vertexCount; i++)
+                {
+                    vertexList.Add(vertices[(int)(minIndex + i)]);
+                }
+
+                // 3. Remap the index buffer by subtracting the minimum index
+                // This preserves vertex sharing perfectly.
+                List<uint> remappedIndices = new List<uint>();
+                for (int i = 0; i < Indices.Length; i++)
+                {
+                    remappedIndices.Add(Indices[i] - minIndex);
+                }
+
+                // Assign texture coordinate flags safely
+                if (vertexList.Count > 0)
+                {
+                    hasTexCoord1 = vertexList[0].hasTexCoord1;
+                    hasTexCoord2 = vertexList[0].hasTexCoord2;
+                    hasTexCoord3 = vertexList[0].hasTexCoord3;
+                }
+
                 this.Vertices = vertexList;
                 this.Indices = remappedIndices.ToArray();
             }
         }
 
+        public class ModelLOD
+        {
+            public List<int> MeshIndices = new List<int>();
+            public float Distance;
+        }
+
         public class SSkinnedModelHeader : CChunkDescriptor
         {
-            public uint Unknown;
+            public uint unknown;
         }
 
         [StructLayout(LayoutKind.Sequential, Pack = 1)]
@@ -625,8 +823,6 @@ namespace DKCTF
             in_MaterialChoice1 = 26,
             in_MaterialChoice2 = 27,
             in_MaterialChoice3 = 28,
-
-
         }
 
         //Meta data from PAK archive
@@ -655,5 +851,36 @@ namespace DKCTF
             public uint CompressedSize;
             public uint DecompressedSize;
         }
+
+        // LOD stuff
+        public class LODinfo
+        {
+            public LODInner[] inner = new LODInner[5];
+
+            public void ReadInner(FileReader reader)
+            {
+                for (int i = 0; i < inner.Length; i++)
+                {
+                    LODInner tempinner = new LODInner();
+
+                    tempinner.offset = reader.ReadUInt32();
+                    tempinner.count = reader.ReadUInt32();
+
+                    inner[i] = tempinner;
+                }
+            }
+        }
+
+        public class LODInner
+        {
+            public uint offset;
+            public uint count;
+        }
+
+        public class LodRule
+        {
+            public float Value;
+        }
+
     }
 }

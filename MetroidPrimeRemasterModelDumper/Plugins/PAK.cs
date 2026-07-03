@@ -7,7 +7,7 @@ using System.Runtime.InteropServices;
 using System.IO;
 using AvaloniaToolbox.Core;
 using AvaloniaToolbox.Core.IO;
-using ImageLibrary;
+using ImageLibrary.Utils;
 
 namespace DKCTF
 {
