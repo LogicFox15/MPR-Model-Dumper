@@ -40,11 +40,11 @@ namespace MetroidPrimeRemasterModelDumper
             {
                 Console.WriteLine("Please specify the mode to run in: ");
                 Console.WriteLine("");
-                Console.WriteLine("    0 = Dump CMDL files");
-                Console.WriteLine("    1 = Dump CHPR files");
+                Console.WriteLine("    0 = Dump CMDL files (Static Models)");
+                Console.WriteLine("    1 = Dump CHPR files (Rig Containers)");
                 Console.WriteLine("    2 = Dump CMDL files With LODs");
                 Console.WriteLine("    3 = Dump CHPR files with LODS");
-                Console.WriteLine("    4 = Dump TXTR files");
+                Console.WriteLine("    4 = Dump TXTR files (Textures)");
                 Console.WriteLine("    5 = Dump TXTR files with folders for array textures");
                 Console.WriteLine("");
                 Console.WriteLine("WARNING: LOD identification is still buggy. Also, there are still");

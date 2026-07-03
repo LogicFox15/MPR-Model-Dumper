@@ -104,7 +104,7 @@ namespace EvilWithin2Tool
                 //iomesh.Name = $"Mesh{iomodel.Meshes.Count}_{mat.Name}";
                 string lodLevels = mesh.LODs.Count > 0 ? string.Join("_", mesh.LODs) : "None";
 
-                iomesh.Name = $"Mesh{iomodel.Meshes.Count}_LOD{lodLevels}";
+                iomesh.Name = $"Mesh{iomodel.Meshes.Count}_LOD{lodLevels}_MatID{mesh.Header.MaterialIndex}";
 
                 iomodel.Meshes.Add(iomesh);
 
