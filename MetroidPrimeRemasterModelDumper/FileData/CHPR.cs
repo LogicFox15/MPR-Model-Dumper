@@ -203,7 +203,6 @@ namespace RetroStudioPlugin.Files.FileData
                     Channels.Add(new SChannel(reader));
                 Console.WriteLine("numChannels: " + numChannels.ToString());
 
-
                 NumModels = reader.ReadByte();
                 Unk4 = reader.ReadByte();
                 NumAnchorInfos = reader.ReadByte();

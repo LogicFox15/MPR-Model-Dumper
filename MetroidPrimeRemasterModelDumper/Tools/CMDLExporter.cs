@@ -177,9 +177,6 @@ namespace EvilWithin2Tool
                 meshnum++;
             }
 
-
-
-
             //****************************//
             //    MATERIAL INFO LOGGER    //
             //****************************//
@@ -213,9 +210,35 @@ namespace EvilWithin2Tool
                 materialTXT += (System.Environment.NewLine + "Material: " + mat.Name);
                 foreach (var texture in mat.Textures)
                 {
-                    materialTXT += (System.Environment.NewLine + "UV Map: " + texture.UsageInfo.Flags.ToString() + "     Type: " + mat.TextureIDs[count].ToString() + "     " + texture.FileID.ToString());
-                    string parentName = BatchPakExtractor.LocateTextureParentPak(texture.FileID.ToString());
+                    materialTXT += (System.Environment.NewLine + "UV Map: " + texture.TextureTokenData.UsageInfo.Flags.ToString() + "     Type: " + texture.type.ToString() + "     " + texture.TextureTokenData.FileID.ToString());
+                    string parentName = BatchPakExtractor.LocateTextureParentPak(texture.TextureTokenData.FileID.ToString());
                     materialTXT += "     Location: " + parentName;
+                }
+
+                foreach (var Complex in mat.ComplexTypeAs)
+                {
+                    materialTXT += (System.Environment.NewLine + "Complex Type 1: ");
+                    if (Complex.hasTex1)
+                    {
+                        materialTXT += (System.Environment.NewLine + "UV Map: " + Complex.Texture1.UsageInfo.Flags.ToString() + "     " + Complex.Texture1.FileID.ToString());
+                    }
+                    if (Complex.hasTex2)
+                    {
+                        materialTXT += (System.Environment.NewLine + "UV Map: " + Complex.Texture2.UsageInfo.Flags.ToString() + "     " + Complex.Texture2.FileID.ToString());
+                    }
+                    if (Complex.hasTex3)
+                    {
+                        materialTXT += (System.Environment.NewLine + "UV Map: " + Complex.Texture3.UsageInfo.Flags.ToString() + "     " + Complex.Texture3.FileID.ToString());
+                    }
+                }
+
+                foreach (var Complex in mat.ComplexTypeBs)
+                {
+                    materialTXT += (System.Environment.NewLine + "Complex Type B: ");
+                    for (int i = 0; i < Complex.colors.Count; i++)
+                    {
+                        materialTXT += System.Environment.NewLine + "Color " + i + ": " + Complex.colors[i].R.ToString() + ", " + Complex.colors[i].G.ToString() + ", " + Complex.colors[i].B.ToString() + ", " + Complex.colors[i].A.ToString();
+                    }
                 }
 
                 foreach (var scalar in mat.Scalars)
@@ -254,8 +277,9 @@ namespace EvilWithin2Tool
                     materialTXT += (System.Environment.NewLine + "B: " + color.Value.B.ToString());
                     materialTXT += (System.Environment.NewLine + "A: " + color.Value.A.ToString());
                 }
-                materialTXT += System.Environment.NewLine;
 
+                
+                materialTXT += System.Environment.NewLine;
             }
             
             foreach (var mat in cleanMatsNew)
@@ -267,6 +291,18 @@ namespace EvilWithin2Tool
                     string parentName = BatchPakExtractor.LocateTextureParentPak(texture.FileID.ToString());
                     materialTXT += "     Location: " + parentName;
                 }
+                foreach (var Complex in mat.Complex)
+                {
+                    materialTXT += (System.Environment.NewLine + "Complex: ");
+                    for (int i = 0; i < Complex.Colors.Count; i++)
+                    {
+                        materialTXT += System.Environment.NewLine + "Color " + i + ": " + Complex.Colors[i].R.ToString() + ", " + Complex.Colors[i].G.ToString() + ", " + Complex.Colors[i].B.ToString() + ", " + Complex.Colors[i].A.ToString();
+                    }
+                }
+                foreach (var scalar in mat.Scalars)
+                {
+                    materialTXT += (System.Environment.NewLine + "Scalar Type: " + scalar.Key + "     Value: " + scalar.Value.ToString());
+                }
                 foreach (var color in mat.Colors)
                 {
                     materialTXT += (System.Environment.NewLine + "Color Type: " + color.Key);
@@ -275,6 +311,7 @@ namespace EvilWithin2Tool
                     materialTXT += (System.Environment.NewLine + "B: " + color.Value.B.ToString());
                     materialTXT += (System.Environment.NewLine + "A: " + color.Value.A.ToString());
                 }
+                
                 materialTXT += System.Environment.NewLine;
             }
 

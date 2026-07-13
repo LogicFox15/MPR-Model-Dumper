@@ -233,10 +233,10 @@ namespace DKCTF
                             //Console.WriteLine("material format: SCLR");
                             break;
                         case "CPLX": //CLayeredTextureData
-                                     //Console.WriteLine("material format: CPLX");
+                            material.HasComplex = true;
                             reader.ReadUInt32();
-                            uint cplxSize = reader.ReadUInt32();
-                            reader.ReadBytes((int)cplxSize);
+                            CComplexLegacyB legacy = new CComplexLegacyB(reader);
+                            material.ComplexTypeBs.Add(legacy);
                             break;
                     }
                 }
@@ -296,90 +296,51 @@ namespace DKCTF
                         switch (dType)
                         {
                             case "TXTR": //Texture
-                                material.TextureIDs.Add(dID);
-                                material.Textures.Add(reader.ReadStruct<CMaterialTextureTokenData>());
-                                //Console.WriteLine("material format: TXTR");
+                                CTextureOld texture = new CTextureOld();
+                                CMaterialTextureTokenData tokenData = reader.ReadStruct<CMaterialTextureTokenData>();
+                                texture.TextureTokenData = tokenData;
+                                texture.type = typeCheck;
+                                material.Textures.Add( texture );
+                                //material.Textures.Add(reader.ReadStruct<CMaterialTextureTokenData>());
                                 break;
                             case "COLR": //Color
                                 material.Colors.Add(dID, reader.ReadStruct<Color4f>());
-                                //Console.WriteLine("material format: COLR");
                                 break;
                             case "SCLR": //Scaler
                                 material.Scalars.Add(dID, reader.ReadSingle());
-                                //Console.WriteLine("material format: SCLR");
                                 break;
                             case "INT ": //int
                                 material.Int.Add(dID, reader.ReadInt32());
-                                //Console.WriteLine("material format: INT");
                                 break;
                             case "INT4": //int4
                                 material.Int4.Add(dID, reader.ReadInt32s(4));
-                                //Console.WriteLine("material format: INT4");
                                 break;
                             case "CPLX": //CLayeredTextureData
-                                         //Console.WriteLine("material format: CPLX      LOOK HERE");
-
+                                material.HasComplex = true;
                                 uint cplxType = reader.ReadUInt32();
-
+                                material.ComplexType = cplxType;
                                 if( cplxType != 0)
                                 {
-                                    uint cplxSize = reader.ReadUInt32();
-                                    reader.ReadBytes((int)cplxSize);
+                                    CComplexLegacyB legacy = new CComplexLegacyB(reader);
+                                    material.ComplexTypeBs.Add(legacy);
                                 }
                                 else
                                 {
-                                    reader.ReadByte();
-                                    reader.ReadUInt32();
-                                    
-
-                                    var texture1 = reader.ReadStruct<CObjectId>();
-                                    if (!texture1.IsZero())
-                                    {
-                                        var info1 = reader.ReadStruct<STextureUsageInfo>();
-                                        CMaterialTextureTokenData TextureData1 = new CMaterialTextureTokenData();
-                                        TextureData1.FileID = texture1;
-                                        TextureData1.UsageInfo = info1;
-                                        material.Textures.Add(TextureData1);
-                                    }
-
-                                    var texture2 = reader.ReadStruct<CObjectId>();
-                                    if (!texture2.IsZero())
-                                    {
-                                        var info2 = reader.ReadStruct<STextureUsageInfo>();
-                                        CMaterialTextureTokenData TextureData2 = new CMaterialTextureTokenData();
-                                        TextureData2.FileID = texture2;
-                                        TextureData2.UsageInfo = info2;
-                                        material.Textures.Add(TextureData2);
-                                    }
-
-                                    var texture3 = reader.ReadStruct<CObjectId>();
-                                    if (!texture3.IsZero())
-                                    {
-                                        var info3 = reader.ReadStruct<STextureUsageInfo>();
-                                        CMaterialTextureTokenData TextureData3 = new CMaterialTextureTokenData();
-                                        TextureData3.FileID = texture3;
-                                        TextureData3.UsageInfo = info3;
-                                        material.Textures.Add(TextureData3);
-                                    }
+                                    CComplexLegacyA legacy = new CComplexLegacyA(reader);
+                                    material.ComplexTypeAs.Add(legacy);
                                 }
-
-
                                 break;
                             case "MA4": //Matrix4x4
-                                        //Console.WriteLine("material format: MA4");
                                 material.Matrices.Add(dID, reader.ReadSingles(16));
                                 break;
                             default:
+                                material.FailedType = dID;
                                 Console.WriteLine($"Unsupported material type {formatCheck}!");
-                                break;
-                                //throw new Exception($"Unsupported material type {formatCheck}!");
+                                throw new Exception($"Unsupported material type {formatCheck}!");
                         }
                     }
                 }
             }
-
-
-                
         }
 
         private void ReadMaterialShape(FileReader reader)
@@ -387,8 +348,6 @@ namespace DKCTF
             uint numMaterials = reader.ReadUInt32();
             uint unk1 = reader.ReadUInt32();
             uint unk2 = reader.ReadUInt32();
-
-            //CMaterialShapeEntry[] Entries = new CMaterialShapeEntry[numMaterials];
 
             for(int i = 0; i < unk2; i++)
             {
@@ -502,7 +461,8 @@ namespace DKCTF
             currentMat.materialInstance.unk4 = reader.ReadByte();
 
             for(int i = 0; i < currentMat.materialInstance.unk4; i++)
-            {
+            {   
+                // Two colors, most likely
                 reader.ReadUInt32();
                 reader.ReadUInt32();
                 reader.ReadUInt32();
@@ -512,7 +472,6 @@ namespace DKCTF
                 reader.ReadUInt32();
                 reader.ReadUInt32();
             }
-
 
             // The important stuff
             uint EntryCount = reader.ReadUInt32();
@@ -528,55 +487,95 @@ namespace DKCTF
                 }
 
                 //Swapped value used for check to stop inconsistencies with not having every type implemented.
-                
                 switch (Format)
                 {
                     case 2: // Single 4Byte value
-                        //material.Scalars.Add(Type, reader.ReadSingle());
+                        material.Scalars.Add(Type, reader.ReadSingle());
                         break;
                     case 3: // Color
-                        material.Colors.Add(Type, reader.ReadStruct<Color4f>());
-                        break;
                     case 4: // Color
-                        material.Colors.Add(Type, reader.ReadStruct<Color4f>());
-                        break;
                     case 12: // Color
                         material.Colors.Add(Type, reader.ReadStruct<Color4f>());
                         break;
                     case 5: // Texture
-                        CTextureNew tempTex0 = new CTextureNew();
-                        tempTex0.FileID = reader.ReadStruct<CObjectId>();
-                        tempTex0.unkUint = reader.ReadUInt32();
-                        tempTex0.unkGUID = reader.ReadStruct<CObjectId>();
-                        tempTex0.type = Type;
-                        material.Textures.Add(tempTex0);
-                        break;
                     case 6: // Texture
-                        CTextureNew tempTex1 = new CTextureNew();
-                        tempTex1.FileID = reader.ReadStruct<CObjectId>();
-                        tempTex1.unkUint = reader.ReadUInt32();
-                        tempTex1.unkGUID = reader.ReadStruct<CObjectId>();
-                        tempTex1.type = Type;
-                        material.Textures.Add(tempTex1);
-                        break;
                     case 7: // Texture
-                        CTextureNew tempTex2 = new CTextureNew();
-                        tempTex2.FileID = reader.ReadStruct<CObjectId>();
-                        tempTex2.unkUint = reader.ReadUInt32();
-                        tempTex2.unkGUID = reader.ReadStruct<CObjectId>();
-                        tempTex2.type = Type;
-                        material.Textures.Add(tempTex2);
-                        break;
                     case 8: // Texture
-                        CTextureNew tempTex3 = new CTextureNew();
-                        tempTex3.FileID = reader.ReadStruct<CObjectId>();
-                        tempTex3.unkUint = reader.ReadUInt32();
-                        tempTex3.unkGUID = reader.ReadStruct<CObjectId>();
-                        tempTex3.type = Type;
-                        material.Textures.Add(tempTex3);
+                        CTextureNew tempTex = new CTextureNew();
+                        tempTex.FileID = reader.ReadStruct<CObjectId>();
+                        tempTex.unkUint = reader.ReadUInt32();
+                        tempTex.unkGUID = reader.ReadStruct<CObjectId>();
+                        tempTex.type = Type;
+                        material.Textures.Add(tempTex);
                         break;
                     case 10: // Another Color?
                         material.Colors.Add(Type, reader.ReadStruct<Color4f>());
+                        break;
+                    case 32: // Complex Two Colors
+                        material.HasComplex = true;
+                        CComplex complexA = new CComplex(reader, 2);
+                        complexA.Type = Type;
+                        material.Complex.Add(complexA);
+                        break;
+                    case 48: // Complex Three Colors
+                        material.HasComplex = true;
+                        CComplex complexB = new CComplex(reader, 3);
+                        complexB.Type = Type;
+                        material.Complex.Add(complexB);
+                        break;
+                    case 64: // Complex Four Colors
+                        material.HasComplex = true;
+                        CComplex complexC = new CComplex(reader, 4);
+                        complexC.Type = Type;
+                        material.Complex.Add(complexC);
+                        break;
+                    case 80: // Complex Five Colors
+                        material.HasComplex = true;
+                        CComplex complexD = new CComplex(reader, 5);
+                        complexD.Type = Type;
+                        material.Complex.Add(complexD);
+                        break;
+                    case 96: // Complex Six Colors
+                        material.HasComplex = true;
+                        CComplex complexE = new CComplex(reader, 6);
+                        complexE.Type = Type;
+                        material.Complex.Add(complexE);
+                        break;
+                    case 112: // Complex Seven Colors
+                        material.HasComplex = true;
+                        CComplex complexF = new CComplex(reader, 7);
+                        complexF.Type = Type;
+                        material.Complex.Add(complexF);
+                        break;
+                    case 128: // Complex Eight Colors
+                        material.HasComplex = true;
+                        CComplex complexG = new CComplex(reader, 8);
+                        complexG.Type = Type;
+                        material.Complex.Add(complexG);
+                        break;
+                    case 144: // Complex Nine Colors
+                        material.HasComplex = true;
+                        CComplex complexH = new CComplex(reader, 9);
+                        complexH.Type = Type;
+                        material.Complex.Add(complexH);
+                        break;
+                    case 160: // Complex Ten Colors
+                        material.HasComplex = true;
+                        CComplex complexI = new CComplex(reader, 10);
+                        complexI.Type = Type;
+                        material.Complex.Add(complexI);
+                        break;
+                    case 176: // Complex Eleven Colors
+                        material.HasComplex = true;
+                        CComplex complexJ = new CComplex(reader, 11);
+                        complexJ.Type = Type;
+                        material.Complex.Add(complexJ);
+                        break;
+                    case 192: // Complex Twelve Colors
+                        material.HasComplex = true;
+                        CComplex complexK = new CComplex(reader, 12);
+                        complexK.Type = Type;
+                        material.Complex.Add(complexK);
                         break;
                     default:
                         done = true;
@@ -689,9 +688,6 @@ namespace DKCTF
             }
         }
 
-        /// <summary>
-        /// Extracts only the meshes associated with LOD 0.
-        /// </summary>
         public List<CMesh> GetHighestLODMeshes()
         {
             if (this.ParsedLODs.Count == 0) return new List<CMesh>();
@@ -826,6 +822,8 @@ namespace DKCTF
             public byte[] unk = new byte[6];
         }
 
+
+
         public int GetCountFromBits(int b) // Bit shifting to get the true count of Maya Splines.
         {
             int count = 0;
@@ -837,6 +835,100 @@ namespace DKCTF
             return count;
         }
 
+        public class CComplexLegacyA
+        {
+            public byte unkByte;
+            public uint unkUint;
+
+            public bool hasTex1 = false;
+            public bool hasTex2 = false;
+            public bool hasTex3 = false;
+
+            public CMaterialTextureTokenData Texture1;
+            public CMaterialTextureTokenData Texture2;
+            public CMaterialTextureTokenData Texture3;
+
+            public CComplexLegacyA (FileReader reader)
+            {
+
+                unkByte = reader.ReadByte();
+                unkUint = reader.ReadUInt32();
+
+                var newTexture1 = reader.ReadStruct<CObjectId>();
+                if (!newTexture1.IsZero())
+                {
+                    hasTex1 = true;
+                    var info1 = reader.ReadStruct<STextureUsageInfo>();
+                    CMaterialTextureTokenData TextureData1 = new CMaterialTextureTokenData();
+                    TextureData1.FileID = newTexture1;
+                    TextureData1.UsageInfo = info1;
+                    Texture1 = TextureData1;
+                }
+
+                var newTexture2 = reader.ReadStruct<CObjectId>();
+                if (!newTexture2.IsZero())
+                {
+                    hasTex2 = true;
+                    var info2 = reader.ReadStruct<STextureUsageInfo>();
+                    CMaterialTextureTokenData TextureData2 = new CMaterialTextureTokenData();
+                    TextureData2.FileID = newTexture2;
+                    TextureData2.UsageInfo = info2;
+                    Texture2 = TextureData2;
+                }
+
+                var newTexture3 = reader.ReadStruct<CObjectId>();
+                if (!newTexture3.IsZero())
+                {
+                    hasTex3 = true;
+                    var info3 = reader.ReadStruct<STextureUsageInfo>();
+                    CMaterialTextureTokenData TextureData3 = new CMaterialTextureTokenData();
+                    TextureData3.FileID = newTexture3;
+                    TextureData3.UsageInfo = info3;
+                    Texture3 = TextureData3;
+                }
+            }
+
+        }
+
+        public class CComplexLegacyB
+        {
+            public uint size;
+            public List<Color4f> colors = new List<Color4f>();
+
+            public CComplexLegacyB(FileReader reader)
+            {
+                size = reader.ReadUInt32();
+
+                uint count = size / 16;
+
+                for(uint i = 0; i < count; i++)
+                {
+                    Color4f color = reader.ReadStruct<Color4f>();
+                    colors.Add(color);
+                }
+            }
+        }
+        
+        public class CComplex
+        {
+            public string Type;
+            public List<Color4f> Colors = new List<Color4f>();
+
+            public CComplex(FileReader reader, int colorCount)
+            {
+                reader.ReadByte();
+                reader.ReadUInt16();
+
+                for(uint i = 0;i < colorCount; i++)
+                {
+                    Color4f color = reader.ReadStruct<Color4f>();
+                    Colors.Add(color);
+                }
+            }
+        }
+
+
+
         public class CMaterial
         {
             public string Name { get; set; }
@@ -846,8 +938,8 @@ namespace DKCTF
 
             public uint Flags { get; set; }
 
-            public List<Magic> TextureIDs = new List<Magic>();
-            public List<CMaterialTextureTokenData> Textures = new List<CMaterialTextureTokenData>();
+            public List<CTextureOld> Textures = new List<CTextureOld>();
+            //public List<CMaterialTextureTokenData> Textures = new List<CMaterialTextureTokenData>();
 
             //public Dictionary<string, CMaterialTextureTokenData> Textures = new Dictionary<string, CMaterialTextureTokenData>();
 
@@ -857,7 +949,13 @@ namespace DKCTF
             public Dictionary<string, float[]> Matrices = new Dictionary<string, float[]>();
             public Dictionary<string, Color4f> Colors = new Dictionary<string, Color4f>();
 
+            public List<CComplexLegacyA> ComplexTypeAs = new List<CComplexLegacyA>();
+            public List<CComplexLegacyB> ComplexTypeBs = new List<CComplexLegacyB>();
+
             // New stuff
+            public bool HasComplex = false;
+            public uint ComplexType;
+            public string FailedType;
         }
 
         public class CMaterialNew
@@ -866,6 +964,9 @@ namespace DKCTF
 
             public List<CTextureNew> Textures = new List<CTextureNew>();
             public List<CMayaSpline> MayaSplines = new List<CMayaSpline>();
+
+
+
             public List<CVariableDesc> VariableDescs = new List<CVariableDesc>();
 
             public Dictionary<string, float> Scalars = new Dictionary<string, float>();
@@ -873,9 +974,21 @@ namespace DKCTF
             public Dictionary<string, int[]> Int4 = new Dictionary<string, int[]>();
             public Dictionary<string, float[]> Matrices = new Dictionary<string, float[]>();
             public Dictionary<string, Color4f> Colors = new Dictionary<string, Color4f>();
+
+            public List<CComplex> Complex = new List<CComplex>();
+
+            public bool HasComplex = false;
+            public byte FailedFormat;
+            public string FailedType;
+
         }
 
-        [StructLayout(LayoutKind.Sequential, Pack = 1)]
+        public class CTextureOld
+        {
+            public CMaterialTextureTokenData TextureTokenData;
+            public string type;
+        }
+
         public class CTextureNew
         {
             public CObjectId FileID;
@@ -900,39 +1013,6 @@ namespace DKCTF
             public bool hasTexCoord1 = false;
             public bool hasTexCoord2 = false;
             public bool hasTexCoord3 = false;
-
-            /*
-            public void SetupVertices(List<CVertex> vertices)
-            {
-                //Here we optmize the vertices to only use the vertices used by the mesh rather than use one giant list
-                List<CVertex> vertexList = new List<CVertex>();
-                List<uint> remappedIndices = new List<uint>();
-
-                //Console.WriteLine("Vertex Indices Count: " + Indices.Length);
-
-                for (int i = 0; i < Indices.Length; i++)
-                {
-                    remappedIndices.Add((uint)vertexList.Count);
-                    vertexList.Add(vertices[(int)Indices[i]]);
-                }
-
-                if (vertexList[0].hasTexCoord1)
-                {
-                    hasTexCoord1 = true;
-                }
-                if (vertexList[0].hasTexCoord2)
-                {
-                    hasTexCoord2 = true;
-                }
-                if (vertexList[0].hasTexCoord3)
-                {
-                    hasTexCoord3 = true;
-                }
-
-                this.Vertices = vertexList;
-                this.Indices = remappedIndices.ToArray();
-            }
-            */
 
             public void SetupVertices(List<CVertex> vertices)
             {
@@ -1011,7 +1091,6 @@ namespace DKCTF
         [StructLayout(LayoutKind.Sequential, Pack = 1)]
         public class STextureUsageInfo
         {
-
             public uint Flags;
             public uint TextureFilter;
             public uint TextureWrapX;
@@ -1159,7 +1238,5 @@ namespace DKCTF
         {
             public float Value;
         }
-
-
     }
 }

@@ -1,4 +1,5 @@
-﻿using DKCTF;
+﻿using AvaloniaToolbox.Core.IO;
+using DKCTF;
 using EvilWithin2Tool;
 using ImageLibrary;
 using ImageLibrary.Formats.Encoders;
@@ -7,7 +8,9 @@ using IONET.Collada.Core.Lighting;
 using RetroStudioPlugin.Files.FileData;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
+using System.Numerics;
 using System.Text.Json;
+using static DKCTF.CMDL;
 using static System.Runtime.InteropServices.JavaScript.JSType;
 #nullable disable
 
@@ -46,6 +49,7 @@ namespace MetroidPrimeRemasterModelDumper
                 Console.WriteLine("    3 = Dump CHPR files with LODS");
                 Console.WriteLine("    4 = Dump TXTR files (Textures)");
                 Console.WriteLine("    5 = Dump TXTR files with folders for array textures");
+                //Console.WriteLine("    6 = Document Complex Materials (Textures)");
                 Console.WriteLine("");
                 Console.WriteLine("WARNING: LOD identification is still buggy. Also, there are still");
                 Console.WriteLine("issues with the UV maps. Dumps may not be 100% accurate.");
@@ -100,6 +104,15 @@ namespace MetroidPrimeRemasterModelDumper
                                 ExtractTXTR(fileInfo.FileData, fileInfo, pak);
                             savedMode = "5";
                             break;
+                            /*
+                        case "6":
+                            if (fileInfo.AssetEntry.Type == "CMDL")
+                                DocumentModelComplexes(fileInfo.FileData, fileInfo, pak);
+                            if (fileInfo.AssetEntry.Type == "SMDL")
+                                DocumentModelComplexes(fileInfo.FileData, fileInfo, pak);
+                            savedMode = "6";
+                            break;
+                            */
                     }
                 }
                 catch
@@ -224,9 +237,6 @@ namespace MetroidPrimeRemasterModelDumper
                 }
                 path = Path.Combine(folder, $"{textureName}.png");
             }
-
-
-            
 
             try
             {
@@ -356,8 +366,6 @@ namespace MetroidPrimeRemasterModelDumper
             return TargetedModelFile;
         }
 
-
-
         // File searching because Retro Studios is darn weird with materials.
         public static FileEntry SearchForMaterial(string MaterialName, int TypeToggle)
         {   
@@ -456,6 +464,65 @@ namespace MetroidPrimeRemasterModelDumper
             return TargetedFileParent;
         }
 
+        public static void DocumentModelComplexes(Stream stream, FileEntry Entry, PAK pak)
+        {
+            var cmdl = new CMDL(Entry.FileData);
+            string modelName = Entry.AssetEntry.FileID.ToString();
+
+
+
+            for(int i = 0; i < cmdl.Materials.Count; i++)
+            {
+                if (cmdl.Materials[i].HasComplex)
+                {
+                    if (!File.Exists(AppContext.BaseDirectory + "/ComplexDocumentation.txt"))
+                    {
+                        string brokenTex;
+                        brokenTex = modelName + "     Type: Model     Format: " + cmdl.Materials[i].ComplexType.ToString("X8");
+
+                        File.WriteAllText(AppContext.BaseDirectory + "/ComplexDocumentation.txt", brokenTex);
+                        break;
+                    }
+                    else
+                    {
+                        string brokenTexCont;
+                        brokenTexCont = Environment.NewLine + modelName + "     Type: Model     Format: " + cmdl.Materials[i].ComplexType.ToString("X8");
+
+                        File.AppendAllText(AppContext.BaseDirectory + "/ComplexDocumentation.txt", brokenTexCont);
+                        break;
+                    }
+                }
+            }
+
+
+            for (int i = 0; i < cmdl.MaterialsNew.Count; i++)
+            {
+                if (cmdl.MaterialsNew[i].HasComplex)
+             
+                {
+                    if (!File.Exists(AppContext.BaseDirectory + "/ComplexDocumentation.txt"))
+                    {
+                        string brokenTex;
+                        brokenTex = modelName + "     Type: Mati";
+                        //brokenTex = cmdl.MaterialsNew[i].Name + "     Type: Mati";
+
+                        File.WriteAllText(AppContext.BaseDirectory + "/ComplexDocumentation.txt", brokenTex);
+                    }
+                    else
+                    {
+                        string brokenTexCont;
+                        brokenTexCont = Environment.NewLine + modelName + "     Type: Mati";
+                        //brokenTexCont = Environment.NewLine + cmdl.MaterialsNew[i].Name + "     Type: Mati";
+
+                        File.AppendAllText(AppContext.BaseDirectory + "/ComplexDocumentation.txt", brokenTexCont);
+                        break;
+                    }
+                }
+            }
+
+
+            
+        }
 
     }
 }
