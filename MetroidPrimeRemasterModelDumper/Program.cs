@@ -37,8 +37,24 @@ foreach (var arg in args)
 
             throw;
         }
-
-
-       
     }
+
+    if (arg.EndsWith(".terr"))
+    {
+        try
+        {
+            BatchPakExtractor.ExtractModels(arg);
+        }
+        catch (Exception e)
+        {
+
+            Console.WriteLine(e.ToString());
+
+            Console.Write("Press any key to continue");
+            Console.ReadKey();
+
+            throw;
+        }
+    }
+
 }

@@ -90,13 +90,8 @@ namespace DKCTF
                                 break;
                             case CMDL.EVertexComponent.in_texCoord0:
                                 vertex.TexCoord0 = rawData.Xy();
-                                //Console.WriteLine("Made it here");
-
-                                // Check if the format is wide enough to contain a second packed UV map
-                                if (comp.Format == CMDL.VertexFormat.Format_16_16_16_HalfSingle ||
-                                    comp.Format == CMDL.VertexFormat.Format_32_32_32_32_Single)
+                                if (comp.Format == CMDL.VertexFormat.Format_16_16_16_HalfSingle || comp.Format == CMDL.VertexFormat.Format_32_32_32_32_Single)
                                 {
-                                    //Console.WriteLine("Also made it here");
                                     vertex.hasTexCoord1 = true;
                                     vertex.TexCoord1 = new Vector2(rawData.Z, rawData.W);
                                 }

@@ -927,8 +927,8 @@ namespace DKCTF
             }
         }
 
-
-
+        //*************************//
+        // These are for exporting
         public class CMaterial
         {
             public string Name { get; set; }
@@ -965,8 +965,6 @@ namespace DKCTF
             public List<CTextureNew> Textures = new List<CTextureNew>();
             public List<CMayaSpline> MayaSplines = new List<CMayaSpline>();
 
-
-
             public List<CVariableDesc> VariableDescs = new List<CVariableDesc>();
 
             public Dictionary<string, float> Scalars = new Dictionary<string, float>();
@@ -982,6 +980,8 @@ namespace DKCTF
             public string FailedType;
 
         }
+
+        //*************************//
 
         public class CTextureOld
         {
@@ -1131,7 +1131,7 @@ namespace DKCTF
             Uint32 = 2,
         }
 
-        public enum PrimtiiveType
+        public enum PrimitiveType
         {
             Triangles = 3,
         }
@@ -1206,7 +1206,7 @@ namespace DKCTF
             public uint Offset;
             public uint CompressedSize;
             public uint DecompressedSize;
-            public uint unk;  // FIX THIS BEFORE TESTING ON PRIME 4
+            public uint unk;
         }
 
         // LOD stuff

@@ -8,8 +8,12 @@ using IONET.Collada.Core.Lighting;
 using RetroStudioPlugin.Files.FileData;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
+using System;
+using System.Data.Common;
+using System.IO;
 using System.Numerics;
 using System.Text.Json;
+using System.Xml.Linq;
 using static DKCTF.CMDL;
 using static System.Runtime.InteropServices.JavaScript.JSType;
 #nullable disable
@@ -22,6 +26,8 @@ namespace MetroidPrimeRemasterModelDumper
         public static string savedMode = "Empty";
         public static bool saveLODs = false;
         public static bool makeFolders = false;
+        public static List<CMaterialNew> MaterialsNew = new List<CMaterialNew>();
+
 
         public static void ExtractModels(string pakFile)
         {
@@ -49,7 +55,8 @@ namespace MetroidPrimeRemasterModelDumper
                 Console.WriteLine("    3 = Dump CHPR files with LODS");
                 Console.WriteLine("    4 = Dump TXTR files (Textures)");
                 Console.WriteLine("    5 = Dump TXTR files with folders for array textures");
-                //Console.WriteLine("    6 = Document Complex Materials (Textures)");
+                Console.WriteLine("    6 = Dump TERR (Sol Valley Terrain Resource)");
+                //Console.WriteLine("    7 = Dump TECM (Sol Valley Clip Map Resource)");
                 Console.WriteLine("");
                 Console.WriteLine("WARNING: LOD identification is still buggy. Also, there are still");
                 Console.WriteLine("issues with the UV maps. Dumps may not be 100% accurate.");
@@ -104,13 +111,16 @@ namespace MetroidPrimeRemasterModelDumper
                                 ExtractTXTR(fileInfo.FileData, fileInfo, pak);
                             savedMode = "5";
                             break;
-                            /*
                         case "6":
-                            if (fileInfo.AssetEntry.Type == "CMDL")
-                                DocumentModelComplexes(fileInfo.FileData, fileInfo, pak);
-                            if (fileInfo.AssetEntry.Type == "SMDL")
-                                DocumentModelComplexes(fileInfo.FileData, fileInfo, pak);
+                            if (fileInfo.AssetEntry.Type == "TERR")
+                                ExtractTerrain(fileInfo.FileData, fileInfo, pak);
                             savedMode = "6";
+                            break;
+                            /*
+                        case "7":
+                            if (fileInfo.AssetEntry.Type == "TECM")
+                                ExtractTerrainClipMap(fileInfo.FileData, fileInfo, pak);
+                            savedMode = "7";
                             break;
                             */
                     }
@@ -122,6 +132,70 @@ namespace MetroidPrimeRemasterModelDumper
                     throw;
                 }
                 
+            }
+        }
+
+        static void ExtractTerrain(Stream stream, FileEntry Entry, PAK pak)
+        {
+            Console.WriteLine("");
+            Console.WriteLine("WARNING: Processing the terrain format can be an intensive. For ease");
+            Console.WriteLine("of usage, the terrain tiles have been broken into groups. Please ensure");
+            Console.WriteLine("that your PC has a minimum of 8 gigabytes of ram before continuing with");
+            Console.WriteLine("the extraction. If you plan to bring every single tile into an application");
+            Console.WriteLine("such as Blender, ensure your PC has at least 8-16 gigabytes of ram.");
+            Console.WriteLine("");
+            Console.WriteLine("Press any key to continue.");
+            Console.ReadKey();
+
+            TERR terr = new TERR(Entry.FileData);
+            Console.WriteLine("TERR successfully consumed");
+
+            string folder = "SolValleyTerrainTiles";
+
+            //TERRExporter.ExportGLTF(terr, folder, pak);
+            TERRExporter.ExportHeightmapPNG(terr, folder, pak);
+            TERRExporter.ExportTextureSelectMap(terr, folder, pak);
+            TERRExporter.ExportUnknownBitMap(terr, folder, pak);
+            
+        }
+
+        static void ExtractTerrainClipMap(Stream stream, FileEntry Entry, PAK pak)
+        {
+            TECM tecm = new TECM(Entry.FileData);
+            Console.WriteLine("TECM successfully consumed. Attempting export");
+
+            string fileName = Entry.AssetEntry.FileID.ToString();
+            string folder = Path.Combine(Path.GetFileNameWithoutExtension(pak.FileInfo.FilePath), "ClipMaps");
+            folder = Path.Combine(folder, fileName);
+
+            if (!Directory.Exists(folder))
+            {
+                Directory.CreateDirectory(folder);
+            }
+
+            // 1. Grab the REAL dimensions from the TECM header (e.g., 96x96)
+            int resolution = (int)tecm.Header.TileDimensions;
+
+            for (int i = 0; i < tecm.tiles.Count; i++)
+            {
+                var tile = tecm.tiles[i];
+
+                // 2. Calculate the expected byte size for a DXT1 texture at this resolution
+                int expectedDxt1Size = Math.Max(1, (resolution + 3) / 4) * Math.Max(1, (resolution + 3) / 4) * 8;
+
+                string baseFileName = $"{folder}/{fileName}_tile{i}_chan{tile.ChannelDesc.ChannelNumber}";
+
+                // 3. Only wrap in a DDS header if the payload size matches DXT1 expectations
+                if (tile.data.Length == expectedDxt1Size)
+                {
+                    DdsExporter.ExportDxt1ToDds(baseFileName + ".dds", tile.data, resolution, resolution);
+                }
+                else
+                {
+                    // This channel is a different format (e.g., an 8-bit uncompressed mask).
+                    // Dump as raw binary for now so we don't generate corrupted DDS files.
+                    File.WriteAllBytes(baseFileName + ".bin", tile.data);
+                }
             }
         }
 
@@ -209,7 +283,7 @@ namespace MetroidPrimeRemasterModelDumper
             string folder;
             string path;
 
-            if (makeFolders && txtr.TextureHeader.Type >= 4)
+            if (makeFolders && txtr.TextureHeader.Type >= 2)
             {
                 folder = Path.Combine(Path.GetFileNameWithoutExtension(pak.FileInfo.FilePath));
 
@@ -240,7 +314,7 @@ namespace MetroidPrimeRemasterModelDumper
 
             try
             {
-                ExportToPng(path, txtr);
+                ExportTXTRToPng(path, txtr, Entry);
             }
             catch
             {
@@ -258,7 +332,7 @@ namespace MetroidPrimeRemasterModelDumper
             }
         }
 
-        static void ExportToPng(string outputPath, TXTR txtr)
+        static void ExportTXTRToPng(string outputPath, TXTR txtr, FileEntry Entry)
         {
             // Type 2 = 3D Texture. If it is 3D, use Depth. Otherwise, Depth is 1.
             uint actualDepth = txtr.TextureHeader.Type == 2 ? txtr.TextureHeader.Depth : 1;
@@ -274,12 +348,7 @@ namespace MetroidPrimeRemasterModelDumper
             genericTexture.PlatformSwizzle = new PlatformSwizzleSwitch();
             genericTexture.Data = txtr.BufferData;
 
-            if (txtr.TextureHeader.Type == 3)
-            {
-                genericTexture.ArrayCount = 6;
-            }
-
-            if (txtr.TextureHeader.Type >= 4)
+            if (txtr.TextureHeader.Type >= 2)
             {
                 Console.WriteLine("Found a 3D texture. Type " + txtr.TextureHeader.Type + ".");
                 genericTexture.ArrayCount = txtr.TextureHeader.Depth;
@@ -301,7 +370,7 @@ namespace MetroidPrimeRemasterModelDumper
 
             // If it reaches here, in theory, the material isn't in the pak.
             // If this is the case, time to consult the material manifest!
-            Console.WriteLine(FileID.ToString() + " isn't in this pak! ");
+            // Console.WriteLine(FileID.ToString() + " isn't in this pak! ");
 
             //System.IO.File.WriteAllText(AppContext.BaseDirectory + "/" + FileID + ".txt", FileID);
 
@@ -324,7 +393,7 @@ namespace MetroidPrimeRemasterModelDumper
                 {
                     if (manifestEntries[i].SMDLFiles[c] == ModelName)
                     {
-                        Console.WriteLine("Missing model should be in: " + manifestEntries[i].PakName);
+                        // Console.WriteLine("Missing model should be in: " + manifestEntries[i].PakName);
                         TargetedFile = FetchModel(manifestEntries[i].PakPath, ModelName);
                         foundFile = true;
                         break;
@@ -432,7 +501,6 @@ namespace MetroidPrimeRemasterModelDumper
             return TargetedFile;
         }
 
-
         public static string LocateTextureParentPak(string TextureName)
         {
             string ManifestContent = File.ReadAllText(AppContext.BaseDirectory + "/TextureManifest.json");
@@ -468,8 +536,6 @@ namespace MetroidPrimeRemasterModelDumper
         {
             var cmdl = new CMDL(Entry.FileData);
             string modelName = Entry.AssetEntry.FileID.ToString();
-
-
 
             for(int i = 0; i < cmdl.Materials.Count; i++)
             {

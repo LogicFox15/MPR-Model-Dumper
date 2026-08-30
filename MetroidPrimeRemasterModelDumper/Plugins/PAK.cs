@@ -159,6 +159,7 @@ namespace DKCTF
 
         public Stream ArchiveStream;
 
+
         public override Stream FileData 
         {
             get

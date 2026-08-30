@@ -316,11 +316,7 @@ namespace EvilWithin2Tool
             }
 
             File.WriteAllText(path + ".txt", materialTXT);
-
-
             string vertexBufferTXT = "Vertex Buffer Information: ";
-
-
 
             foreach (var VBuf in cmdl.VertexBuffers)
             {
@@ -341,16 +337,9 @@ namespace EvilWithin2Tool
 
             //File.WriteAllText(path + "_BufferDebugInfo.txt", vertexBufferTXT);
 
-
-
-
-
-
             //****************************//
             //  MATERIAL INFO LOGGER END  //
             //****************************//
-
-
 
             IOManager.ExportScene(ioscene, path + ".gltf", new ExportSettings()
             {
