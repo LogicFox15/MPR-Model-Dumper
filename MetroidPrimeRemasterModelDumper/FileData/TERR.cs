@@ -102,7 +102,7 @@ namespace DKCTF
                             tiles[j].halfs2.Add(reader.ReadUInt16());
                         }
                     }
-                    
+
                     break;
             }
 
@@ -339,6 +339,9 @@ namespace DKCTF
             public byte ChannelNumber;
             public byte FormatType;
             public byte StreamSelector;
+            // Formats
+            // 0 = The stuff actually used in the terrain
+
 
             public uint ElementCount;       // Maybe Row Count
             public uint Stride;             // Maybe Bytes Per Row

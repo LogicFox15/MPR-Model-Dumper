@@ -390,10 +390,6 @@ namespace DKCTF
             public uint SecondCompressedOffset;
         }
 
-
-
-
-
         public static Dictionary<uint, TextureFormat> FormatList = new()
         {       
             {  0, TextureFormat.R8_UNORM },

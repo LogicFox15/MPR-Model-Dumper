@@ -48,7 +48,7 @@ namespace EvilWithin2Tool
 
                 TerrainTile tile = terr.tiles[i];
 
-                if(column > 20 && column < 66 && row > 20 && row < 66)
+                if (column > 20 && column < 66 && row > 20 && row < 66)
                 {
                     // Stream directly to the file to save RAM
                     using (StreamWriter writer = new StreamWriter(path))
@@ -82,7 +82,7 @@ namespace EvilWithin2Tool
                         }
                     }
                 }
-                
+
             }
         }
 
@@ -217,7 +217,7 @@ namespace EvilWithin2Tool
                 int vertsX = hasRight ? gridSize + 1 : gridSize;
                 int vertsZ = hasBottom ? gridSize + 1 : gridSize;
 
-                
+
 
 
                 using (StreamWriter writer = new StreamWriter(path))
@@ -429,7 +429,7 @@ namespace EvilWithin2Tool
                 // Bounding box check to only export the populated center tiles
                 if (column > 20 && column < 66 && row > 20 && row < 66)
                 {
-                    
+
                 }
 
                 // 1. Initialize the Scene and Model INSIDE the loop for this specific tile
@@ -747,7 +747,7 @@ namespace EvilWithin2Tool
             }
         }
 
-        public static void ExportTextureSelectMap(TERR terr, string folder,PAK pak)
+        public static void ExportTextureSelectMap(TERR terr, string folder, PAK pak)
         {
             var gridWidth = (int)terr.Header.VertexStreamDescription.Dimensions[0].X;
             var gridHeight = (int)terr.Header.VertexStreamDescription.Dimensions[0].Y;

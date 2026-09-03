@@ -52,25 +52,30 @@ namespace DKCTF
                     Header = new TerrainClipMapHeader(reader);
                     break;
                 case "DATA":
-                    // Everything here is completely experimental. It does not accurately reflect the exact steps taken by the game. 
-                    var totalTileCount = Header.Dimensions[0].X * Header.Dimensions[0].Y;
+                    var gridX = Header.Dimensions[0].X;
+                    var gridY = Header.Dimensions[0].Y;
+                    var totalTileCount = gridX * gridY;
+
                     for (int i = 0; i < totalTileCount; i++)
                     {
+                        TerrainClipMapTile tile = new TerrainClipMapTile();
+
                         foreach (var chan in Header.TerrainClipMapChannels)
                         {
                             if (chan.Active)
                             {
-                                TerrainClipMapTile tile = new TerrainClipMapTile();
-                                tile.data = reader.ReadBytes((int)chan.DataSize);
-                                tile.ChannelDesc = chan;
-                                tiles.Add(tile);
+                                TerrainTextureChannelData chanData = new TerrainTextureChannelData();
+                                chanData.Data = reader.ReadBytes((int)chan.DataSize);
+                                chanData.Format = chan.FormatType;
+                                chanData.ChannelDesc = chan;
+
+                                tile.Channels.Add(chanData);
                             }
                         }
+                        tiles.Add(tile);
                     }
                     break;
             }
-
-            //BuildTiles(PrimaryRecord);
         }
 
         public class TerrainClipMapHeader
@@ -115,67 +120,18 @@ namespace DKCTF
 
         public class TerrainClipMapTile
         {
-            public byte[] data;
-            public TerrainChannelDescription ChannelDesc;
+            // A single 96x96 cell contains multiple channels (e.g., Albedo, Normal, Height)
+            public List<TerrainTextureChannelData> Channels { get; private set; } = new List<TerrainTextureChannelData>();
         }
-    }
 
-    public static class DdsExporter
-    {
-        /// <summary>
-        /// Wraps raw DXT1/BC1 block data in a DDS header and saves it to a file.
-        /// </summary>
-        /// <param name="filePath">The output file path (e.g., "output.dds")</param>
-        /// <param name="rawDxt1Data">The raw compressed byte array</param>
-        /// <param name="width">The width of the texture in pixels</param>
-        /// <param name="height">The height of the texture in pixels</param>
-        public static void ExportDxt1ToDds(string filePath, byte[] rawDxt1Data, int width, int height)
+        public class TerrainTextureChannelData
         {
-            using (FileStream fs = new FileStream(filePath, FileMode.Create))
-            using (BinaryWriter writer = new BinaryWriter(fs))
-            {
-                // 1. Magic Number: "DDS " (0x20534444)
-                writer.Write(0x20534444);
-
-                // 2. DDS_HEADER (124 bytes)
-                writer.Write(124); // dwSize
-                writer.Write(0x00081007); // dwFlags (CAPS | HEIGHT | WIDTH | PIXELFORMAT | LINEARSIZE)
-                writer.Write(height); // dwHeight
-                writer.Write(width); // dwWidth
-
-                // dwPitchOrLinearSize (Calculate total bytes for the top-level image)
-                int linearSize = Math.Max(1, (width + 3) / 4) * Math.Max(1, (height + 3) / 4) * 8;
-                writer.Write(linearSize);
-
-                writer.Write(0); // dwDepth
-                writer.Write(1); // dwMipMapCount (Assuming 1 mipmap level for a raw dump)
-
-                // dwReserved1 (11 empty DWORDs)
-                for (int i = 0; i < 11; i++) writer.Write(0);
-
-                // DDS_PIXELFORMAT structure (32 bytes)
-                writer.Write(32); // dwSize
-                writer.Write(0x4); // dwFlags (DDPF_FOURCC)
-                writer.Write(0x31545844); // dwFourCC ("DXT1")
-                writer.Write(0); // dwRGBBitCount
-                writer.Write(0); // dwRBitMask
-                writer.Write(0); // dwGBitMask
-                writer.Write(0); // dwBBitMask
-                writer.Write(0); // dwABitMask
-
-                // DDSCAPS structure
-                writer.Write(0x1000); // dwCaps (DDSCAPS_TEXTURE)
-                writer.Write(0); // dwCaps2
-                writer.Write(0); // dwCaps3
-                writer.Write(0); // dwCaps4
-
-                writer.Write(0); // dwReserved2
-
-                // 3. Write the raw texture payload
-                writer.Write(rawDxt1Data);
-            }
-
-            Console.WriteLine($"Successfully wrote {width}x{height} DDS image to {filePath}");
+            public byte[] Data;
+            public TerrainChannelDescription ChannelDesc;
+            public byte Format;
+            // Formats:
+            // Format 1/3: 16-byte blocks (BC3 / BC5)
+            // Format 2: 8-byte blocks (BC1 / DXT1)
         }
     }
 }
