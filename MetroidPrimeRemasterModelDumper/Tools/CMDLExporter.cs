@@ -232,6 +232,12 @@ namespace EvilWithin2Tool
             });
         }
 
+        public void PrintMaterialTextFIle()
+        {
+
+        }
+
+
     }
 
     class ModelLod

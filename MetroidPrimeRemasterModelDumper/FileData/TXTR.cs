@@ -15,18 +15,19 @@ namespace DKCTF
     /// </summary>
     internal class TXTR : FileForm
     {
-        public STextureHeader TextureHeader;
 
-        public SMetaData Meta;
+        // property is used to track embedded start positions
+        public long StreamBaseOffset { get; set; } = 0;
+
+        public STextureHeader TextureHeader;
+        public STextureMetaData Meta;
 
         public byte[] BufferData;
-
         public uint[] MipSizes = new uint[0];
 
         public uint TextureSize { get; set; }
 
         public uint Unknown { get; set; }
-
         public bool IsSwitch => this.FileHeader.VersionA >= 0x0F;
 
         public TXTR() { }
@@ -107,12 +108,13 @@ namespace DKCTF
                     if (Meta != null)
                     {
                         var buffer = Meta.BufferInfo[0];
-                        reader.SeekBegin(buffer.StartOffset);
+                        // 3. Fix the absolute seek offset so it works for both standalone (0) and embedded textures
+                        reader.SeekBegin(StreamBaseOffset + buffer.StartOffset);
                         BufferData = IOFileExtension.DecompressedBuffer(reader, (uint)buffer.CompressedSize, (uint)buffer.DestSize, IsSwitch);
                     }
                     else
                     {
-                        BufferData = reader.ReadBytes((int)chunk.DataSize); 
+                        BufferData = reader.ReadBytes((int)chunk.DataSize);
                     }
                     break;
             }
@@ -120,29 +122,15 @@ namespace DKCTF
 
         public override void ReadMetaData(FileReader reader, CFormDescriptor pakVersion)
         {
-            Meta = new SMetaData();
-            // MPR
-            if (pakVersion.VersionA >= 1 && pakVersion.VersionB >= 1)
-            {
-                reader.ReadUInt32(); //Extra uint in MPR
-                Meta.Unknown = reader.ReadUInt32();
-                Meta.AllocCategory = reader.ReadUInt32();
-                Meta.GPUOffset = reader.ReadUInt32();
-                Meta.BaseAlignment = reader.ReadUInt32();
-                Meta.DecompressedSize = reader.ReadUInt32(); //total decomp size
-                Meta.TextureInfo = IOFileExtension.ReadList<STextureInfo>(reader);
-                Meta.BufferInfo = IOFileExtension.ReadList<SCompressedBufferInfo>(reader);
-            }
-            else
-            {
-                Meta.Unknown = reader.ReadUInt32();
-                Meta.AllocCategory = reader.ReadUInt32();
-                Meta.GPUOffset = reader.ReadUInt32();
-                Meta.BaseAlignment = reader.ReadUInt32();
-                Meta.GPUDataStart = reader.ReadUInt32();
-                Meta.GPUDataSize = reader.ReadUInt32();
-                Meta.BufferInfoV1 = IOFileExtension.ReadList<SCompressedBufferInfoV1>(reader);
-            }
+            Meta = new STextureMetaData();
+            reader.ReadUInt32(); //Extra uint in MPR
+            Meta.Unknown = reader.ReadUInt32();
+            Meta.AllocCategory = reader.ReadUInt32();
+            Meta.GPUOffset = reader.ReadUInt32();
+            Meta.BaseAlignment = reader.ReadUInt32();
+            Meta.DecompressedSize = reader.ReadUInt32(); //total decomp size
+            Meta.TextureInfo = IOFileExtension.ReadList<STextureInfo>(reader);
+            Meta.BufferInfo = IOFileExtension.ReadList<SCompressedBufferInfo>(reader);
         }
 
         public override void WriteMetaData(FileWriter writer, CFormDescriptor pakVersion)
@@ -170,6 +158,43 @@ namespace DKCTF
             }
         }
 
+
+
+        public void ReadEmbedded(FileReader reader)
+        {
+            StreamBaseOffset = reader.Position;
+            long startPos = StreamBaseOffset;
+
+            // Detect endianness just like in FileForm constructor
+            using (reader.TemporarySeek(startPos + 4, SeekOrigin.Begin))
+            {
+                IsLittleEndian = reader.ReadUInt32() != 0;
+                IsMPR = IsLittleEndian;
+            }
+
+            reader.SetByteOrder(!IsLittleEndian);
+            FileHeader = reader.ReadStruct<CFormDescriptor>();
+
+            if (FileHeader.VersionA == 0 && FileHeader.VersionB == 0)
+                reader.SetByteOrder(true);
+
+            // CFormDescriptor is exactly 32 bytes. The DataSize dictates the exact end of our embedded texture.
+            long formEnd = startPos + 32 + (long)FileHeader.DataSize;
+
+            while (reader.Position < formEnd)
+            {
+                var chunk = reader.ReadStruct<CChunkDescriptor>();
+                var pos = reader.Position;
+
+                reader.SeekBegin(pos + chunk.DataOffset);
+                ReadChunk(reader, chunk);
+
+                reader.SeekBegin(pos + chunk.DataSize);
+            }
+        }
+
+
+
         [StructLayout(LayoutKind.Sequential, Pack = 1)]
         public class STextureHeader
         {
@@ -183,7 +208,7 @@ namespace DKCTF
         }
 
         //Meta data from PAK archive
-        public class SMetaData
+        public class STextureMetaData
         {
             public uint Unknown; //4
             public uint Unknown2;

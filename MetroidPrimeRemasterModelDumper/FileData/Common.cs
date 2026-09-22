@@ -5,9 +5,12 @@ using System.Text;
 using System.IO;
 using System.Runtime.InteropServices;
 using AvaloniaToolbox.Core.IO;
+using System.Numerics;
+using IONET.Collada.Core.Data_Flow;
 
 namespace DKCTF
 {
+    #region File descriptors
     /// <summary>
     /// Represents the base of a file format.
     /// </summary>
@@ -164,6 +167,8 @@ namespace DKCTF
                 case "SMDL": return new CMDL();
                 case "WMDL": return new CMDL();
                 case "TXTR": return new TXTR();
+                case "LTPB": return new LTPB();
+                //case "ROOM": return new ROOM();
             }
             return new FileForm();
         }
@@ -196,7 +201,9 @@ namespace DKCTF
         public uint Unknown;
         public long DataOffset;
     }
+    #endregion
 
+    #region Maya Spines
     [StructLayout(LayoutKind.Sequential, Pack = 1)]
     public class CMayaSpline
     {
@@ -218,7 +225,9 @@ namespace DKCTF
         public float Field14;
         public float Field18;
     }
+    #endregion
 
+    #region Generics
     /// <summary>
     /// Tag data for an object providing the type and id.
     /// </summary>
@@ -283,6 +292,60 @@ namespace DKCTF
         public float Z;
     }
 
+    [StructLayout(LayoutKind.Sequential, Pack = 1)]
+    public class Vector4f
+    {
+        public float X;
+        public float Y;
+        public float Z;
+        public float W;
+    }
+
+    public struct CVector4f
+    {
+        public float X;
+        public float Y;
+        public float Z;
+        public float W;
+
+        public CVector4f(float x, float y, float z, float w)
+        {
+            X = x;
+            Y = y;
+            Z = z;
+            W = w;
+        }
+    }
+
+
+    /// <summary>
+    /// A matrix of vector 4 values.
+    /// </summary>
+    public struct CTransform4f
+    {
+        public CVector4f M0;
+        public CVector4f M1;
+        public CVector4f M2;
+
+        public CTransform4f(CVector4f m0, CVector4f m1, CVector4f m2)
+        {
+            M0 = m0;
+            M1 = m1;
+            M2 = m2;
+        }
+
+        public static CTransform4f Read(BinaryReader br)
+        {
+            return new CTransform4f
+            {
+                M0 = new CVector4f(br.ReadSingle(), br.ReadSingle(), br.ReadSingle(), br.ReadSingle()),
+                M1 = new CVector4f(br.ReadSingle(), br.ReadSingle(), br.ReadSingle(), br.ReadSingle()),
+                M2 = new CVector4f(br.ReadSingle(), br.ReadSingle(), br.ReadSingle(), br.ReadSingle()),
+            };
+        }
+
+    }
+
     /// <summary>
     /// A color struct of RGBA values.
     /// </summary>
@@ -293,6 +356,69 @@ namespace DKCTF
         public float G;
         public float B;
         public float A;
+    }
+    #endregion
+
+    public class CRenderOctree
+    {
+        public SHeader header;
+        public uint bitmaskWordCount;
+        public uint[] bitmaskWords;
+        public uint edgeOffsetCount;
+        public uint[] edgeOffsets;
+        public uint dataSize;
+        public byte[] data;
+        public uint aaboxCount;
+        public List<CAABox> aaboxes = new List<CAABox>();
+
+        public static CRenderOctree Read(FileReader br)
+        {
+            CRenderOctree renderOctree = new CRenderOctree();
+            renderOctree.header = SHeader.Read(br);
+            renderOctree.bitmaskWordCount = br.ReadUInt32();
+            renderOctree.bitmaskWords = new uint[renderOctree.bitmaskWordCount];
+            for (int i = 0; i < renderOctree.bitmaskWordCount; i++)
+            {
+                renderOctree.bitmaskWords[i] = br.ReadUInt32();
+            }
+            renderOctree.edgeOffsetCount = br.ReadUInt32();
+            renderOctree.edgeOffsets = new uint[renderOctree.edgeOffsetCount];
+            for (int i = 0; i < renderOctree.edgeOffsetCount; i++)
+            {
+                renderOctree.edgeOffsets[i] = br.ReadUInt32();
+            }
+            renderOctree.dataSize = br.ReadUInt32();
+            renderOctree.data = br.ReadBytes((int)renderOctree.dataSize);
+            renderOctree.aaboxCount = br.ReadUInt32();
+            for (int i = 0; i < renderOctree.aaboxCount; i++)
+            {
+                renderOctree.aaboxes.Add(br.ReadStruct<CAABox>());
+            }
+            return renderOctree;
+        }
+    }
+
+    public struct SHeader
+    {
+        public Magic fcc;
+        public uint version;
+        public uint bitmaskCount;
+        public uint bitmaskNumBits;
+        public uint entryNodeCount;
+        public CAABox bounds;
+
+        public static SHeader Read(FileReader br)
+        {
+            return new SHeader
+            {
+                fcc = br.ReadStruct<Magic>(),
+                version = br.ReadUInt32(),
+                bitmaskCount = br.ReadUInt32(),
+                bitmaskNumBits = br.ReadUInt32(),
+                entryNodeCount = br.ReadUInt32(),
+                bounds = br.ReadStruct<CAABox>()
+            };
+        }
     }
 
     /// <summary>
@@ -316,6 +442,91 @@ namespace DKCTF
         public override string ToString() //Represented based on output guids in demo files
         {
             return ToGUID().ToString();
+        }
+    }
+
+    [StructLayout(LayoutKind.Sequential, Pack = 1)]
+    public struct CDataEnumValue
+    {
+        public uint unk1;
+        public CObjectId unk2;
+        public uint unk3;
+        public CObjectId unk4;
+
+        public static CDataEnumValue Read(FileReader br)
+        {
+            return new CDataEnumValue
+            {
+                unk1 = br.ReadUInt32(),
+                unk2 = br.ReadStruct<CObjectId>(),
+                unk3 = br.ReadUInt32(),
+                unk4 = br.ReadStruct<CObjectId>()
+            };
+        }
+    }
+
+    [StructLayout(LayoutKind.Sequential, Pack = 1)]
+    public struct CDataEnumBitField
+    {
+        public uint intCount;
+        public uint[] ints;
+        public uint boolCount;
+        public byte[] bools;
+        public CObjectId enumId;
+        public CObjectId unkId;
+
+        public static CDataEnumBitField Read(FileReader br)
+        {
+            CDataEnumBitField bitField = new CDataEnumBitField();
+            bitField.intCount = br.ReadUInt32();
+            if(bitField.intCount > 0)
+            {
+                bitField.ints = br.ReadUInt32s((int)bitField.intCount);
+            }
+            bitField.boolCount = br.ReadUInt32();
+            if (bitField.boolCount > 0)
+            {
+                bitField.bools = br.ReadBytes((int)bitField.intCount);
+            }
+            bitField.enumId = br.ReadStruct<CObjectId>();
+            bitField.unkId = br.ReadStruct<CObjectId>();
+            return bitField;
+        }
+    }
+
+
+
+    public struct SAtlasLookup
+    {
+        public float offsetU;
+        public float offsetV;
+        public float scale;
+        public float unkD;
+
+        public static SAtlasLookup Read(BinaryReader br)
+        {
+            return new SAtlasLookup
+            {
+                offsetU = br.ReadSingle(),
+                offsetV = br.ReadSingle(),
+                scale = br.ReadSingle(),
+                unkD = br.ReadSingle()
+            };
+        }
+    }
+
+    public struct ObjectXF
+    {
+        public CObjectId id;
+        public CTransform4f xf;
+
+        public static ObjectXF Read(FileReader br)
+        {
+            return new ObjectXF
+            {
+                id = br.ReadStruct<CObjectId>(),
+                xf = CTransform4f.Read(br)
+            };
         }
     }
 

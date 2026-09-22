@@ -1,16 +1,18 @@
 ﻿using MetroidPrimeRemasterModelDumper;
+using MetroidPrimeRemasterModelDumper.Tools;
 #nullable disable
 
-string manifest = AppContext.BaseDirectory + "/ModelManifest.json";
+string manifest = AppContext.BaseDirectory + "/FileManifest.json";
 
 if (!File.Exists(manifest))
 {
-    Console.WriteLine("The model manifest does not exist. Please provide the ROMFS directory so ");
-    Console.WriteLine("that a model manifest can be created. Please do not move the ROMFS once the");
-    Console.WriteLine("manifest is created, as the paths to the paks will be saved for future use.");
+    Console.WriteLine("The file manifest does not exist. The file manifest is used to locale game files that are");
+    Console.WriteLine("outside of the current package. Please paste in the path to the dumped ROMFS so that the ");
+    Console.WriteLine("manifest may be created. Please do not move the ROMFS once the manifest is created, as the");
+    Console.WriteLine("paths to the paks will be saved for future use.");
     string romDir = Console.ReadLine();
 
-    ModelManifester.ProcessModels(romDir);
+    Manifester.ProcessModels(romDir);
 }
 
 foreach (var arg in args)
@@ -20,6 +22,9 @@ foreach (var arg in args)
         try
         {
             BatchPakExtractor.ExtractModels(arg);
+            Console.Write("Should be finished");
+            Console.Write("Press any key to continue");
+            Console.ReadKey();
         }
         catch (Exception e)
         {

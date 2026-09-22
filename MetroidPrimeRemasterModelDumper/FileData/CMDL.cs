@@ -63,8 +63,6 @@ namespace DKCTF
         public uint hasLODRule;
         public LodRule[] LodRules;
 
-
-
         /// <summary>
         /// The meta data header for parsing gpu buffers and decompressing.
         /// </summary>
@@ -216,7 +214,7 @@ namespace DKCTF
                     var dtype = reader.ReadStruct<Magic>();
                     uint dformat = reader.ReadUInt32();
 
-                    Console.WriteLine($"dtype {dtype} {dformat}");
+                    //Console.WriteLine($"dtype {dtype} {dformat}");
 
                     switch (dformat)
                     {
@@ -237,7 +235,6 @@ namespace DKCTF
                             break;
                         case 4: //CLayeredTextureData
                             {
-                                
                                 reader.ReadUInt32();
                                 reader.ReadSingles(4); //color
                                 reader.ReadSingles(4); //color
@@ -314,7 +311,7 @@ namespace DKCTF
                     var dtype = reader.ReadStruct<Magic>();
                     var dformat = reader.ReadStruct<Magic>();
 
-                    Console.WriteLine($"dtype {dtype} {dformat}");
+                    //Console.WriteLine($"dtype {dtype} {dformat}");
 
                     switch (dformat)
                     {
@@ -628,36 +625,6 @@ namespace DKCTF
             public bool hasTexCoord1 = false;
             public bool hasTexCoord2 = false;
             public bool hasTexCoord3 = false;
-
-            /*
-            public void SetupVertices(List<CVertex> vertices)
-            {
-                //Here we optmize the vertices to only use the vertices used by the mesh rather than use one giant list
-                List<CVertex> vertexList = new List<CVertex>();
-                List<uint> remappedIndices = new List<uint>();
-                for (int i = 0; i < Indices.Length; i++)
-                {
-                    remappedIndices.Add((uint)vertexList.Count);
-                    vertexList.Add(vertices[(int)Indices[i]]);
-                }
-
-                if (vertexList[0].hasTexCoord1)
-                {
-                    hasTexCoord1 = true;
-                }
-                if (vertexList[0].hasTexCoord2)
-                {
-                    hasTexCoord2 = true;
-                }
-                if (vertexList[0].hasTexCoord3)
-                {
-                    hasTexCoord3 = true;
-                }
-
-                this.Vertices = vertexList;
-                this.Indices = remappedIndices.ToArray();
-            }
-            */
 
             public void SetupVertices(List<CVertex> vertices)
             {

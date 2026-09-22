@@ -5,12 +5,11 @@ using ImageLibrary;
 using ImageLibrary.PlatformSwizzle;
 using IONET.Collada.Core.Extensibility;
 using IONET.Collada.Core.Lighting;
+using MetroidPrimeRemasterModelDumper.Tools;
 using RetroStudioPlugin.Files.FileData;
 using System;
 using System.Text.Json;
-using System.Text.Json.Serialization;
-using System.Threading.Tasks;
-using static System.Runtime.InteropServices.JavaScript.JSType;
+using System.Security.Cryptography.X509Certificates;
 //using static ImageLibrary.ImageDds;
 
 #nullable disable
@@ -47,14 +46,17 @@ namespace MetroidPrimeRemasterModelDumper
             {
                 Console.WriteLine("Please specify the mode to run in: ");
                 Console.WriteLine("");
-                Console.WriteLine("    0 = Dump CMDL files");
-                Console.WriteLine("    1 = Dump CHPR files");
-                Console.WriteLine("    2 = Dump WMDL files");
-                Console.WriteLine("    3 = Dump CMDL files with LODs");
-                Console.WriteLine("    4 = Dump CHPR files with LODs");
-                Console.WriteLine("    5 = Dump WMDL files with LODs");
-                Console.WriteLine("    6 = Dump TXTR files");
-                Console.WriteLine("    7 = Dump TXTR files with folders for array textures");
+                Console.WriteLine("    CMDL1 = Dump CMDL files");
+                Console.WriteLine("    CMDL2 = Dump CMDL files with LODs");
+                Console.WriteLine("    CHPR1 = Dump CHPR files");
+                Console.WriteLine("    CHPR2 = Dump CHPR files with LODs");
+                Console.WriteLine("    WMDL1 = Dump WMDL files");
+                Console.WriteLine("    WMDL2 = Dump WMDL files with LODs");
+                Console.WriteLine("    TXTR1 = Dump TXTR files");
+                Console.WriteLine("    TXTR2 = Dump TXTR files with folders for array textures");
+                Console.WriteLine("    LTPB = Light Probe Texture Bundle");
+                Console.WriteLine("    MCON = MCON test");
+                Console.WriteLine("    ROOM = Room test");
                 Console.WriteLine("");
                 Console.WriteLine("WARNING: The way secondary and tertiary UVs are stored is not");
                 Console.WriteLine("well understood. Some UV maps may be missing or inaccurate.");
@@ -73,50 +75,67 @@ namespace MetroidPrimeRemasterModelDumper
                 {
                     switch (mode)
                     {
-                        case "0":
+                        case "CMDL1":
                             if (fileInfo.AssetEntry.Type == "CMDL")
                                 ExtractCMDL(fileInfo.FileData, fileInfo, pak);
-                            savedMode = "0";
+                            savedMode = "CMDL1";
                             break;
-                        case "1":
-                            if (fileInfo.AssetEntry.Type == "CHPR")
-                                ExtractCharacterProjectNew(fileInfo.FileData, pak, fileInfo);
-                            savedMode = "1";
-                            break;
-                        case "2":
-                            if (fileInfo.AssetEntry.Type == "WMDL")
-                                ExtractCMDL(fileInfo.FileData, fileInfo, pak);
-                            savedMode = "2";
-                            break;
-                        case "3":
+                        case "CMDL2":
                             saveLODs = true;
                             if (fileInfo.AssetEntry.Type == "CMDL")
                                 ExtractCMDL(fileInfo.FileData, fileInfo, pak);
-                            savedMode = "3";
+                            savedMode = "CMDL2";
                             break;
-                        case "4":
+                        case "CHPR1":
+                            if (fileInfo.AssetEntry.Type == "CHPR")
+                                ExtractCharacterProjectNew(fileInfo.FileData, pak, fileInfo);
+                            savedMode = "CHPR1";
+                            break;
+                        case "CHPR2":
                             saveLODs = true;
                             if (fileInfo.AssetEntry.Type == "CHPR")
                                 ExtractCharacterProjectNew(fileInfo.FileData, pak, fileInfo);
-                            savedMode = "4";
+                            savedMode = "CHPR2";
                             break;
-                        case "5":
+                        case "WMDL1":
+                            if (fileInfo.AssetEntry.Type == "WMDL")
+                                ExtractCMDL(fileInfo.FileData, fileInfo, pak);
+                            savedMode = "WMDL1";
+                            break;
+                        case "WMDL2":
                             saveLODs = true;
                             if (fileInfo.AssetEntry.Type == "WMDL")
                                 ExtractCMDL(fileInfo.FileData, fileInfo, pak);
-                            savedMode = "5";
+                            savedMode = "WMDL2";
                             break;
-                        case "6":
+                        case "TXTR1":
                             if (fileInfo.AssetEntry.Type == "TXTR")
                                 ExtractTXTR(fileInfo.FileData, fileInfo, pak);
-                            savedMode = "6";
+                            savedMode = "TXTR1";
                             break;
-                        case "7":
+                        case "TXTR2":
                             makeFolders = true;
                             if (fileInfo.AssetEntry.Type == "TXTR")
                                 ExtractTXTR(fileInfo.FileData, fileInfo, pak);
-                            savedMode = "7";
+                            savedMode = "TXTR2";
                             break;
+                        case "LTPB":
+                            if (fileInfo.AssetEntry.Type == "LTPB")
+                                ExtractLTPB(fileInfo.FileData, fileInfo, pak);
+                            savedMode = "LTPB";
+                            break;
+                        case "MCON":
+                            makeFolders = true;
+                            if (fileInfo.AssetEntry.Type == "MCON")
+                                ProcessModConTest(fileInfo.FileData, fileInfo, pak);
+                            savedMode = "MCON";
+                            break;
+                        case "ROOM":
+                            if (fileInfo.AssetEntry.Type == "ROOM")
+                                ProcessRoomTest(fileInfo.FileData, fileInfo, pak);
+                            savedMode = "ROOM";
+                            break;
+
                     }
                 }
                 catch
@@ -126,8 +145,11 @@ namespace MetroidPrimeRemasterModelDumper
                 }
                 
             }
+
         }
 
+        
+        #region Initial model dumping stuff
         static void ExtractCMDL(Stream stream, FileEntry Entry, PAK pak)
         {
             Console.WriteLine("Asset ID: " + Entry.AssetEntry.FileID.ToString());
@@ -157,7 +179,7 @@ namespace MetroidPrimeRemasterModelDumper
                 {
                     try
                     {
-                        FileEntry file = SearchForModel(model.ModelFileGuid.ToString());
+                        FileEntry file = SearchForFile(model.ModelFileGuid.ToString());
 
                         // sub name
                         string folder = charInfo.NamePool.GetString(chpr.CharacterInfos[0].SubCharData.SubChars[0].Name);
@@ -252,6 +274,72 @@ namespace MetroidPrimeRemasterModelDumper
                 File.WriteAllBytes(Path.Combine(folder, $"{textureName}" + ".bin"), txtr.BufferData);
             }
         }
+        #endregion
+
+        #region Room Dumping
+        static void ProcessModConTest(Stream stream, FileEntry Entry, PAK pak)
+        {
+            var mcon = new MCON(Entry.FileData);
+            Console.WriteLine("Successfully consumed a MCON: " + Entry.AssetEntry.FileID.ToString());
+        }
+
+        static void ProcessRoomTest(Stream stream, FileEntry Entry, PAK pak)
+        {
+            ROOM room = new ROOM(Entry.FileData);
+
+            ConstructedRoom newRoom = ConstructedRoom.ProcessRoomForConstruction(room);
+
+            string roomName = Entry.AssetEntry.FileID.ToString();
+            string folder = Path.Combine(Path.GetFileNameWithoutExtension(pak.FileInfo.FilePath), roomName);
+            if (!Directory.Exists(folder))
+            {
+                Directory.CreateDirectory(folder);
+            }
+
+            string path = Path.Combine(folder, roomName);
+            CMDLExporterNew.ExportRoom(newRoom, path, false);
+
+            Console.WriteLine("Successfully consumed a ROOM: " + Entry.AssetEntry.FileID.ToString());
+        }
+
+        static void ExtractLTPB(Stream stream, FileEntry Entry, PAK pak)
+        {
+            var ltpb = new LTPB(Entry.FileData);
+            string lightProbeName = Entry.AssetEntry.FileID.ToString();
+
+            string folder = Path.Combine(
+                Path.GetFileNameWithoutExtension(pak.FileInfo.FilePath),
+                "LTPB_" + lightProbeName);
+
+            if (!Directory.Exists(folder))
+                Directory.CreateDirectory(folder);
+
+            for (int i = 0; i < ltpb.lightProbeBundles.Count; i++)
+            {
+                var bundle = ltpb.lightProbeBundles[i];
+                string textureName = $"{lightProbeName}_{i:D4}";
+                string path = Path.Combine(folder, $"{textureName}.txtr.png");
+
+                try
+                {
+                    ExportLTPBToPng(path, bundle.texture);
+                }
+                catch
+                {
+                    File.AppendAllText(
+                        Path.Combine(folder, "ErroredTextures.txt"),
+                        $"{Environment.NewLine}{textureName}     Format: {bundle.texture.TextureHeader.Format}");
+                    File.WriteAllBytes(
+                        Path.Combine(folder, $"{textureName}.bin"),
+                        bundle.texture.BufferData ?? Array.Empty<byte>());
+                }
+            }
+
+            Console.WriteLine(
+                $"LTPB {lightProbeName}: parsed {ltpb.lightProbeBundles.Count} embedded textures.");
+        }
+        #endregion
+
 
         static void ExportToPng(string outputPath, TXTR txtr)
         {
@@ -271,6 +359,33 @@ namespace MetroidPrimeRemasterModelDumper
             genericTexture.PlatformSwizzle = new PlatformSwizzleSwitch();
             genericTexture.Data = txtr.BufferData;
 
+            if(txtr.TextureHeader.Type >= 2)
+            {
+                genericTexture.ArrayCount = txtr.TextureHeader.Depth;
+            }
+
+            genericTexture.Export(outputPath);
+        }
+
+        static void ExportLTPBToPng(string outputPath, TXTR txtr)
+        {
+            // Type 2 = 3D Texture. If it is 3D, use Depth. Otherwise, Depth is 1.
+            uint actualDepth = txtr.TextureHeader.Type == 2 ? txtr.TextureHeader.Depth : 1;
+            //byte[] linearData = TXTR.Deswizzle(txtr.TextureHeader, txtr.BufferData);
+
+            Console.WriteLine("Texture Size: " + txtr.TextureSize.ToString());
+
+            GenericTextureBase genericTexture = new GenericTextureBase();
+
+            genericTexture.Width = txtr.TextureHeader.Width;
+            genericTexture.Height = txtr.TextureHeader.Height;
+            genericTexture.Depth = actualDepth;
+            genericTexture.MipCount = (uint)txtr.MipSizes.Length;
+            genericTexture.ImageFormat = new ImageFormat(TXTR.FormatList[txtr.TextureHeader.Format]);
+            genericTexture.PlatformSwizzle = new PlatformSwizzleSwitch();
+            genericTexture.Data = txtr.BufferData;
+
+
             if (txtr.TextureHeader.Type == 3)
             {
                 genericTexture.ArrayCount = 6;
@@ -282,23 +397,11 @@ namespace MetroidPrimeRemasterModelDumper
                 genericTexture.ArrayCount = txtr.TextureHeader.Depth;
             }
 
-            /*
-            GenericTextureBase genericTexture = new()
-            {
-                Width = txtr.TextureHeader.Width,
-                Height = txtr.TextureHeader.Height,
-                Depth = actualDepth,
-                MipCount = (uint)txtr.MipSizes.Length,
-                ImageFormat = new ImageFormat(TXTR.FormatList[txtr.TextureHeader.Format]),
-                PlatformSwizzle = new PlatformSwizzleSwitch(),
-                Data = txtr.BufferData,
-            };
-            */
-
             genericTexture.Export(outputPath);
         }
 
-        public static FileEntry SearchForModel(string FileID)
+        #region File gathering
+        public static FileEntry SearchForFile(string FileID)
         {
             foreach (var fileInfo in currentPak.files)
             {
@@ -308,30 +411,27 @@ namespace MetroidPrimeRemasterModelDumper
                 }
             }
 
-            // If it reaches here, in theory, the material isn't in the pak.
-            // If this is the case, time to consult the material manifest!
-            Console.WriteLine(FileID + " isn't in this pak! Retro, Why?!?");
+            // If it reaches here, in theory, the file isn't in the pak.
+            // If this is the case, time to consult the manifest!
 
-            //System.IO.File.WriteAllText(AppContext.BaseDirectory + "/" + FileID + ".txt", FileID);
-
-            return LocateModel(FileID);
+            return LocateFile(FileID);
         }
 
-        public static FileEntry LocateModel(string ModelName)
+        public static FileEntry LocateFile(string ModelName)
         {
-            string ManifestContent = File.ReadAllText(AppContext.BaseDirectory + "/ModelManifest.json");
+            string ManifestContent = File.ReadAllText(AppContext.BaseDirectory + "/FileManifest.json");
             MaterialManifestSerializableEntry[] manifestEntries = JsonSerializer.Deserialize<MaterialManifestSerializableEntry[]>(ManifestContent);
-            Console.WriteLine("Total manifest entries: " + manifestEntries.Count());
+            //Console.WriteLine("Total manifest entries: " + manifestEntries.Count());
 
             FileEntry TargetedFile = new FileEntry();
 
             foreach (var entry in manifestEntries)
             {
-                for (int c = 0; c < entry.SMDLFiles.Count(); c++)
+                for (int c = 0; c < entry.Files.Count(); c++)
                 {
-                    if (entry.SMDLFiles[c] == ModelName)
+                    if (entry.Files[c] == ModelName)
                     {
-                        TargetedFile = FetchModel(entry.PakPath, ModelName);
+                        TargetedFile = FetchFile(entry.PakPath, ModelName);
                         break;
                     }
                 }
@@ -340,7 +440,7 @@ namespace MetroidPrimeRemasterModelDumper
             return TargetedFile;
         }
 
-        public static FileEntry FetchModel(string pakFile, string ModelName)
+        public static FileEntry FetchFile(string pakFile, string ModelName)
         {
             FileEntry TargetedFile = new FileEntry();
 
@@ -364,6 +464,37 @@ namespace MetroidPrimeRemasterModelDumper
             }
             return TargetedFile;
         }
+        #endregion
 
+        #region Debugging
+        static void GetRoomIDAndName(Stream stream, FileEntry Entry, PAK pak)
+        {
+
+            foreach (var tag in pak.PakData.NameTagEntries)
+            {
+                Console.WriteLine(tag.FileID.Type);
+
+                if (tag.FileID.Type == "MOOR") // because this is backwards for some reason
+                {
+                    if (!File.Exists(AppContext.BaseDirectory + "/RoomIDs.txt"))
+                    {
+                        string brokenTex;
+                        brokenTex = tag.Name.ToString() + " = " + tag.FileID.Objectid.ToString() + ",";
+
+                        File.WriteAllText(AppContext.BaseDirectory + "/RoomIDs.txt", brokenTex);
+                        break;
+                    }
+                    else
+                    {
+                        string brokenTexCont;
+                        brokenTexCont = Environment.NewLine + tag.Name.ToString() + " = " + tag.FileID.Objectid.ToString() + ",";
+
+                        File.AppendAllText(AppContext.BaseDirectory + "/RoomIDs.txt", brokenTexCont);
+                        break;
+                    }
+                }
+            }
+        }
+        #endregion
     }
 }

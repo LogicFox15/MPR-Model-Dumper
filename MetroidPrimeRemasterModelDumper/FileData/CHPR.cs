@@ -4,7 +4,6 @@ using System;
 using System.Numerics;
 using System.Reflection.Metadata.Ecma335;
 using System.Xml.Linq;
-using static RetroStudioPlugin.Files.FileData.CHPR;
 using static RetroStudioPlugin.Files.FileData.CHPR.SBaseInfo;
 
 namespace RetroStudioPlugin.Files.FileData
@@ -456,14 +455,14 @@ namespace RetroStudioPlugin.Files.FileData
         {
             public uint TotalSize;
             public ushort DataOffset;
-            public ushort Unk3;
+            public ushort Unk3;     // Flags
             public uint Unk4;
-            public float Scale;
-            public ushort Unk6;
+            public float Scale;     // Duration
+            public ushort Unk6;     // Frame Count
             public uint Unk7;
             public ushort Unk8;
 
-            public byte[] Data;
+            public byte[] RawData;
 
             public CPooledName PooledName;
 
@@ -478,14 +477,21 @@ namespace RetroStudioPlugin.Files.FileData
                 Unk7 = reader.ReadUInt32();
                 Unk8 = reader.ReadUInt16();
 
-                Data = reader.ReadBytes((int)(TotalSize - DataOffset));
+                int lookupSize = DataOffset - 20;
+
+                // Animation Data
+                RawData = reader.ReadBytes((int)(TotalSize - DataOffset));
+
+                AnimBitStream bitReader = new AnimBitStream(RawData);
+
+                // Parse the stuff here?
             }
         }
 
         public class CAnimSequence
         {
-            public byte Unk1;
-            public byte Unk2;
+            public byte Unk1;       // Flag A
+            public byte Unk2;       // Flag B
 
             public byte[] Data;
 
@@ -506,11 +512,11 @@ namespace RetroStudioPlugin.Files.FileData
                 {
                     Entries.Add(new CAnimSequenceEntry()
                     {
-                        Unk1 = reader.ReadByte(),
+                        Unk1 = reader.ReadByte(),               // Bone ID or Track Type
                         Unk2 = reader.ReadByte(),
                         Unk3 = reader.ReadByte(),
-                        Unk4 = reader.ReadUInt16(),
-                        Unk5 = reader.ReadUInt32(),
+                        Unk4 = reader.ReadUInt16(),             // Number of Keyframes?
+                        Unk5 = reader.ReadUInt32(),             // Offset into data buffer
                     });
                 }
 
@@ -601,8 +607,8 @@ namespace RetroStudioPlugin.Files.FileData
             public CGridGeo2d Grid2;
             public byte Type;
 
-            public uint[] Unknowns2;
-            public uint[] Unknowns3;
+            public uint[] BlendWeights;        // Child Animation Ids
+            public uint[] ChildAnimationIds;        // Blend Weights
 
             public CAnimGrid(FileReader reader)
             {
@@ -623,12 +629,12 @@ namespace RetroStudioPlugin.Files.FileData
                 var numUnk2 = reader.ReadInt32();
                 if (numUnk2 > 0)
                 {
-                    Unknowns2 = reader.ReadUInt32s(numUnk2);
+                    BlendWeights = reader.ReadUInt32s(numUnk2);
                 }
 
                 if (numUnk3 > 0)
                 {
-                    Unknowns3 = reader.ReadUInt32s(numUnk3);
+                    ChildAnimationIds = reader.ReadUInt32s(numUnk3);
                 }
             }
         }
@@ -643,6 +649,8 @@ namespace RetroStudioPlugin.Files.FileData
             public CAnim(FileReader reader)
             {
                 BaseInfo = new SBaseInfo(reader);
+                if (!BaseInfo.PooledName.HasName)
+
                 switch (BaseInfo.Type)
                 {
                     case AnimType.CompStream:
@@ -657,6 +665,61 @@ namespace RetroStudioPlugin.Files.FileData
                 }
             }
         }
+
+        public class AnimBitStream
+        {
+            private byte[] _buffer;
+            private int _byteOffset;
+            private ulong _currentBits;
+            private int _bitsLeft;
+
+            public AnimBitStream(byte[] data)
+            {
+                _buffer = data;
+                _byteOffset = 0;
+                _bitsLeft = 0;
+                _currentBits = 0;
+            }
+
+            public uint ReadBits(int bitCount)
+            {
+                while (_bitsLeft < bitCount)
+                {
+                    if (_byteOffset >= _buffer.Length)
+                        break; // Prevent out of bounds if padding is missing at EOF
+
+                    // Fetch next byte and shift it into the accumulator
+                    ulong nextByte = _buffer[_byteOffset];
+                    _currentBits = (nextByte << _bitsLeft) | _currentBits;
+
+                    _bitsLeft += 8;
+                    _byteOffset++;
+                }
+
+                // Extract requested bits
+                uint result = (uint)(_currentBits & ((1UL << bitCount) - 1));
+
+                // Shift accumulator down
+                _currentBits >>= bitCount;
+                _bitsLeft -= bitCount;
+
+                return result;
+            }
+
+            public float ReadReal32()
+            {
+                return BitConverter.UInt32BitsToSingle(ReadBits(32));
+            }
+
+            public Vector3 ReadVector3f()
+            {
+                float x = ReadReal32();
+                float y = ReadReal32();
+                float z = ReadReal32();
+                return new Vector3(x, y, z);
+            }
+        }
+
 
         public class SAnchorInfo
         {

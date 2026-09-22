@@ -220,6 +220,8 @@ namespace DKCTF
                     case "SMDL":
                     case "WMDL":
                     case "TXTR":
+                    case "LTPB":
+                    //case "ROOM":
                         return true;
                     default:
                         return false;

@@ -53,7 +53,7 @@ namespace DKCTF
 
             foreach (var comp in vertexInfo.Components)
             {
-                Console.WriteLine($"comp {comp.Type} {comp.Format}");
+                //Console.WriteLine($"comp {comp.Type} {comp.Format}");
 
                 var buffer = buffers[startIndex + (int)comp.BufferID];
                 using (var reader = new FileReader(buffer))
