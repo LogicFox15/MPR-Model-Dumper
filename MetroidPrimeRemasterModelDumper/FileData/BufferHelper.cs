@@ -122,11 +122,6 @@ namespace DKCTF
                             case CMDL.EVertexComponent.in_tangent0:
                                 vertex.Tangent = rawData;
                                 break;
-                            case CMDL.EVertexComponent.in_bakedLightingCoord:
-                                vertex.BakedLightingCoord = rawData.Xy();
-                                vertex.hasBakedLightingCoord = true;
-                                Console.WriteLine("Found baked lighting coord");
-                                break;
                         }
                     }
                 }

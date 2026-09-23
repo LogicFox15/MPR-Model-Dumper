@@ -641,9 +641,6 @@ namespace DKCTF
             public Vector2 TexCoord2;
             public Vector2 TexCoord3;
 
-            public Vector2 BakedLightingCoord;
-            public bool hasBakedLightingCoord = false;
-
             public Vector4 BoneWeights = new Vector4(1, 0, 0, 0);
             public Vector4 BoneIndices = new Vector4(0);
 

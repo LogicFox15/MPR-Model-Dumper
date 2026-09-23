@@ -16,140 +16,186 @@ namespace EvilWithin2Tool
 {
     public class CMDLExporterNew
     {
+
+        private static StreamWriter? _debugWriter;
+
+        private static void StartDebugLog()
+        {
+            string path = Path.Combine(
+                AppContext.BaseDirectory,
+                "LightmapDebug.txt");
+
+            _debugWriter = new StreamWriter(path, false);
+        }
+
+        private static void DebugLog(string message)
+        {
+            _debugWriter?.WriteLine(message);
+        }
+
+        private static void StopDebugLog()
+        {
+            _debugWriter?.Flush();
+            _debugWriter?.Dispose();
+            _debugWriter = null;
+        }
+
         public static void ExportRoom(ConstructedRoom room, string path, bool saveLODs = false)
         {
-            List<MCON> mcons = new List<MCON>();
+            StartDebugLog();
 
-            HashSet<string> writtenMaterialFiles = new HashSet<string>();
-
-            // Build each modcon found within the room
-            foreach (var layer in room.layers)
+            try
             {
-                if (layer.modCons.Count > 0)
+                List<MCON> mcons = new List<MCON>();
+
+                HashSet<string> writtenMaterialFiles = new HashSet<string>();
+
+                // Build each modcon found within the room
+                foreach (var layer in room.layers)
                 {
-                    for (int i = 0; i < layer.modCons.Count; i++)
+                    if (layer.modCons.Count > 0)
                     {
-                        foreach (var prop in layer.modCons[i].modConProperties.properties)
+                        for (int i = 0; i < layer.modCons.Count; i++)
                         {
-                            if (prop.propertyId == 0xA8E2BA93)
+                            foreach (var prop in layer.modCons[i].modConProperties.properties)
                             {
-                                FileEntry file = BatchPakExtractor.SearchForFile(prop.modularConstructionId.ToString());
-                                var mcon = new MCON(file.FileData);
-                                mcon.fileName = file.AssetEntry.FileID;
-                                Console.WriteLine("Read a modcon");
-                                mcons.Add(mcon);
+                                if (prop.propertyId == 0xA8E2BA93)
+                                {
+                                    FileEntry file = BatchPakExtractor.SearchForFile(prop.modularConstructionId.ToString());
+                                    var mcon = new MCON(file.FileData);
+                                    mcon.fileName = file.AssetEntry.FileID;
+                                    Console.WriteLine("Read a modcon");
+                                    mcons.Add(mcon);
+                                }
                             }
                         }
                     }
                 }
-            }
 
-            // Process each modcon
-            for (int m = 0; m < mcons.Count; m++)
-            {
-                IOScene ioscene = new IOScene();
-                List<CMDL> cmdls = new List<CMDL>();
-                IOModel iomodel = new IOModel();
-
-                // Build each unique CMDL file
-                for (int i = 0; i < mcons[m].data.visualData.modelIdCount; i++)
+                // Process each modcon
+                for (int m = 0; m < mcons.Count; m++)
                 {
-                    FileEntry file = BatchPakExtractor.SearchForFile(mcons[m].data.visualData.modelID[i].ToString());
-                    var cmdl = new CMDL(file.FileData);
-                    Console.WriteLine("Unpacked model " + file.AssetEntry.FileID.ToString());
-                    cmdls.Add(cmdl);
+                    IOScene ioscene = new IOScene();
+                    List<CMDL> cmdls = new List<CMDL>();
+                    IOModel iomodel = new IOModel();
 
-                    string modelId = mcons[m].data.visualData.modelID[i].ToString();
-
-                    if (writtenMaterialFiles.Add(modelId))
+                    // Build each unique CMDL file
+                    for (int i = 0; i < mcons[m].data.visualData.modelIdCount; i++)
                     {
-                        string materialPath = Path.Combine(path, modelId);
-                        WriteMaterialTextFile(cmdl, materialPath);
-                    }
-                }
+                        FileEntry file = BatchPakExtractor.SearchForFile(mcons[m].data.visualData.modelID[i].ToString());
+                        var cmdl = new CMDL(file.FileData);
+                        Console.WriteLine("Unpacked model " + file.AssetEntry.FileID.ToString());
+                        cmdls.Add(cmdl);
 
-                // Each entry in the model-index array is one room-model instance. The corresponding entry in xf is that instance's transform.
-                // This matches the current Retro MCON layout: modelIndex[i] selects a model from modelID[], while xf[i] contains that instance's transform.
-                int instanceCount = Math.Min((int)mcons[m].data.visualData.modelIndexCount, (int)mcons[m].data.visualData.transformCount);
+                        string modelId = mcons[m].data.visualData.modelID[i].ToString();
 
-                if (mcons[m].data.visualData.modelIndexCount != mcons[m].data.visualData.transformCount)
-                {
-                    Console.WriteLine(
-                        $"WARNING: MCON instance/index count mismatch: " +
-                        $"modelIndexCount={mcons[m].data.visualData.modelIndexCount}, " +
-                        $"transformCount={mcons[m].data.visualData.transformCount}");
-                }
-
-                Console.WriteLine(
-                    $"MCON {mcons[m].fileName}: models={cmdls.Count}, instances={instanceCount}");
-
-                for (int i = 0; i < instanceCount; i++)
-                {
-                    // Get the atlas lookup
-                    SAtlasLookup? atlasLookup = null;
-                    if (mcons[m].data.visualData.visualAtlasCount > 0)
-                    {
-                        if (i < mcons[m].data.visualData.visualAtlas.Count)
+                        if (writtenMaterialFiles.Add(modelId))
                         {
-                            var lookup = mcons[m].data.visualData.visualAtlas[i];
-
-                            // Matches Rust's SAtlasLookup::is_valid():
-                            // valid when scale >= 0.
-                            if (lookup.scale >= 0.0f)
-                            {
-                                atlasLookup = lookup;
-                            }
-                        }
-                        else
-                        {
-                            Console.WriteLine(
-                                $"WARNING: MCON {mcons[m].fileName} instance {i} has no visual atlas lookup.");
+                            string materialPath = Path.Combine(path, modelId);
+                            WriteMaterialTextFile(cmdl, materialPath);
                         }
                     }
 
-                    int modelIndex = mcons[m].data.visualData.modelIndex[i];
+                    // Each entry in the model-index array is one room-model instance. The corresponding entry in xf is that instance's transform.
+                    // This matches the current Retro MCON layout: modelIndex[i] selects a model from modelID[], while xf[i] contains that instance's transform.
+                    int instanceCount = Math.Min((int)mcons[m].data.visualData.modelIndexCount, (int)mcons[m].data.visualData.transformCount);
 
-                    if ((uint)modelIndex >= (uint)cmdls.Count)
+                    if (mcons[m].data.visualData.modelIndexCount != mcons[m].data.visualData.transformCount)
                     {
                         Console.WriteLine(
-                            $"WARNING: MCON {mcons[m].fileName} instance {i} references invalid model index {modelIndex}.");
-                        continue;
-                    }
-
-                    if (mcons[m].data.visualData.visualAtlasCount != 0 && mcons[m].data.visualData.visualAtlasCount != mcons[m].data.visualData.transformCount)
-                    {
-                        Console.WriteLine(
-                            $"WARNING: MCON visual atlas count mismatch: " +
-                            $"visualAtlasCount={mcons[m].data.visualData.visualAtlasCount}, " +
+                            $"WARNING: MCON instance/index count mismatch: " +
+                            $"modelIndexCount={mcons[m].data.visualData.modelIndexCount}, " +
                             $"transformCount={mcons[m].data.visualData.transformCount}");
                     }
 
-                    iomodel.Name = $"M{m}_A{i}";
+                    Console.WriteLine(
+                        $"MCON {mcons[m].fileName}: models={cmdls.Count}, instances={instanceCount}");
 
-                    var cmdlToBuild = cmdls[modelIndex];
-                    BuildStaticModel(iomodel, cmdlToBuild, mcons[m].data.visualData.xf[i], false, atlasLookup);
+                    for (int i = 0; i < instanceCount; i++)
+                    {
+                        // Get the atlas lookup
+                        SAtlasLookup? atlasLookup = null;
+                        if (mcons[m].data.visualData.visualAtlasCount > 0)
+                        {
+                            if (i < mcons[m].data.visualData.visualAtlas.Count)
+                            {
+                                var lookup = mcons[m].data.visualData.visualAtlas[i];
+
+                                DebugLog(
+                                    $"MCON {mcons[m].fileName} Instance {i}: " +
+                                    $"Atlas U={lookup.offsetU}, " +
+                                    $"V={lookup.offsetV}, " +
+                                    $"Scale={lookup.scale}, " +
+                                    $"Unknown={lookup.unkD}");
+
+                                // Matches Rust's SAtlasLookup::is_valid():
+                                // valid when scale >= 0.
+                                if (lookup.scale >= 0.0f)
+                                {
+                                    atlasLookup = lookup;
+                                }
+                            }
+                            else
+                            {
+                                DebugLog(
+                                    $"MCON {mcons[m].fileName} Instance {i}: " +
+                                    "NO ATLAS LOOKUP");
+
+                                Console.WriteLine(
+                                    $"WARNING: MCON {mcons[m].fileName} instance {i} has no visual atlas lookup.");
+                            }
+                        }
+
+                        int modelIndex = mcons[m].data.visualData.modelIndex[i];
+
+                        if ((uint)modelIndex >= (uint)cmdls.Count)
+                        {
+                            Console.WriteLine(
+                                $"WARNING: MCON {mcons[m].fileName} instance {i} references invalid model index {modelIndex}.");
+                            continue;
+                        }
+
+                        if (mcons[m].data.visualData.visualAtlasCount != 0 && mcons[m].data.visualData.visualAtlasCount != mcons[m].data.visualData.transformCount)
+                        {
+                            Console.WriteLine(
+                                $"WARNING: MCON visual atlas count mismatch: " +
+                                $"visualAtlasCount={mcons[m].data.visualData.visualAtlasCount}, " +
+                                $"transformCount={mcons[m].data.visualData.transformCount}");
+                        }
+
+                        iomodel.Name = $"M{m}_A{i}";
+
+                        var cmdlToBuild = cmdls[modelIndex];
+                        BuildStaticModel(iomodel, cmdlToBuild, mcons[m].data.visualData.xf[i], false, atlasLookup);
+                    }
+
+                    ioscene.Models.Add(iomodel);
+
+                    Console.WriteLine(mcons[m].fileName.ToString());
+                    Console.WriteLine(mcons[m].data.visualData.transformCount);
+
+                    string folder = Path.Combine(path, mcons[m].fileName.ToString());
+                    if (!Directory.Exists(folder))
+                    {
+                        Directory.CreateDirectory(folder);
+                    }
+
+                    string newPath = Path.Combine(folder, mcons[m].fileName.ToString());
+
+                    IOManager.ExportScene(ioscene, newPath + ".gltf", new ExportSettings()
+                    {
+                        Optimize = false
+                    });
                 }
 
-                ioscene.Models.Add(iomodel);
-
-                Console.WriteLine(mcons[m].fileName.ToString());
-                Console.WriteLine(mcons[m].data.visualData.transformCount);
-
-                string folder = Path.Combine(path, mcons[m].fileName.ToString());
-                if (!Directory.Exists(folder))
-                {
-                    Directory.CreateDirectory(folder);
-                }
-
-                string newPath = Path.Combine(folder, mcons[m].fileName.ToString());
-
-                IOManager.ExportScene(ioscene, newPath + ".gltf", new ExportSettings()
-                {
-                    Optimize = false
-                });
+                WriteLightmapInfo(room, mcons, path);
+            }
+            finally
+            {
+                StopDebugLog();
             }
 
-            WriteLightmapInfo(room, mcons, path);
+            
         }
 
         public static void BuildStaticModel(IOModel iomodel, CMDL cmdl, CTransform4f transform, bool saveLODs, SAtlasLookup? atlasLookup = null)
@@ -210,6 +256,26 @@ namespace EvilWithin2Tool
                             vert.Tangent.Y,
                             vert.Tangent.Z),
                     };
+
+                    DebugLog($"MODEL: {iomodel.Name}");
+                    DebugLog($"MESH: {iomesh.Name}");
+                    DebugLog($"VERTEX:");
+
+                    DebugLog($"  Position: {vert.Position.X}, {vert.Position.Y}, {vert.Position.Z}");
+                    DebugLog($"  Normal: {vert.Normal.X}, {vert.Normal.Y}, {vert.Normal.Z}");
+                    DebugLog($"  Tangent: {vert.Tangent.X}, {vert.Tangent.Y}, {vert.Tangent.Z}");
+
+                    DebugLog($"  TexCoord0: {vert.TexCoord0.X}, {vert.TexCoord0.Y}");
+                    DebugLog($"  TexCoord1: {vert.TexCoord1.X}, {vert.TexCoord1.Y}");
+                    DebugLog($"  TexCoord2: {vert.TexCoord2.X}, {vert.TexCoord2.Y}");
+                    DebugLog($"  TexCoord3: {vert.TexCoord3.X}, {vert.TexCoord3.Y}");
+
+                    DebugLog($"  HasTexCoord1: {mesh.hasTexCoord1}");
+                    DebugLog($"  HasTexCoord2: {mesh.hasTexCoord2}");
+
+                    DebugLog("");
+
+
                     iomesh.Vertices.Add(iovertex);
 
                     iovertex.SetUV(vert.TexCoord0.X, vert.TexCoord0.Y, 0);
@@ -227,17 +293,30 @@ namespace EvilWithin2Tool
                         var lookup = atlasLookup.Value;
 
                         float lightmapU =
-                            vert.BakedLightingCoord.X * lookup.scale +
+                            vert.TexCoord0.X * lookup.scale +
                             lookup.offsetU;
 
                         float lightmapV =
-                            vert.BakedLightingCoord.Y * lookup.scale +
+                            vert.TexCoord0.Y * lookup.scale +
                             lookup.offsetV;
 
                         iovertex.SetUV(
                             lightmapU,
                             lightmapV,
                             4);
+
+                        DebugLog("  ATLAS LOOKUP:");
+                        DebugLog($"    Offset U: {lookup.offsetU}");
+                        DebugLog($"    Offset V: {lookup.offsetV}");
+                        DebugLog($"    Scale: {lookup.scale}");
+                        DebugLog($"    Unknown: {lookup.unkD}");
+
+                        DebugLog(
+                            $"    TexCoord0 -> Lightmap: " +
+                            $"({vert.TexCoord0.X}, {vert.TexCoord0.Y}) -> " +
+                            $"({lightmapU}, {lightmapV})");
+
+                        DebugLog("");
                     }
 
                     iovertex.SetColor(
@@ -245,15 +324,6 @@ namespace EvilWithin2Tool
                         vert.Color1.Y,
                         vert.Color1.Z,
                         vert.Color1.W, 0);
-
-                    /*
-                    if (atlasLookup.HasValue && !vert.hasBakedLightingCoord)
-                    {
-                        Console.WriteLine(
-                            $"WARNING: Mesh {iomesh.Name} has an atlas lookup but vertex " +
-                            $"has no BakedLightingCoord.");
-                    }
-                    */
                 }
 
                 IOPolygon iopoly = new IOPolygon();
@@ -269,8 +339,6 @@ namespace EvilWithin2Tool
 
                 for (int i = 0; i < mesh.Indices.Length; i++)
                     iopoly.Indicies.Add((int)mesh.Indices[i]);
-
-
             }
         }
 
