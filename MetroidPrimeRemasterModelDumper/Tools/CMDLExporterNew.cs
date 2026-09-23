@@ -2,24 +2,13 @@
 using AvaloniaToolbox.RenderBase;
 using DKCTF;
 using IONET;
-using IONET.Collada.Core.Geometry;
-using IONET.Collada.Core.Scene;
-using IONET.Collada.Core.Transform;
 using IONET.Core;
 using IONET.Core.Model;
 using IONET.Core.Skeleton;
 using MetroidPrimeRemasterModelDumper;
 using MetroidPrimeRemasterModelDumper.Tools;
-using RetroStudioPlugin.Files.FileData;
-using System;
-using System.Collections;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
 using System.Numerics;
 using System.Text;
-using System.Threading.Tasks;
-using static AvaloniaToolbox.Core.IO.STFileSaver;
 
 #nullable disable
 
@@ -30,6 +19,8 @@ namespace EvilWithin2Tool
         public static void ExportRoom(ConstructedRoom room, string path, bool saveLODs = false)
         {
             List<MCON> mcons = new List<MCON>();
+
+            HashSet<string> writtenMaterialFiles = new HashSet<string>();
 
             // Build each modcon found within the room
             foreach (var layer in room.layers)
@@ -67,6 +58,14 @@ namespace EvilWithin2Tool
                     var cmdl = new CMDL(file.FileData);
                     Console.WriteLine("Unpacked model " + file.AssetEntry.FileID.ToString());
                     cmdls.Add(cmdl);
+
+                    string modelId = mcons[m].data.visualData.modelID[i].ToString();
+
+                    if (writtenMaterialFiles.Add(modelId))
+                    {
+                        string materialPath = Path.Combine(path, modelId);
+                        WriteMaterialTextFile(cmdl, materialPath);
+                    }
                 }
 
                 // Each entry in the model-index array is one room-model instance. The corresponding entry in xf is that instance's transform.
@@ -86,6 +85,28 @@ namespace EvilWithin2Tool
 
                 for (int i = 0; i < instanceCount; i++)
                 {
+                    // Get the atlas lookup
+                    SAtlasLookup? atlasLookup = null;
+                    if (mcons[m].data.visualData.visualAtlasCount > 0)
+                    {
+                        if (i < mcons[m].data.visualData.visualAtlas.Count)
+                        {
+                            var lookup = mcons[m].data.visualData.visualAtlas[i];
+
+                            // Matches Rust's SAtlasLookup::is_valid():
+                            // valid when scale >= 0.
+                            if (lookup.scale >= 0.0f)
+                            {
+                                atlasLookup = lookup;
+                            }
+                        }
+                        else
+                        {
+                            Console.WriteLine(
+                                $"WARNING: MCON {mcons[m].fileName} instance {i} has no visual atlas lookup.");
+                        }
+                    }
+
                     int modelIndex = mcons[m].data.visualData.modelIndex[i];
 
                     if ((uint)modelIndex >= (uint)cmdls.Count)
@@ -95,12 +116,18 @@ namespace EvilWithin2Tool
                         continue;
                     }
 
+                    if (mcons[m].data.visualData.visualAtlasCount != 0 && mcons[m].data.visualData.visualAtlasCount != mcons[m].data.visualData.transformCount)
+                    {
+                        Console.WriteLine(
+                            $"WARNING: MCON visual atlas count mismatch: " +
+                            $"visualAtlasCount={mcons[m].data.visualData.visualAtlasCount}, " +
+                            $"transformCount={mcons[m].data.visualData.transformCount}");
+                    }
+
                     iomodel.Name = $"M{m}_A{i}";
 
                     var cmdlToBuild = cmdls[modelIndex];
-                    BuildStaticModel(iomodel, cmdlToBuild, mcons[m].data.visualData.xf[i], false);
-
-                    //ioscene.Models.Add(iomodel);
+                    BuildStaticModel(iomodel, cmdlToBuild, mcons[m].data.visualData.xf[i], false, atlasLookup);
                 }
 
                 ioscene.Models.Add(iomodel);
@@ -122,12 +149,10 @@ namespace EvilWithin2Tool
                 });
             }
 
-
-
-            
+            WriteLightmapInfo(room, mcons, path);
         }
 
-        public static void BuildStaticModel(IOModel iomodel, CMDL cmdl, CTransform4f transform, bool saveLODs)
+        public static void BuildStaticModel(IOModel iomodel, CMDL cmdl, CTransform4f transform, bool saveLODs, SAtlasLookup? atlasLookup = null)
         {
             // CTransform4f is a 3x4 transform whose translation is stored in
             // M0.W, M1.W and M2.W. System.Numerics uses the equivalent affine
@@ -158,12 +183,6 @@ namespace EvilWithin2Tool
             {
                 ExportMeshes = cmdl.GetHighestLODMeshes();
             }
-
-            // Move the logging outside the mesh loop and fix the row labels
-            //Console.WriteLine($"M11: {transform.M0.X}, M12: {transform.M0.Y}, M13: {transform.M0.Z}, M14: {transform.M0.W}");
-            //Console.WriteLine($"M21: {transform.M1.X}, M22: {transform.M1.Y}, M23: {transform.M1.Z}, M24: {transform.M1.W}");
-            //Console.WriteLine($"M31: {transform.M2.X}, M32: {transform.M2.Y}, M33: {transform.M2.Z}, M34: {transform.M2.W}");
-            //Console.WriteLine("");
 
             foreach (var mesh in ExportMeshes)
             {
@@ -203,11 +222,38 @@ namespace EvilWithin2Tool
                         iovertex.SetUV(vert.TexCoord2.X, vert.TexCoord2.Y, 2);
                     }
 
+                    if (atlasLookup.HasValue)
+                    {
+                        var lookup = atlasLookup.Value;
+
+                        float lightmapU =
+                            vert.BakedLightingCoord.X * lookup.scale +
+                            lookup.offsetU;
+
+                        float lightmapV =
+                            vert.BakedLightingCoord.Y * lookup.scale +
+                            lookup.offsetV;
+
+                        iovertex.SetUV(
+                            lightmapU,
+                            lightmapV,
+                            4);
+                    }
+
                     iovertex.SetColor(
                         vert.Color1.X,
                         vert.Color1.Y,
                         vert.Color1.Z,
                         vert.Color1.W, 0);
+
+                    /*
+                    if (atlasLookup.HasValue && !vert.hasBakedLightingCoord)
+                    {
+                        Console.WriteLine(
+                            $"WARNING: Mesh {iomesh.Name} has an atlas lookup but vertex " +
+                            $"has no BakedLightingCoord.");
+                    }
+                    */
                 }
 
                 IOPolygon iopoly = new IOPolygon();
@@ -223,10 +269,12 @@ namespace EvilWithin2Tool
 
                 for (int i = 0; i < mesh.Indices.Length; i++)
                     iopoly.Indicies.Add((int)mesh.Indices[i]);
+
+
             }
         }
 
-        public void PrintMaterialTextFIle(CMDL cmdl, string path)
+        private static void WriteMaterialTextFile(CMDL cmdl, string path)
         {
             string materialTXT = "Texture IDs: ";
 
@@ -241,52 +289,209 @@ namespace EvilWithin2Tool
 
             foreach (var mat in cleanMats)
             {
-                materialTXT += (System.Environment.NewLine + "Material: " + mat.Name);
+                materialTXT += Environment.NewLine + "Material: " + mat.Name;
+
                 foreach (var texture in mat.Textures)
                 {
-                    materialTXT += (System.Environment.NewLine + "UV Map: " + texture.UsageInfo.Flags.ToString() + "     " + texture.FileID.ToString());
+                    materialTXT += Environment.NewLine
+                        + "UV Map: "
+                        + texture.UsageInfo.Flags
+                        + "     "
+                        + texture.FileID;
                 }
 
                 foreach (var scalar in mat.Scalars)
                 {
-                    materialTXT += (System.Environment.NewLine + "Scalar Type: " + scalar.Key + "     Value: " + scalar.Value.ToString());
+                    materialTXT += Environment.NewLine
+                        + "Scalar Type: "
+                        + scalar.Key
+                        + "     Value: "
+                        + scalar.Value;
                 }
 
                 foreach (var i in mat.Int)
                 {
-                    materialTXT += (System.Environment.NewLine + "Integer Type: " + i.Key + "     Value: " + i.Value.ToString());
+                    materialTXT += Environment.NewLine
+                        + "Integer Type: "
+                        + i.Key
+                        + "     Value: "
+                        + i.Value;
                 }
 
                 foreach (var i4 in mat.Int4)
                 {
-                    materialTXT += (System.Environment.NewLine + "Integer 4 Type: " + i4.Key);
-                    materialTXT += (System.Environment.NewLine + i4.Value[0]);
-                    materialTXT += (System.Environment.NewLine + i4.Value[1]);
-                    materialTXT += (System.Environment.NewLine + i4.Value[2]);
-                    materialTXT += (System.Environment.NewLine + i4.Value[3]);
+                    materialTXT += Environment.NewLine
+                        + "Integer 4 Type: "
+                        + i4.Key;
+
+                    for (int j = 0; j < i4.Value.Length; j++)
+                    {
+                        materialTXT += Environment.NewLine + i4.Value[j];
+                    }
                 }
 
                 foreach (var matrix in mat.Matrices)
                 {
-                    materialTXT += (System.Environment.NewLine + "Matrix Type: " + matrix.Key);
-                    materialTXT += (System.Environment.NewLine + matrix.Value[0].ToString() + ", " + matrix.Value[1].ToString() + ", " + matrix.Value[2].ToString() + ", " + matrix.Value[3].ToString());
-                    materialTXT += (System.Environment.NewLine + matrix.Value[4].ToString() + ", " + matrix.Value[5].ToString() + ", " + matrix.Value[6].ToString() + ", " + matrix.Value[7].ToString());
-                    materialTXT += (System.Environment.NewLine + matrix.Value[8].ToString() + ", " + matrix.Value[9].ToString() + ", " + matrix.Value[10].ToString() + ", " + matrix.Value[11].ToString());
-                    materialTXT += (System.Environment.NewLine + matrix.Value[12].ToString() + ", " + matrix.Value[13].ToString() + ", " + matrix.Value[14].ToString() + ", " + matrix.Value[15].ToString());
+                    materialTXT += Environment.NewLine
+                        + "Matrix Type: "
+                        + matrix.Key;
+
+                    materialTXT += Environment.NewLine
+                        + matrix.Value[0] + ", "
+                        + matrix.Value[1] + ", "
+                        + matrix.Value[2] + ", "
+                        + matrix.Value[3];
+
+                    materialTXT += Environment.NewLine
+                        + matrix.Value[4] + ", "
+                        + matrix.Value[5] + ", "
+                        + matrix.Value[6] + ", "
+                        + matrix.Value[7];
+
+                    materialTXT += Environment.NewLine
+                        + matrix.Value[8] + ", "
+                        + matrix.Value[9] + ", "
+                        + matrix.Value[10] + ", "
+                        + matrix.Value[11];
+
+                    materialTXT += Environment.NewLine
+                        + matrix.Value[12] + ", "
+                        + matrix.Value[13] + ", "
+                        + matrix.Value[14] + ", "
+                        + matrix.Value[15];
                 }
 
                 foreach (var color in mat.Colors)
                 {
-                    materialTXT += (System.Environment.NewLine + "Color Type: " + color.Key);
-                    materialTXT += (System.Environment.NewLine + "R: " + color.Value.R.ToString());
-                    materialTXT += (System.Environment.NewLine + "G: " + color.Value.G.ToString());
-                    materialTXT += (System.Environment.NewLine + "B: " + color.Value.B.ToString());
-                    materialTXT += (System.Environment.NewLine + "A: " + color.Value.A.ToString());
+                    materialTXT += Environment.NewLine
+                        + "Color Type: "
+                        + color.Key;
+
+                    materialTXT += Environment.NewLine + "R: " + color.Value.R;
+                    materialTXT += Environment.NewLine + "G: " + color.Value.G;
+                    materialTXT += Environment.NewLine + "B: " + color.Value.B;
+                    materialTXT += Environment.NewLine + "A: " + color.Value.A;
                 }
-                materialTXT += System.Environment.NewLine;
+
+                materialTXT += Environment.NewLine;
+            }
+
+            string directory = Path.GetDirectoryName(path);
+
+            if (!string.IsNullOrEmpty(directory))
+            {
+                Directory.CreateDirectory(directory);
             }
 
             File.WriteAllText(path + ".txt", materialTXT);
         }
+
+        private static void WriteLightmapInfo( ConstructedRoom room, List<MCON> mcons, string path)
+        {
+            StringBuilder text = new StringBuilder();
+
+            text.AppendLine("ROOM LIGHTMAP INFORMATION");
+            text.AppendLine("==========================");
+            text.AppendLine();
+
+            if (room.lightMapTxtr.IsZero())
+            {
+                text.AppendLine("Lightmap Texture ID: NONE");
+            }
+            else
+            {
+                text.AppendLine(
+                    "Lightmap Texture ID: " +
+                    room.lightMapTxtr);
+            }
+
+            text.AppendLine();
+
+            if (room.lightMapIds.Count > 0)
+            {
+                text.AppendLine("ROOM Lightmap IDs:");
+
+                for (int i = 0; i < room.lightMapIds.Count; i++)
+                {
+                    text.AppendLine(
+                        $"  [{i}] {room.lightMapIds[i]}");
+                }
+
+                text.AppendLine();
+            }
+
+            foreach (var mcon in mcons)
+            {
+                text.AppendLine(
+                    "MCON: " +
+                    mcon.fileName);
+
+                text.AppendLine(
+                    $"  Instances: {mcon.data.visualData.transformCount}");
+
+                text.AppendLine();
+
+                int instanceCount = Math.Min(
+                    (int)mcon.data.visualData.transformCount,
+                    (int)mcon.data.visualData.modelIndexCount);
+
+                for (int i = 0; i < instanceCount; i++)
+                {
+                    int modelIndex =
+                        mcon.data.visualData.modelIndex[i];
+
+                    text.AppendLine(
+                        $"  Instance {i}:");
+
+                    text.AppendLine(
+                        $"    Model Index: {modelIndex}");
+
+                    if (modelIndex >= 0 &&
+                        modelIndex < mcon.data.visualData.modelID.Count)
+                    {
+                        text.AppendLine(
+                            $"    Model ID: " +
+                            mcon.data.visualData.modelID[modelIndex]);
+                    }
+
+                    if (mcon.data.visualData.visualAtlas.Count > i)
+                    {
+                        var atlas =
+                            mcon.data.visualData.visualAtlas[i];
+
+                        text.AppendLine(
+                            $"    Atlas Offset U: {atlas.offsetU}");
+
+                        text.AppendLine(
+                            $"    Atlas Offset V: {atlas.offsetV}");
+
+                        text.AppendLine(
+                            $"    Atlas Scale: {atlas.scale}");
+
+                        text.AppendLine(
+                            $"    Atlas Unknown: {atlas.unkD}");
+
+                        text.AppendLine(
+                            $"    Lightmap UV: " +
+                            $"UV' = UV * {atlas.scale} + " +
+                            $"({atlas.offsetU}, {atlas.offsetV})");
+                    }
+                    else
+                    {
+                        text.AppendLine(
+                            "    Atlas Lookup: NONE");
+                    }
+
+                    text.AppendLine();
+                }
+
+                text.AppendLine();
+            }
+
+            File.WriteAllText(
+                Path.Combine(path, "LightmapInfo.txt"),
+                text.ToString());
+        }
+
     }
 }

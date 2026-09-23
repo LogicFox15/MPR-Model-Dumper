@@ -1,4 +1,5 @@
 ﻿using IONET.Collada.Kinematics.Articulated_Systems;
+using MetroidPrimeRemasterModelDumper.Tools;
 using RetroStudioPlugin.Files.FileData;
 using MetroidPrimeRemasterModelDumper.ScriptTypes;
 using System;
@@ -8,38 +9,15 @@ using System.Text;
 using System.Threading.Tasks;
 using DKCTF;
 
-namespace MetroidPrimeRemasterModelDumper.Tools
+namespace MetroidPrimeRemasterModelDumper.RoomConstructor
 {
     public class ConstructedRoom
     {
         public List<ConstructedLayer> layers = new List<ConstructedLayer>();
-        public CObjectId lightMapTxtr;
-        public List<CObjectId> lightMapIds = new List<CObjectId>();
-        public List<SAtlasLookup> lightMapAtlasLookups = new List<SAtlasLookup>();
-
 
         public static ConstructedRoom ProcessRoomForConstruction(ROOM room)
         {
             ConstructedRoom newRoom = new ConstructedRoom();
-
-            if (room.HeadChunk.bakedLighting != null)
-            {
-                newRoom.lightMapTxtr =
-                    room.HeadChunk.bakedLighting.lightMapTxtr;
-
-                if (room.HeadChunk.bakedLighting.lightMapIds != null)
-                {
-                    newRoom.lightMapIds.AddRange(
-                        room.HeadChunk.bakedLighting.lightMapIds);
-                }
-
-                if (room.HeadChunk.bakedLighting.atlasLookups != null)
-                {
-                    newRoom.lightMapAtlasLookups.AddRange(
-                        room.HeadChunk.bakedLighting.atlasLookups);
-                }
-            }
-
 
             for (int i = 0; i < room.LayersChunk.layers.Count; i++)
             {
