@@ -574,6 +574,9 @@ namespace DKCTF
             public Vector2 TexCoord2;
             public Vector2 TexCoord3;
 
+            public Vector2 BakedLightingCoord;
+            public bool hasBakedLightingCoord = false;
+
             public Vector4 BoneWeights = new Vector4(1, 0, 0, 0);
             public Vector4 BoneIndices = new Vector4(0);
 
@@ -750,13 +753,60 @@ namespace DKCTF
 
         public enum VertexFormat
         {
-            Byte = 0, // Unsigned Byte 5121 SCALAR
-            Format_16_16_HalfSingle = 20, // Float 5126 VEC2
-            Format_8_8_8_8_UNorm = 21, // Float 5126 VEC2
-            Format_8_8_8_8_Uint = 22, // Unsigned Byte 5121 VEC4
-            Format_16_16_16_HalfSingle = 34, // Float 5126 VEC3
-            Format_32_32_32_Single = 37, // Float 5126 VEC3
-            Format_32_32_32_32_Single = 40, // Float 5126 VEC4
+            R8_UNorm = 0,
+            R8_UInt = 1,
+            R8_SNorm = 2,
+            R8_SInt = 3,
+
+            R16_UNorm = 4,
+            R16_UInt = 5,
+            R16_SNorm = 6,
+            R16_SInt = 7,
+            R16_Float = 8,
+
+            RG8_UNorm = 9,
+            RG8_UInt = 10,
+            RG8_SNorm = 11,
+            RG8_SInt = 12,
+
+            R32_UInt = 13,
+            R32_SInt = 14,
+            R32_Float = 15,
+
+            RG16_UNorm = 16,
+            RG16_UInt = 17,
+            RG16_SNorm = 18,
+            RG16_SInt = 19,
+            RG16_Float = 20,
+
+            Format_8_8_8_8_UNorm = 21,
+            Format_8_8_8_8_Uint = 22,
+            RGBA8_SNorm = 23,
+            RGBA8_SInt = 24,
+
+            RGB10A2_UNorm = 25,
+            RGB10A2_UInt = 26,
+
+            RG32_UInt = 27,
+            RG32_SInt = 28,
+            RG32_Float = 29,
+
+            RGBA16_UNorm = 30,
+            RGBA16_UInt = 31,
+            RGBA16_SNorm = 32,
+            RGBA16_SInt = 33,
+            Format_16_16_16_HalfSingle = 34,
+
+            RGB32_UInt = 35,
+            RGB32_SInt = 36,
+            Format_32_32_32_Single = 37,
+
+            RGBA32_UInt = 38,
+            RGBA32_SInt = 39,
+            Format_32_32_32_32_Single = 40,
+
+            // Backwards-compatible aliases used by the existing code.
+            Format_16_16_HalfSingle = RG16_Float,
         }
 
         public enum EVertexComponent

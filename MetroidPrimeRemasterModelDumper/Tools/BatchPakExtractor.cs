@@ -296,8 +296,7 @@ namespace MetroidPrimeRemasterModelDumper
                 Directory.CreateDirectory(folder);
             }
 
-            string path = Path.Combine(folder, roomName);
-            CMDLExporterNew.ExportRoom(newRoom, path, false);
+            CMDLExporterNew.ExportRoom(newRoom, folder, false);
 
             Console.WriteLine("Successfully consumed a ROOM: " + Entry.AssetEntry.FileID.ToString());
         }

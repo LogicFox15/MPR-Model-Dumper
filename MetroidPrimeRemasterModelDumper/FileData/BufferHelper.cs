@@ -112,10 +112,20 @@ namespace DKCTF
                                 vertex.BoneIndices = rawData;
                                 break;
                             case CMDL.EVertexComponent.in_color:
-                                vertex.Color1 = rawData;
+                                vertex.Color1 = new Vector4(
+                                    2.0f * MathF.Pow(MathF.Abs(rawData.X), 2.2f),
+                                    2.0f * MathF.Pow(MathF.Abs(rawData.Y), 2.2f),
+                                    2.0f * MathF.Pow(MathF.Abs(rawData.Z), 2.2f),
+                                    rawData.W
+                                );
                                 break;
                             case CMDL.EVertexComponent.in_tangent0:
                                 vertex.Tangent = rawData;
+                                break;
+                            case CMDL.EVertexComponent.in_bakedLightingCoord:
+                                vertex.BakedLightingCoord = rawData.Xy();
+                                vertex.hasBakedLightingCoord = true;
+                                Console.WriteLine("Found baked lighting coord");
                                 break;
                         }
                     }
@@ -124,29 +134,396 @@ namespace DKCTF
             return vertices;
         }
 
-        static Vector4 ReadData(FileReader reader, CMDL.VertexFormat format)
+        private static Vector4 ReadData(FileReader reader, CMDL.VertexFormat format)
         {
             switch (format)
             {
-                case CMDL.VertexFormat.Format_16_16_HalfSingle: return new Vector4(
-                     (float)reader.ReadHalf(), (float)reader.ReadHalf(), 0, 0);
-                case CMDL.VertexFormat.Format_32_32_32_Single: return new Vector4(reader.ReadSingle(), reader.ReadSingle(), reader.ReadSingle(), 0);
-                case CMDL.VertexFormat.Format_16_16_16_HalfSingle:  return new Vector4(
-                     (float)reader.ReadHalf(), (float)reader.ReadHalf(),
-                     (float)reader.ReadHalf(), (float)reader.ReadHalf());
+                // R8
+                case CMDL.VertexFormat.R8_UNorm:
+                    return new Vector4(
+                        reader.ReadByte() / 255.0f,
+                        0.0f,
+                        0.0f,
+                        0.0f);
+
+                case CMDL.VertexFormat.R8_UInt:
+                    return new Vector4(
+                        reader.ReadByte(),
+                        0.0f,
+                        0.0f,
+                        0.0f);
+
+                case CMDL.VertexFormat.R8_SNorm:
+                    {
+                        sbyte value = unchecked((sbyte)reader.ReadByte());
+
+                        return new Vector4(
+                            MathF.Max(value / 127.0f, -1.0f),
+                            0.0f,
+                            0.0f,
+                            0.0f);
+                    }
+
+                case CMDL.VertexFormat.R8_SInt:
+                    {
+                        sbyte value = unchecked((sbyte)reader.ReadByte());
+
+                        return new Vector4(
+                            value,
+                            0.0f,
+                            0.0f,
+                            0.0f);
+                    }
+
+                // R16
+                case CMDL.VertexFormat.R16_UNorm:
+                    return new Vector4(
+                        reader.ReadUInt16() / 65535.0f,
+                        0.0f,
+                        0.0f,
+                        0.0f);
+
+                case CMDL.VertexFormat.R16_UInt:
+                    return new Vector4(
+                        reader.ReadUInt16(),
+                        0.0f,
+                        0.0f,
+                        0.0f);
+
+                case CMDL.VertexFormat.R16_SNorm:
+                    {
+                        short value = unchecked((short)reader.ReadUInt16());
+
+                        return new Vector4(
+                            MathF.Max(value / 32767.0f, -1.0f),
+                            0.0f,
+                            0.0f,
+                            0.0f);
+                    }
+
+                case CMDL.VertexFormat.R16_SInt:
+                    {
+                        short value = unchecked((short)reader.ReadUInt16());
+
+                        return new Vector4(
+                            value,
+                            0.0f,
+                            0.0f,
+                            0.0f);
+                    }
+
+                case CMDL.VertexFormat.R16_Float:
+                    return new Vector4(
+                        (float)reader.ReadHalf(),
+                        0.0f,
+                        0.0f,
+                        0.0f);
+
+                // RG8
+                case CMDL.VertexFormat.RG8_UNorm:
+                    return new Vector4(
+                        reader.ReadByte() / 255.0f,
+                        reader.ReadByte() / 255.0f,
+                        0.0f,
+                        0.0f);
+
+                case CMDL.VertexFormat.RG8_UInt:
+                    return new Vector4(
+                        reader.ReadByte(),
+                        reader.ReadByte(),
+                        0.0f,
+                        0.0f);
+
+                case CMDL.VertexFormat.RG8_SNorm:
+                    {
+                        sbyte x = unchecked((sbyte)reader.ReadByte());
+                        sbyte y = unchecked((sbyte)reader.ReadByte());
+
+                        return new Vector4(
+                            MathF.Max(x / 127.0f, -1.0f),
+                            MathF.Max(y / 127.0f, -1.0f),
+                            0.0f,
+                            0.0f);
+                    }
+
+                case CMDL.VertexFormat.RG8_SInt:
+                    {
+                        sbyte x = unchecked((sbyte)reader.ReadByte());
+                        sbyte y = unchecked((sbyte)reader.ReadByte());
+
+                        return new Vector4(
+                            x,
+                            y,
+                            0.0f,
+                            0.0f);
+                    }
+
+                // R32
+                case CMDL.VertexFormat.R32_UInt:
+                    return new Vector4(
+                        reader.ReadUInt32(),
+                        0.0f,
+                        0.0f,
+                        0.0f);
+
+                case CMDL.VertexFormat.R32_SInt:
+                    {
+                        int value = unchecked((int)reader.ReadUInt32());
+
+                        return new Vector4(
+                            value,
+                            0.0f,
+                            0.0f,
+                            0.0f);
+                    }
+
+                case CMDL.VertexFormat.R32_Float:
+                    return new Vector4(
+                        BitConverter.UInt32BitsToSingle(reader.ReadUInt32()),
+                        0.0f,
+                        0.0f,
+                        0.0f);
+
+                // RG16
+                case CMDL.VertexFormat.RG16_UNorm:
+                    return new Vector4(
+                        reader.ReadUInt16() / 65535.0f,
+                        reader.ReadUInt16() / 65535.0f,
+                        0.0f,
+                        0.0f);
+
+                case CMDL.VertexFormat.RG16_UInt:
+                    return new Vector4(
+                        reader.ReadUInt16(),
+                        reader.ReadUInt16(),
+                        0.0f,
+                        0.0f);
+
+                case CMDL.VertexFormat.RG16_SNorm:
+                    {
+                        short x = unchecked((short)reader.ReadUInt16());
+                        short y = unchecked((short)reader.ReadUInt16());
+
+                        return new Vector4(
+                            MathF.Max(x / 32767.0f, -1.0f),
+                            MathF.Max(y / 32767.0f, -1.0f),
+                            0.0f,
+                            0.0f);
+                    }
+
+                case CMDL.VertexFormat.RG16_SInt:
+                    {
+                        short x = unchecked((short)reader.ReadUInt16());
+                        short y = unchecked((short)reader.ReadUInt16());
+
+                        return new Vector4(
+                            x,
+                            y,
+                            0.0f,
+                            0.0f);
+                    }
+
+                case CMDL.VertexFormat.RG16_Float:
+                    return new Vector4(
+                        (float)reader.ReadHalf(),
+                        (float)reader.ReadHalf(),
+                        0.0f,
+                        0.0f);
+
+                // RGBA8
                 case CMDL.VertexFormat.Format_8_8_8_8_UNorm:
                     return new Vector4(
-                       (float)reader.ReadByte() / 255, (float)reader.ReadByte() / 255,
-                       (float)reader.ReadByte() / 255, (float)reader.ReadByte() / 255);
+                        reader.ReadByte() / 255.0f,
+                        reader.ReadByte() / 255.0f,
+                        reader.ReadByte() / 255.0f,
+                        reader.ReadByte() / 255.0f);
+
                 case CMDL.VertexFormat.Format_8_8_8_8_Uint:
                     return new Vector4(
-                       reader.ReadByte(), reader.ReadByte(),
-                       reader.ReadByte(), reader.ReadByte());
-                case CMDL.VertexFormat.Format_32_32_32_32_Single: return new Vector4(
-                    reader.ReadSingle(), reader.ReadSingle(),
-                    reader.ReadSingle(), reader.ReadSingle());
+                        reader.ReadByte(),
+                        reader.ReadByte(),
+                        reader.ReadByte(),
+                        reader.ReadByte());
+
+                case CMDL.VertexFormat.RGBA8_SNorm:
+                    {
+                        sbyte r = unchecked((sbyte)reader.ReadByte());
+                        sbyte g = unchecked((sbyte)reader.ReadByte());
+                        sbyte b = unchecked((sbyte)reader.ReadByte());
+                        sbyte a = unchecked((sbyte)reader.ReadByte());
+
+                        return new Vector4(
+                            MathF.Max(r / 127.0f, -1.0f),
+                            MathF.Max(g / 127.0f, -1.0f),
+                            MathF.Max(b / 127.0f, -1.0f),
+                            MathF.Max(a / 127.0f, -1.0f));
+                    }
+
+                case CMDL.VertexFormat.RGBA8_SInt:
+                    {
+                        sbyte r = unchecked((sbyte)reader.ReadByte());
+                        sbyte g = unchecked((sbyte)reader.ReadByte());
+                        sbyte b = unchecked((sbyte)reader.ReadByte());
+                        sbyte a = unchecked((sbyte)reader.ReadByte());
+
+                        return new Vector4(r, g, b, a);
+                    }
+
+                // RGB10A2
+                case CMDL.VertexFormat.RGB10A2_UNorm:
+                    {
+                        uint packed = reader.ReadUInt32();
+
+                        uint r = packed & 0x3FF;
+                        uint g = (packed >> 10) & 0x3FF;
+                        uint b = (packed >> 20) & 0x3FF;
+                        uint a = (packed >> 30) & 0x3;
+
+                        return new Vector4(
+                            r / 1023.0f,
+                            g / 1023.0f,
+                            b / 1023.0f,
+                            a / 3.0f);
+                    }
+
+                case CMDL.VertexFormat.RGB10A2_UInt:
+                    {
+                        uint packed = reader.ReadUInt32();
+
+                        uint r = packed & 0x3FF;
+                        uint g = (packed >> 10) & 0x3FF;
+                        uint b = (packed >> 20) & 0x3FF;
+                        uint a = (packed >> 30) & 0x3;
+
+                        return new Vector4(r, g, b, a);
+                    }
+
+                // RG32
+                case CMDL.VertexFormat.RG32_UInt:
+                    return new Vector4(
+                        reader.ReadUInt32(),
+                        reader.ReadUInt32(),
+                        0.0f,
+                        0.0f);
+
+                case CMDL.VertexFormat.RG32_SInt:
+                    {
+                        int x = unchecked((int)reader.ReadUInt32());
+                        int y = unchecked((int)reader.ReadUInt32());
+
+                        return new Vector4(
+                            x,
+                            y,
+                            0.0f,
+                            0.0f);
+                    }
+
+                case CMDL.VertexFormat.RG32_Float:
+                    return new Vector4(
+                        BitConverter.UInt32BitsToSingle(reader.ReadUInt32()),
+                        BitConverter.UInt32BitsToSingle(reader.ReadUInt32()),
+                        0.0f,
+                        0.0f);
+
+                // RGBA16
+                case CMDL.VertexFormat.RGBA16_UNorm:
+                    return new Vector4(
+                        reader.ReadUInt16() / 65535.0f,
+                        reader.ReadUInt16() / 65535.0f,
+                        reader.ReadUInt16() / 65535.0f,
+                        reader.ReadUInt16() / 65535.0f);
+
+                case CMDL.VertexFormat.RGBA16_UInt:
+                    return new Vector4(
+                        reader.ReadUInt16(),
+                        reader.ReadUInt16(),
+                        reader.ReadUInt16(),
+                        reader.ReadUInt16());
+
+                case CMDL.VertexFormat.RGBA16_SNorm:
+                    {
+                        short r = unchecked((short)reader.ReadUInt16());
+                        short g = unchecked((short)reader.ReadUInt16());
+                        short b = unchecked((short)reader.ReadUInt16());
+                        short a = unchecked((short)reader.ReadUInt16());
+
+                        return new Vector4(
+                            MathF.Max(r / 32767.0f, -1.0f),
+                            MathF.Max(g / 32767.0f, -1.0f),
+                            MathF.Max(b / 32767.0f, -1.0f),
+                            MathF.Max(a / 32767.0f, -1.0f));
+                    }
+
+                case CMDL.VertexFormat.RGBA16_SInt:
+                    {
+                        short r = unchecked((short)reader.ReadUInt16());
+                        short g = unchecked((short)reader.ReadUInt16());
+                        short b = unchecked((short)reader.ReadUInt16());
+                        short a = unchecked((short)reader.ReadUInt16());
+
+                        return new Vector4(r, g, b, a);
+                    }
+
+                case CMDL.VertexFormat.Format_16_16_16_HalfSingle:
+                    return new Vector4(
+                        (float)reader.ReadHalf(),
+                        (float)reader.ReadHalf(),
+                        (float)reader.ReadHalf(),
+                        (float)reader.ReadHalf());
+
+                // RGB32
+                case CMDL.VertexFormat.RGB32_UInt:
+                    return new Vector4(
+                        reader.ReadUInt32(),
+                        reader.ReadUInt32(),
+                        reader.ReadUInt32(),
+                        0.0f);
+
+                case CMDL.VertexFormat.RGB32_SInt:
+                    {
+                        int r = unchecked((int)reader.ReadUInt32());
+                        int g = unchecked((int)reader.ReadUInt32());
+                        int b = unchecked((int)reader.ReadUInt32());
+
+                        return new Vector4(r, g, b, 0.0f);
+                    }
+
+                case CMDL.VertexFormat.Format_32_32_32_Single:
+                    return new Vector4(
+                        BitConverter.UInt32BitsToSingle(reader.ReadUInt32()),
+                        BitConverter.UInt32BitsToSingle(reader.ReadUInt32()),
+                        BitConverter.UInt32BitsToSingle(reader.ReadUInt32()),
+                        0.0f);
+
+                // RGBA32
+                case CMDL.VertexFormat.RGBA32_UInt:
+                    return new Vector4(
+                        reader.ReadUInt32(),
+                        reader.ReadUInt32(),
+                        reader.ReadUInt32(),
+                        reader.ReadUInt32());
+
+                case CMDL.VertexFormat.RGBA32_SInt:
+                    {
+                        int r = unchecked((int)reader.ReadUInt32());
+                        int g = unchecked((int)reader.ReadUInt32());
+                        int b = unchecked((int)reader.ReadUInt32());
+                        int a = unchecked((int)reader.ReadUInt32());
+
+                        return new Vector4(r, g, b, a);
+                    }
+
+                case CMDL.VertexFormat.Format_32_32_32_32_Single:
+                    return new Vector4(
+                        BitConverter.UInt32BitsToSingle(reader.ReadUInt32()),
+                        BitConverter.UInt32BitsToSingle(reader.ReadUInt32()),
+                        BitConverter.UInt32BitsToSingle(reader.ReadUInt32()),
+                        BitConverter.UInt32BitsToSingle(reader.ReadUInt32()));
+
+                default:
+                    throw new NotSupportedException(
+                        $"Unsupported MPR vertex format: {(int)format}");
             }
-            return new Vector4();
         }
 
         private static int GetIndexStride(CMDL.IndexFormat format)
