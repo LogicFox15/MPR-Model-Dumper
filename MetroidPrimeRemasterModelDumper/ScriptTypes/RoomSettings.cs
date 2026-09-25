@@ -8,12 +8,9 @@ namespace MetroidPrimeRemasterModelDumper.ScriptTypes
 {
     public class RoomSettings
     {
-        public List<SMPRRoomSettingProperty> properties = new List<SMPRRoomSettingProperty>();
+        public CommonObjectData commonObjectData;
 
-        // For debugging and ease of access
-        public CGameObjectComponent originalComponent;
-        public ScriptDataEntity originalEntity;
-        public SGOComponentInstanceData originalInstanceData;
+        public byte unknownRenderFlag;
 
         public static RoomSettings Build(CGameObjectComponent component, ScriptDataEntity entity, SGOComponentInstanceData instanceData)
         {
@@ -22,39 +19,44 @@ namespace MetroidPrimeRemasterModelDumper.ScriptTypes
             using (MemoryStream ms = new MemoryStream(entity.propertyData))
             using (FileReader br = new FileReader(ms))
             {
-                ushort count = br.ReadUInt16();
-                script.properties.Add(SMPRRoomSettingProperty.Read(br));
-                
+                BuildRoomSettingsProperties(br, script);
             }
 
-            script.originalComponent = component;
-            script.originalEntity = entity;
-            script.originalInstanceData = instanceData;
+            script.commonObjectData.originalComponent = component;
+            script.commonObjectData.originalEntity = entity;
+            script.commonObjectData.originalInstanceData = instanceData;
             return script;
         }
-    }
 
-    public class SMPRRoomSettingProperty
-    {
-        public uint propertyId;
-        public ushort propertySize;
-        public byte unknownRenderFlag;
-
-        public static SMPRRoomSettingProperty Read(FileReader reader)
+        public static void BuildRoomSettingsProperties(FileReader reader, RoomSettings script)
         {
-            SMPRRoomSettingProperty prop = new SMPRRoomSettingProperty();
-            prop.propertyId = reader.ReadUInt32();
-            prop.propertySize = reader.ReadUInt16();
-            if (prop.propertyId == 0x71a12a41)
+            ushort count = reader.ReadUInt16();
+            for (int i = 0; i < count; i++)
             {
-                prop.unknownRenderFlag = reader.ReadByte();
+                ReadRoomSettingsProperties(reader, script);
             }
-            else if (prop.propertySize > 0)
-            {
-                reader.ReadBytes(prop.propertySize);
-            }
+        }
 
-            return prop;
+        public static void ReadRoomSettingsProperties(FileReader reader, RoomSettings script)
+        {
+            var propertyId = reader.ReadUInt32();
+            var propertySize = reader.ReadUInt16();
+
+            byte[] propertyData = propertySize > 0
+                ? reader.ReadBytes(propertySize)
+                : Array.Empty<byte>();
+
+            using MemoryStream ms = new MemoryStream(propertyData);
+            using FileReader propertyReader = new FileReader(ms);
+
+            switch (propertyId)
+            {
+                case 0x71a12a41:    // Nested CHPR container
+                    script.unknownRenderFlag = propertyReader.ReadByte();
+                    break;
+                default:
+                    break;
+            }
         }
     }
 }

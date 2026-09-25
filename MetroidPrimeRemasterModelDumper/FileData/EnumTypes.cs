@@ -1108,6 +1108,8 @@ public enum EGOPropertyType : uint
     VolumetricFogFloat6 = 0xe020e7c4,
     VolumetricFogFloat7 = 0x2074d13d,
     VolumetricFogColor2 = 0x3029e6aa,
+
+
     VolumetricFogAdditionalProperties1 = 0x7bc5ef27,
     VolumetricFogAdditionalProperties2 = 0xac68c5ae,
     VolumetricFogAdditionalProperties3 = 0x8efd902b,

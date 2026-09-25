@@ -1111,8 +1111,6 @@ namespace DKCTF
         #endregion
     }
 
-
-
     public static class BinaryExtensions
     {
         public static string ReadCStringFixed(BinaryReader br)

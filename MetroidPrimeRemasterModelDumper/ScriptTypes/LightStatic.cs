@@ -8,53 +8,8 @@ namespace MetroidPrimeRemasterModelDumper.ScriptTypes
 {
     public class LightStatic
     {
-        public SMPRRoomLightProperties lightProperties;
+        public CommonObjectData commonObjectData = new CommonObjectData();
 
-        // For debugging and ease of access
-        public CGameObjectComponent originalComponent;
-        public ScriptDataEntity originalEntity;
-        public SGOComponentInstanceData originalInstanceData;
-
-        public static LightStatic Build(CGameObjectComponent component, ScriptDataEntity entity, SGOComponentInstanceData instanceData)
-        {
-            LightStatic script = new LightStatic();
-
-            using (MemoryStream ms = new MemoryStream(entity.propertyData))
-            using (FileReader br = new FileReader(ms))
-            {
-                script.lightProperties = SMPRRoomLightProperties.Read(br);
-            }
-
-            script.originalComponent = component;
-            script.originalEntity = entity;
-            script.originalInstanceData = instanceData;
-            return script;
-        }
-    }
-
-    public class SMPRRoomLightProperties()
-    {
-        public List<SMPRRoomLightProperty> properties = new List<SMPRRoomLightProperty>();
-
-        public static SMPRRoomLightProperties Read(FileReader reader)
-        {
-            SMPRRoomLightProperties prop = new SMPRRoomLightProperties();
-            ushort count = reader.ReadUInt16();
-            for(int i =  0; i < count; i++)
-            {
-                prop.properties.Add(SMPRRoomLightProperty.Read(reader));
-            }
-
-            return prop;
-        }
-    }
-
-    public class SMPRRoomLightProperty
-    {
-        public uint propertyId;
-        public ushort propertySize;
-
-        public SMPRRoomLightProperties nested;
         public uint lightType;
         public byte runtimeEnabled;
         public byte baked;
@@ -73,80 +28,130 @@ namespace MetroidPrimeRemasterModelDumper.ScriptTypes
         public byte lightFlag3;
         public byte fillAmbient;
 
-        public static SMPRRoomLightProperty Read(FileReader reader)
+        public static LightStatic Build(CGameObjectComponent component, ScriptDataEntity entity, SGOComponentInstanceData instanceData)
         {
-            SMPRRoomLightProperty prop = new SMPRRoomLightProperty();
-            prop.propertyId = reader.ReadUInt32();
-            prop.propertySize = reader.ReadUInt16();
-            switch (prop.propertyId)
+            LightStatic script = new LightStatic();
+
+            using (MemoryStream ms = new MemoryStream(entity.propertyData))
+            using (FileReader br = new FileReader(ms))
             {
+                BuildRoomLightProperties(br, script);
+            }
+
+            script.commonObjectData.originalComponent = component;
+            script.commonObjectData.originalEntity = entity;
+            script.commonObjectData.originalInstanceData = instanceData;
+            return script;
+        }
+
+        public static LightStatic prepTransform(LightStatic retroObject, ConstructedLayer parsed)
+        {
+            foreach (var prop in parsed.entityProperties)
+            {
+                foreach (var link in prop.originalInstanceData.links)
+                {
+                    if (link.target.ToString() == retroObject.commonObjectData.originalInstanceData.id.ToString())
+                    {
+                        retroObject.commonObjectData.entityProperties = prop;
+                        break;
+                    }
+                }
+            }
+            return retroObject;
+        }
+
+        public static void BuildRoomLightProperties(FileReader reader, LightStatic script)
+        {
+            ushort count = reader.ReadUInt16();
+
+            for (int i = 0; i < count; i++)
+            {
+                ReadRoomLightProperties(reader, script);
+            }
+        }
+
+        public static void ReadRoomLightProperties(FileReader reader, LightStatic script)
+        {
+            uint propertyId = reader.ReadUInt32();
+            ushort propertySize = reader.ReadUInt16();
+
+            byte[] propertyData = propertySize > 0
+                ? reader.ReadBytes(propertySize)
+                : Array.Empty<byte>();
+
+            using MemoryStream ms = new MemoryStream(propertyData);
+            using FileReader propertyReader = new FileReader(ms);
+
+            switch (propertyId)
+            {
+                // Nested light property groups
                 case 0x8b76d48e: // SLdrLightColors
                 case 0xdd21d666: // SLdrLumaIntensity
                 case 0xebae52b2: // SLdrLightDistanceAttenuation
                 case 0x664b1a7c: // SLdrLightAngleAttenuation
                 case 0xf939c307: // SLdrLightFlags
-                    prop.nested = SMPRRoomLightProperties.Read(reader);
+                    BuildRoomLightProperties(propertyReader, script);
                     break;
-                case 0x52d4c579:
-                    prop.lightType = reader.ReadUInt32(); // 0 ambient, 1 directional, 2 point, 3 spot, 4 area, 5/6 square
+                case 0x52d4c579: // Light type
+                    script.lightType = propertyReader.ReadUInt32();
                     break;
-                case 0x6c1d6c28:
-                    prop.runtimeEnabled = reader.ReadByte();
+                case 0x6c1d6c28: // Runtime enabled
+                    script.runtimeEnabled = propertyReader.ReadByte();
                     break;
-                case 0xf10ea1b7:
-                    prop.baked = reader.ReadByte();
+                case 0xf10ea1b7: // Baked
+                    script.baked = propertyReader.ReadByte();
                     break;
-                case 0x163bbc26:
-                    prop.castShadows = reader.ReadByte();
+                case 0x163bbc26: // Cast shadows / unknown flag
+                    script.castShadows = propertyReader.ReadByte();
                     break;
-                case 0x7c3cd2ce:
-                    prop.renderTargetScene = reader.ReadUInt32();
+                case 0x7c3cd2ce: // Render target scene
+                    script.renderTargetScene = propertyReader.ReadUInt32();
                     break;
-                case 0x8f421907:
-                    prop.color = new Vector4(reader.ReadSingle(), reader.ReadSingle(), reader.ReadSingle(), reader.ReadSingle());
+                case 0x8f421907: // Color
+                    script.color = new Vector4(
+                        propertyReader.ReadSingle(),
+                        propertyReader.ReadSingle(),
+                        propertyReader.ReadSingle(),
+                        propertyReader.ReadSingle());
                     break;
-                case 0xdaf8bddf:
-                    prop.lumaIntensity = reader.ReadSingle();
+                case 0xdaf8bddf: // Luma intensity
+                    script.lumaIntensity = propertyReader.ReadSingle();
                     break;
-                case 0x174c8abc:
-                    prop.distanceMode = reader.ReadUInt32();
+                case 0x174c8abc: // Distance mode
+                    script.distanceMode = propertyReader.ReadUInt32();
                     break;
-                case 0xe5ceaf7c:
-                    prop.innerRadius = reader.ReadSingle();
+                case 0xe5ceaf7c: // Inner radius
+                    script.innerRadius = propertyReader.ReadSingle();
                     break;
-                case 0x68ac20b3:
-                    prop.outerRadius = reader.ReadSingle();
+                case 0x68ac20b3: // Outer radius
+                    script.outerRadius = propertyReader.ReadSingle();
                     break;
-                case 0x635dfcc7:
-                    prop.innerAngleDegrees = reader.ReadSingle();
+                case 0x635dfcc7: // Inner angle
+                    script.innerAngleDegrees = propertyReader.ReadSingle();
                     break;
-                case 0xb0a71764:
-                    prop.outerAngleDegrees = reader.ReadSingle();
+                case 0xb0a71764: // Outer angle
+                    script.outerAngleDegrees = propertyReader.ReadSingle();
                     break;
                 case 0xa103d675:
-                    prop.lightFlag0 = reader.ReadByte();
+                    script.lightFlag0 = propertyReader.ReadByte();
                     break;
                 case 0x56608a5c:
-                    prop.lightFlag1 = reader.ReadByte();
+                    script.lightFlag1 = propertyReader.ReadByte();
                     break;
                 case 0xeeb94af2:
-                    prop.lightFlag2 = reader.ReadByte();
+                    script.lightFlag2 = propertyReader.ReadByte();
                     break;
                 case 0x67241f0c:
-                    prop.lightFlag3 = reader.ReadByte();
+                    script.lightFlag3 = propertyReader.ReadByte();
                     break;
                 case 0x3f1e6850:
-                    prop.fillAmbient = reader.ReadByte();
+                    script.fillAmbient = propertyReader.ReadByte();
                     break;
                 default:
-                    if (prop.propertySize > 0)
-                    {
-                        reader.ReadBytes(prop.propertySize);
-                    }
+                    // Unknown properties are already consumed because we copied
+                    // propertySize bytes into propertyData.
                     break;
             }
-
-            return prop;
         }
     }
 }

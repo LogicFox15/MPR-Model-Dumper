@@ -22,9 +22,6 @@ foreach (var arg in args)
         try
         {
             BatchPakExtractor.ExtractModels(arg);
-            Console.Write("Should be finished");
-            Console.Write("Press any key to continue");
-            Console.ReadKey();
         }
         catch (Exception e)
         {

@@ -36,11 +36,8 @@ namespace MetroidPrimeRemasterModelDumper
 
             PAK pak = new PAK() { FileInfo = ctx };
             pak.Load(ctx);
-
             currentPak = pak;
-
             string mode;
-            
 
             if(savedMode == "Empty")
             {
@@ -135,19 +132,15 @@ namespace MetroidPrimeRemasterModelDumper
                                 ProcessRoomTest(fileInfo.FileData, fileInfo, pak);
                             savedMode = "ROOM";
                             break;
-
                     }
                 }
                 catch
                 {
                     Console.WriteLine("Error with file " + fileInfo.AssetEntry.FileID.ToString());
                     throw;
-                }
-                
+                }   
             }
-
         }
-
         
         #region Initial model dumping stuff
         static void ExtractCMDL(Stream stream, FileEntry Entry, PAK pak)
@@ -296,6 +289,9 @@ namespace MetroidPrimeRemasterModelDumper
                 Directory.CreateDirectory(folder);
             }
 
+            //string textPath = Path.Combine(folder, roomName);
+
+            RoomInfoPrinter.PrintParsedObjects(folder, newRoom);
             CMDLExporterNew.ExportRoom(newRoom, folder, false);
 
             Console.WriteLine("Successfully consumed a ROOM: " + Entry.AssetEntry.FileID.ToString());
@@ -338,7 +334,6 @@ namespace MetroidPrimeRemasterModelDumper
                 $"LTPB {lightProbeName}: parsed {ltpb.lightProbeBundles.Count} embedded textures.");
         }
         #endregion
-
 
         static void ExportToPng(string outputPath, TXTR txtr)
         {

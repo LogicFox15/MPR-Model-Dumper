@@ -267,7 +267,11 @@ namespace DKCTF
                     switch (dformat)
                     {
                         case 0: //Texture
-                            material.Textures.Add(reader.ReadStruct<CMaterialTextureTokenData>());
+                            CTexture texture = new CTexture();
+                            CMaterialTextureTokenData tokenData = reader.ReadStruct<CMaterialTextureTokenData>();
+                            texture.textureTokenData = tokenData;
+                            texture.type = dtype;
+                            material.Textures.Add(texture);
                             break;
                         case 1: //Color
                             //material.Colors.Add(reader.ReadStruct<Color4f>());
@@ -364,7 +368,11 @@ namespace DKCTF
                     switch (dformat)
                     {
                         case "TXTR": //Texture
-                            material.Textures.Add(reader.ReadStruct<CMaterialTextureTokenData>());
+                            CTexture texture = new CTexture();
+                            CMaterialTextureTokenData tokenData = reader.ReadStruct<CMaterialTextureTokenData>();
+                            texture.textureTokenData = tokenData;
+                            texture.type = dtype;
+                            material.Textures.Add(texture);
                             break;
                         case "COLR": //Color
                             //material.Colors.Add(reader.ReadStruct<Color4f>());
@@ -393,31 +401,40 @@ namespace DKCTF
                                 var texture1 = reader.ReadStruct<CObjectId>();
                                 if (!texture1.IsZero())
                                 {
+                                    CTexture tex1 = new CTexture();
                                     var info1 = reader.ReadStruct<STextureUsageInfo>();
-                                    CMaterialTextureTokenData TextureData1 = new CMaterialTextureTokenData();
-                                    TextureData1.FileID = texture1;
-                                    TextureData1.UsageInfo = info1;
-                                    material.Textures.Add(TextureData1);
+                                    CMaterialTextureTokenData tokenData1 = new CMaterialTextureTokenData();
+                                    tokenData1.FileID = texture1;
+                                    tokenData1.UsageInfo = info1;
+                                    tex1.textureTokenData = tokenData1;
+                                    tex1.type = dtype;
+                                    material.Textures.Add(tex1);
                                 }
 
                                 var texture2 = reader.ReadStruct<CObjectId>();
                                 if (!texture2.IsZero())
                                 {
+                                    CTexture tex2 = new CTexture();
                                     var info2 = reader.ReadStruct<STextureUsageInfo>();
-                                    CMaterialTextureTokenData TextureData2 = new CMaterialTextureTokenData();
-                                    TextureData2.FileID = texture2;
-                                    TextureData2.UsageInfo = info2;
-                                    material.Textures.Add(TextureData2);
+                                    CMaterialTextureTokenData tokenData2 = new CMaterialTextureTokenData();
+                                    tokenData2.FileID = texture2;
+                                    tokenData2.UsageInfo = info2;
+                                    tex2.textureTokenData = tokenData2;
+                                    tex2.type = dtype;
+                                    material.Textures.Add(tex2);
                                 }
 
                                 var texture3 = reader.ReadStruct<CObjectId>();
                                 if (!texture3.IsZero())
                                 {
+                                    CTexture tex3 = new CTexture();
                                     var info3 = reader.ReadStruct<STextureUsageInfo>();
-                                    CMaterialTextureTokenData TextureData3 = new CMaterialTextureTokenData();
-                                    TextureData3.FileID = texture3;
-                                    TextureData3.UsageInfo = info3;
-                                    material.Textures.Add(TextureData3);
+                                    CMaterialTextureTokenData tokenData3 = new CMaterialTextureTokenData();
+                                    tokenData3.FileID = texture3;
+                                    tokenData3.UsageInfo = info3;
+                                    tex3.textureTokenData = tokenData3;
+                                    tex3.type = dtype;
+                                    material.Textures.Add(tex3);
                                 }
                             }
                             break;
@@ -646,9 +663,18 @@ namespace DKCTF
 
             public Vector4 Color1 = Vector4.One;
 
+            
+            
             public bool hasTexCoord1 = false;
-            public bool hasTexCoord2 = false;
-            public bool hasTexCoord3 = false;
+            
+
+            public Vector2 BakedLightingCoord;
+            public Vector4 BakedLightingTangent;
+            public Vector4 BakedLightingLookup;
+
+            public bool hasBakedLightingCoord;
+            public bool hasBakedLightingTangent;
+            public bool hasBakedLightingLookup;
 
             public Vector4 Tangent;
         }
@@ -662,7 +688,7 @@ namespace DKCTF
 
             public uint Flags { get; set; }
 
-            public List<CMaterialTextureTokenData> Textures = new List<CMaterialTextureTokenData>();
+            public List<CTexture> Textures = new List<CTexture>();
 
             //public List<float> Scalars = new List<float>();
             //public List<int> Int = new List<int>();
@@ -690,8 +716,8 @@ namespace DKCTF
             public HashSet<int> LODs = new HashSet<int>();
 
             public bool hasTexCoord1 = false;
-            public bool hasTexCoord2 = false;
-            public bool hasTexCoord3 = false;
+            //public bool hasTexCoord2 = false;
+            //public bool hasTexCoord3 = false;
 
             public void SetupVertices(List<CVertex> vertices)
             {
@@ -728,8 +754,8 @@ namespace DKCTF
                 if (vertexList.Count > 0)
                 {
                     hasTexCoord1 = vertexList[0].hasTexCoord1;
-                    hasTexCoord2 = vertexList[0].hasTexCoord2;
-                    hasTexCoord3 = vertexList[0].hasTexCoord3;
+                    //hasTexCoord2 = vertexList[0].hasTexCoord2;
+                    //hasTexCoord3 = vertexList[0].hasTexCoord3;
                 }
 
                 this.Vertices = vertexList;
@@ -758,6 +784,12 @@ namespace DKCTF
             public uint IndexCount;
             public ushort field_C; 
             public ushort field_E; //0x4000
+        }
+
+        public class CTexture
+        {
+            public CMaterialTextureTokenData textureTokenData;
+            public string type;
         }
 
         [StructLayout(LayoutKind.Sequential, Pack = 1)]

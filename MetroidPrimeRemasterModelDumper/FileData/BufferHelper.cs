@@ -84,20 +84,18 @@ namespace DKCTF
                             case CMDL.EVertexComponent.in_texCoord0:
                                 vertex.TexCoord0 = rawData.Xy();
 
-                                if (comp.Format ==
-                                    CMDL.VertexFormat.Format_16_16_16_HalfSingle ||
-                                    comp.Format ==
-                                    CMDL.VertexFormat.Format_32_32_32_32_Single)
+                                if (comp.Format == CMDL.VertexFormat.Format_16_16_16_HalfSingle || 
+                                    comp.Format == CMDL.VertexFormat.Format_32_32_32_32_Single)
                                 {
-                                    vertex.hasTexCoord1 = true;
-                                    vertex.TexCoord1 =
-                                        new Vector2(rawData.Z, rawData.W);
+                                    
+                                    vertex.TexCoord1 = new Vector2(rawData.Z, rawData.W);
                                 }
                                 break;
 
                             case CMDL.EVertexComponent.in_texCoord1:
-                                vertex.hasTexCoord2 = true;
+                                vertex.hasTexCoord1 = true;
                                 vertex.TexCoord2 = rawData.Xy();
+                                vertex.TexCoord3 = new Vector2(rawData.Z, rawData.W);
                                 break;
 
                             case CMDL.EVertexComponent.in_boneWeights:

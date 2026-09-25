@@ -29,17 +29,11 @@ namespace EvilWithin2Tool
                 {
                     for (int i = 0; i < layer.modCons.Count; i++)
                     {
-                        foreach (var prop in layer.modCons[i].modConProperties.properties)
-                        {
-                            if (prop.propertyId == 0xA8E2BA93)
-                            {
-                                FileEntry file = BatchPakExtractor.SearchForFile(prop.modularConstructionId.ToString());
-                                var mcon = new MCON(file.FileData);
-                                mcon.fileName = file.AssetEntry.FileID;
-                                Console.WriteLine("Read a modcon");
-                                mcons.Add(mcon);
-                            }
-                        }
+                        FileEntry file = BatchPakExtractor.SearchForFile(layer.modCons[i].modularConstructionId.ToString());
+                        var mcon = new MCON(file.FileData);
+                        mcon.fileName = file.AssetEntry.FileID;
+                        Console.WriteLine("Read a modcon");
+                        mcons.Add(mcon);
                     }
                 }
             }
@@ -136,6 +130,8 @@ namespace EvilWithin2Tool
 
                 string newPath = Path.Combine(folder, mcons[m].fileName.ToString());
 
+                ModConParser.ParseModCon(mcons[m], newPath);
+
                 IOManager.ExportScene(ioscene, newPath + ".gltf", new ExportSettings()
                 {
                     Optimize = false
@@ -206,26 +202,40 @@ namespace EvilWithin2Tool
 
                     iomesh.Vertices.Add(iovertex);
 
+                    Vector2 bakedLightingCoord;
+
+
                     iovertex.SetUV(vert.TexCoord0.X, vert.TexCoord0.Y, 0);
-                    if (mesh.hasTexCoord1)
+
+                    if (!mesh.hasTexCoord1)
+                    {
+                        if (atlasLookup.HasValue)
+                        {
+                            Vector2 bakedUV = TransformBakedAtlasUV(
+                                vert.TexCoord1,
+                                atlasLookup.Value);
+
+                            iovertex.SetUV(
+                                bakedUV.X,
+                                bakedUV.Y,
+                                3);
+                        }
+                    }
+                    else
                     {
                         iovertex.SetUV(vert.TexCoord1.X, vert.TexCoord1.Y, 1);
-                    }
-                    if (mesh.hasTexCoord2)
-                    {
                         iovertex.SetUV(vert.TexCoord2.X, vert.TexCoord2.Y, 2);
-                    }
+                        if (atlasLookup.HasValue)
+                        {
+                            Vector2 bakedUV = TransformBakedAtlasUV(
+                                vert.TexCoord3,
+                                atlasLookup.Value);
 
-                    if (atlasLookup.HasValue)
-                    {
-                        Vector2 lightmapUV =
-                            TransformLightmapUV(vert.TexCoord0, atlasLookup.Value);
-
-                        iovertex.SetUV(
-                            lightmapUV.X,
-                            lightmapUV.Y,
-                            4
-                        );
+                            iovertex.SetUV(
+                                bakedUV.X,
+                                bakedUV.Y,
+                                3);
+                        }
                     }
 
                     iovertex.SetColor(
@@ -251,12 +261,19 @@ namespace EvilWithin2Tool
             }
         }
 
-        private static Vector2 TransformLightmapUV(Vector2 uv, SAtlasLookup lookup)
+        private static Vector2 TransformBakedAtlasUV(Vector2 sourceUV, SAtlasLookup lookup)
         {
+            if (!float.IsFinite(lookup.scale) ||
+                !float.IsFinite(lookup.offsetU) ||
+                !float.IsFinite(lookup.offsetV) ||
+                lookup.scale < 0.0f)
+            {
+                return sourceUV;
+            }
+
             return new Vector2(
-                uv.X * lookup.scale + lookup.offsetU,
-                uv.Y * lookup.scale + lookup.offsetV
-            );
+                sourceUV.X * lookup.scale + lookup.offsetU,
+                sourceUV.Y * lookup.scale + lookup.offsetV);
         }
 
         private static SAtlasLookup? GetVisualAtlasLookup(MCON mcon, int placementIndex)
@@ -308,11 +325,7 @@ namespace EvilWithin2Tool
 
                 foreach (var texture in mat.Textures)
                 {
-                    materialTXT += Environment.NewLine
-                        + "UV Map: "
-                        + texture.UsageInfo.Flags
-                        + "     "
-                        + texture.FileID;
+                    materialTXT += System.Environment.NewLine + "UV Map: " + texture.textureTokenData.UsageInfo.Flags.ToString() + "     Type: " + texture.type.ToString() + "     " + texture.textureTokenData.FileID.ToString();
                 }
 
                 foreach (var scalar in mat.Scalars)

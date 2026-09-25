@@ -1,28 +1,29 @@
 ﻿using AvaloniaToolbox.Core.IO;
-using MetroidPrimeRemasterModelDumper.FileData;
 using DKCTF;
+using MetroidPrimeRemasterModelDumper;
+using RetroStudioPlugin.Files.FileData;
+using RoomParser;
+using System;
 using System.Numerics;
 using static DKCTF.ROOM;
 
 namespace MetroidPrimeRemasterModelDumper.ScriptTypes
 {
-    public class ModConScript
+    public class Skybox
     {
         public CommonObjectData commonObjectData = new CommonObjectData();
 
-        public CObjectId modularConstructionId;
-        public CDataEnumBitField bitField;
-        public uint renderTargetScene;
-        public byte unknownFlag;
+        public CObjectId objectID;
+        public float skyboxStrength;
 
-        public static ModConScript Build(CGameObjectComponent component, ScriptDataEntity entity, SGOComponentInstanceData instanceData)
+        public static Skybox Build(CGameObjectComponent component, ScriptDataEntity entity, SGOComponentInstanceData instanceData)
         {
-            ModConScript script = new ModConScript();
+            Skybox script = new Skybox();
 
             using (MemoryStream ms = new MemoryStream(entity.propertyData))
-            using (FileReader br = new FileReader(ms))
+            using (FileReader reader = new FileReader(ms))
             {
-                BuildModConProperties(br, script);
+                BuildSkyboxProperties(reader, script);
             }
 
             script.commonObjectData.originalComponent = component;
@@ -31,7 +32,7 @@ namespace MetroidPrimeRemasterModelDumper.ScriptTypes
             return script;
         }
 
-        public static ModConScript prepTransform(ModConScript retroObject, ConstructedLayer parsed)
+        public static Skybox prepTransform(Skybox retroObject, ConstructedLayer parsed)
         {
             foreach (var prop in parsed.entityProperties)
             {
@@ -47,16 +48,16 @@ namespace MetroidPrimeRemasterModelDumper.ScriptTypes
             return retroObject;
         }
 
-        public static void BuildModConProperties(FileReader reader, ModConScript script)
+        public static void BuildSkyboxProperties(FileReader reader, Skybox script)
         {
             ushort count = reader.ReadUInt16();
             for (int i = 0; i < count; i++)
             {
-                ReadModConProperties(reader, script);
+                ReadSkyboxProperties(reader, script);
             }
         }
 
-        public static void ReadModConProperties(FileReader reader, ModConScript script)
+        public static void ReadSkyboxProperties(FileReader reader, Skybox script)
         {
             var propertyId = reader.ReadUInt32();
             var propertySize = reader.ReadUInt16();
@@ -70,18 +71,11 @@ namespace MetroidPrimeRemasterModelDumper.ScriptTypes
 
             switch (propertyId)
             {
-                // SLdrModCon
-                case 0xA8E2BA93:
-                    script.modularConstructionId = propertyReader.ReadStruct<CObjectId>();
+                case 0x387bb786: // Skybox Model
+                    script.objectID = propertyReader.ReadStruct<CObjectId>();
                     break;
-                case 0xF068D36B:
-                    script.bitField = CDataEnumBitField.Read(propertyReader);
-                    break;
-                case 0x356DB82B:
-                    script.renderTargetScene = propertyReader.ReadUInt32();
-                    break;
-                case 0x61BE7D93:
-                    script.unknownFlag = propertyReader.ReadByte();
+                case 0x63328a04: // Skybox Strength?
+                    script.skyboxStrength = propertyReader.ReadSingle();
                     break;
                 default:
                     break;
@@ -89,3 +83,4 @@ namespace MetroidPrimeRemasterModelDumper.ScriptTypes
         }
     }
 }
+

@@ -8,12 +8,9 @@ namespace MetroidPrimeRemasterModelDumper.ScriptTypes
 {
     public class BakedLightingPriorityModifierMP1
     {
-        public List<SMPRBakedLightingPriorityProperty> properties = new List<SMPRBakedLightingPriorityProperty>();
+        public CommonObjectData commonObjectData = new CommonObjectData();
 
-        // For debugging and ease of access
-        public CGameObjectComponent originalComponent;
-        public ScriptDataEntity originalEntity;
-        public SGOComponentInstanceData originalInstanceData;
+        public uint priority;
 
         public static BakedLightingPriorityModifierMP1 Build(CGameObjectComponent component, ScriptDataEntity entity, SGOComponentInstanceData instanceData)
         {
@@ -22,39 +19,47 @@ namespace MetroidPrimeRemasterModelDumper.ScriptTypes
             using (MemoryStream ms = new MemoryStream(entity.propertyData))
             using (FileReader br = new FileReader(ms))
             {
-                ushort count = br.ReadUInt16();
-                script.properties.Add(SMPRBakedLightingPriorityProperty.Read(br));
-
+                BuildBakedLightingPriorityModifierMP1Properties(br, script);
             }
 
-            script.originalComponent = component;
-            script.originalEntity = entity;
-            script.originalInstanceData = instanceData;
+            script.commonObjectData.originalComponent = component;
+            script.commonObjectData.originalEntity = entity;
+            script.commonObjectData.originalInstanceData = instanceData;
             return script;
         }
-    }
 
-    public class SMPRBakedLightingPriorityProperty
-    {
-        public uint propertyId;
-        public ushort propertySize;
-        public uint priority;
-
-        public static SMPRBakedLightingPriorityProperty Read(FileReader reader)
+        public static void BuildBakedLightingPriorityModifierMP1Properties(FileReader reader, BakedLightingPriorityModifierMP1 script)
         {
-            SMPRBakedLightingPriorityProperty prop = new SMPRBakedLightingPriorityProperty();
-            prop.propertyId = reader.ReadUInt32();
-            prop.propertySize = reader.ReadUInt16();
-            if (prop.propertyId == 0x8582d268)
+            ushort count = reader.ReadUInt16();
+            for (int i = 0; i < count; i++)
             {
-                prop.priority = reader.ReadUInt32();
+                ReadBakedLightingPriorityModifierMP1Properties(reader, script);
             }
-            else if (prop.propertySize > 0)
-            {
-                reader.ReadBytes(prop.propertySize);
-            }
+        }
 
-            return prop;
+        public static void ReadBakedLightingPriorityModifierMP1Properties(FileReader reader, BakedLightingPriorityModifierMP1 script)
+        {
+            var propertyId = reader.ReadUInt32();
+            var propertySize = reader.ReadUInt16();
+
+            byte[] propertyData = propertySize > 0
+                ? reader.ReadBytes(propertySize)
+                : Array.Empty<byte>();
+
+            using MemoryStream ms = new MemoryStream(propertyData);
+            using FileReader propertyReader = new FileReader(ms);
+
+            switch (propertyId)
+            {
+                case 0x54446d42:    // Nested CHPR container
+                    BuildBakedLightingPriorityModifierMP1Properties(propertyReader, script);
+                    break;
+                case 0x8582d268:    // Generic Model
+                    script.priority = propertyReader.ReadUInt32();
+                    break;
+                default:
+                    break;
+            }
         }
     }
 }

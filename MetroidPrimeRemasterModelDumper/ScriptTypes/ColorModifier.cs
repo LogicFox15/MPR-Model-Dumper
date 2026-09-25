@@ -8,51 +8,7 @@ namespace MetroidPrimeRemasterModelDumper.ScriptTypes
 {
     public class ColorModifier
     {
-        public SMPRColorModifierProperties colorModifierProperties;
-
-        // For debugging and ease of access
-        public CGameObjectComponent originalComponent;
-        public ScriptDataEntity originalEntity;
-        public SGOComponentInstanceData originalInstanceData;
-
-        public static ColorModifier Build(CGameObjectComponent component, ScriptDataEntity entity, SGOComponentInstanceData instanceData)
-        {
-            ColorModifier script = new ColorModifier();
-
-            using (MemoryStream ms = new MemoryStream(entity.propertyData))
-            using (FileReader br = new FileReader(ms))
-            {
-                script.colorModifierProperties = SMPRColorModifierProperties.Read(br);
-            }
-
-            script.originalComponent = component;
-            script.originalEntity = entity;
-            script.originalInstanceData = instanceData;
-            return script;
-        }
-    }
-
-    public class SMPRColorModifierProperties()
-    {
-        public List<SMPRColorModifierProperty> properties = new List<SMPRColorModifierProperty>();
-
-        public static SMPRColorModifierProperties Read(FileReader reader)
-        {
-            SMPRColorModifierProperties prop = new SMPRColorModifierProperties();
-            ushort count = reader.ReadUInt16();
-            for (int i = 0; i < count; i++)
-            {
-                prop.properties.Add(SMPRColorModifierProperty.Read(reader));
-            }
-
-            return prop;
-        }
-    }
-
-    public class SMPRColorModifierProperty
-    {
-        public uint propertyId;
-        public ushort propertySize;
+        public CommonObjectData commonObjectData;
 
         public Vector4 initialColor;
         public Vector4 endColor;
@@ -63,46 +19,72 @@ namespace MetroidPrimeRemasterModelDumper.ScriptTypes
         public float initialIntensity;
         public float endIntensity;
 
-        public static SMPRColorModifierProperty Read(FileReader reader)
+        public static ColorModifier Build(CGameObjectComponent component, ScriptDataEntity entity, SGOComponentInstanceData instanceData)
         {
-            SMPRColorModifierProperty prop = new SMPRColorModifierProperty();
-            prop.propertyId = reader.ReadUInt32();
-            prop.propertySize = reader.ReadUInt16();
-            switch (prop.propertyId)
+            ColorModifier script = new ColorModifier();
+
+            using (MemoryStream ms = new MemoryStream(entity.propertyData))
+            using (FileReader br = new FileReader(ms))
             {
-                case 0x8133a24b:
-                    prop.initialColor = new Vector4(reader.ReadSingle(), reader.ReadSingle(), reader.ReadSingle(), reader.ReadSingle());
-                    break;
-                case 0xd968bd8e:
-                    prop.endColor = new Vector4(reader.ReadSingle(), reader.ReadSingle(), reader.ReadSingle(), reader.ReadSingle());
-                    break;
-                case 0xdbe10078:
-                    prop.gradient = CMPRColorGradient.Read(reader);
-                    break;
-                case 0x34d88fef:
-                    prop.timing = reader.ReadStruct<CMayaSpline>();
-                    break;
-                case 0xb7bf28fd:
-                    prop.options = SMPRColorModifierOptions.Read(reader);
-                    break;
-                case 0xa3fbf12b:
-                    prop.mode = (EMPRColorModifierMode)reader.ReadUInt32();
-                    break;
-                case 0x627d5359:
-                    prop.initialIntensity = reader.ReadSingle();
-                    break;
-                case 0xc1fd4866:
-                    prop.endIntensity = reader.ReadSingle();
-                    break;
-                default:
-                    if (prop.propertySize > 0)
-                    {
-                        reader.ReadBytes(prop.propertySize);
-                    }
-                    break;
+                BuildColorModifierProperties(br, script);
             }
 
-            return prop;
+            script.commonObjectData.originalComponent = component;
+            script.commonObjectData.originalEntity = entity;
+            script.commonObjectData.originalInstanceData = instanceData;
+            return script;
+        }
+
+        public static void BuildColorModifierProperties(FileReader reader, ColorModifier script)
+        {
+            ushort count = reader.ReadUInt16();
+            for (int i = 0; i < count; i++)
+            {
+                ReadColorModifierProperties(reader, script);
+            }
+        }
+
+        public static void ReadColorModifierProperties(FileReader reader, ColorModifier script)
+        {
+            var propertyId = reader.ReadUInt32();
+            var propertySize = reader.ReadUInt16();
+
+            byte[] propertyData = propertySize > 0
+                ? reader.ReadBytes(propertySize)
+                : Array.Empty<byte>();
+
+            using MemoryStream ms = new MemoryStream(propertyData);
+            using FileReader propertyReader = new FileReader(ms);
+
+            switch (propertyId)
+            {
+                case 0x8133a24b:
+                    script.initialColor = new Vector4(propertyReader.ReadSingle(), propertyReader.ReadSingle(), propertyReader.ReadSingle(), propertyReader.ReadSingle());
+                    break;
+                case 0xd968bd8e:
+                    script.endColor = new Vector4(propertyReader.ReadSingle(), propertyReader.ReadSingle(), propertyReader.ReadSingle(), propertyReader.ReadSingle());
+                    break;
+                case 0xdbe10078:
+                    script.gradient = CMPRColorGradient.Read(propertyReader);
+                    break;
+                case 0x34d88fef:
+                    script.timing = propertyReader.ReadStruct<CMayaSpline>();
+                    break;
+                case 0xb7bf28fd:
+                    script.options = SMPRColorModifierOptions.Read(propertyReader);
+                    break;
+                case 0xa3fbf12b:
+                    script.mode = (EMPRColorModifierMode)propertyReader.ReadUInt32();
+                    break;
+                case 0x627d5359:
+                    script.initialIntensity = propertyReader.ReadSingle();
+                    break;
+                case 0xc1fd4866:
+                    script.endIntensity = propertyReader.ReadSingle();
+                    break;
+                default:
+                    break;
+            }
         }
     }
 
