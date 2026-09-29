@@ -116,33 +116,37 @@ namespace EvilWithin2Tool
                         Position = new System.Numerics.Vector3(
                             vert.Position.X,
                             vert.Position.Y,
-                            vert.Position.Z), 
+                            vert.Position.Z),
                         Normal = new System.Numerics.Vector3(
                             vert.Normal.X,
                             vert.Normal.Y,
                             vert.Normal.Z),
                         Tangent = new System.Numerics.Vector3(
-                            vert.Tangent.X, 
+                            vert.Tangent.X,
                             vert.Tangent.Y,
                             vert.Tangent.Z),
                     };
                     iomesh.Vertices.Add(iovertex);
 
                     iovertex.SetUV(vert.TexCoord0.X, vert.TexCoord0.Y, 0);
-                    if (mesh.hasTexCoord1)
+
+                    if (!mesh.hasTexCoord1)
+                    {
+                        iovertex.SetUV(vert.TexCoord1.X, vert.TexCoord1.Y, 3);
+                    }
+                    else
                     {
                         iovertex.SetUV(vert.TexCoord1.X, vert.TexCoord1.Y, 1);
-                    }
-                    if (mesh.hasTexCoord2)
-                    {
                         iovertex.SetUV(vert.TexCoord2.X, vert.TexCoord2.Y, 2);
+
+                        iovertex.SetUV(vert.TexCoord3.X, vert.TexCoord3.Y, 3);
                     }
 
                     iovertex.SetColor(
-                        vert.Color.X,
-                        vert.Color.Y,
-                        vert.Color.Z,
-                        vert.Color.W, 0);
+                        vert.Color1.X,
+                        vert.Color1.Y,
+                        vert.Color1.Z,
+                        vert.Color1.W, 0);
 
                     for (int j = 0; j < 4; j++)
                     {
@@ -210,8 +214,8 @@ namespace EvilWithin2Tool
                 materialTXT += (System.Environment.NewLine + "Material: " + mat.Name);
                 foreach (var texture in mat.Textures)
                 {
-                    materialTXT += (System.Environment.NewLine + "UV Map: " + texture.TextureTokenData.UsageInfo.Flags.ToString() + "     Type: " + texture.type.ToString() + "     " + texture.TextureTokenData.FileID.ToString());
-                    string parentName = BatchPakExtractor.LocateTextureParentPak(texture.TextureTokenData.FileID.ToString());
+                    materialTXT += (System.Environment.NewLine + "UV Map: " + texture.textureTokenData.UsageInfo.Flags.ToString() + "     Type: " + texture.type.ToString() + "     " + texture.textureTokenData.FileID.ToString());
+                    string parentName = BatchPakExtractor.LocateTextureParentPak(texture.textureTokenData.FileID.ToString());
                     materialTXT += "     Location: " + parentName;
                 }
 

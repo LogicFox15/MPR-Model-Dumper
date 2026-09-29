@@ -5,6 +5,7 @@ using ImageLibrary;
 using ImageLibrary.Formats.Encoders;
 using ImageLibrary.PlatformSwizzle;
 using IONET.Collada.Core.Lighting;
+using MetroidPrimeRemasterModelDumper.Tools;
 using RetroStudioPlugin.Files.FileData;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
@@ -47,16 +48,17 @@ namespace MetroidPrimeRemasterModelDumper
 
             if (savedMode == "Empty")
             {
-                Console.WriteLine("Please specify the mode to run in: ");
+                Console.WriteLine("Please type in the mode to run in: ");
                 Console.WriteLine("");
-                Console.WriteLine("    0 = Dump CMDL files (Static Models)");
-                Console.WriteLine("    1 = Dump CHPR files (Rig Containers)");
-                Console.WriteLine("    2 = Dump CMDL files With LODs");
-                Console.WriteLine("    3 = Dump CHPR files with LODS");
-                Console.WriteLine("    4 = Dump TXTR files (Textures)");
-                Console.WriteLine("    5 = Dump TXTR files with folders for array textures");
-                Console.WriteLine("    6 = Dump TERR (Sol Valley Terrain Resource)");
-                Console.WriteLine("    7 = Dump TECM (Sol Valley Clip Map Resource)");
+                Console.WriteLine("    CMDL1 = Dump CMDL files (Static Models)");
+                Console.WriteLine("    CMDL2 = Dump CMDL files With LODs");
+                Console.WriteLine("    CHPR1 = Dump CHPR files (Rig Containers)");
+                Console.WriteLine("    CHPR2 = Dump CHPR files with LODS");
+                Console.WriteLine("    TXTR1 = Dump TXTR files (Textures)");
+                Console.WriteLine("    TXTR2 = Dump TXTR files with folders for array textures");
+                Console.WriteLine("    TERR = Dump TERR (Sol Valley Terrain Resource)");
+                Console.WriteLine("    TECM = Dump TECM (Sol Valley Clip Map Resource)");
+                Console.WriteLine("    ROOM = Dump ROOM and several related files");
                 Console.WriteLine("");
                 Console.WriteLine("WARNING: LOD identification is still buggy. Also, there are still");
                 Console.WriteLine("issues with the UV maps. Dumps may not be 100% accurate.");
@@ -78,49 +80,60 @@ namespace MetroidPrimeRemasterModelDumper
                 {
                     switch (mode)
                     {
-                        case "0":
+                        case "CMDL1":
                             if (fileInfo.AssetEntry.Type == "CMDL")
                                 ExtractCMDL(fileInfo.FileData, fileInfo, pak);
-                            savedMode = "0";
+                            savedMode = "CMDL1";
                             break;
-                        case "1":
-                            if (fileInfo.AssetEntry.Type == "CHPR")
-                                ExtractCharacterProject(fileInfo.FileData, fileInfo, pak);
-                            savedMode = "1";
-                            break;
-                        case "2":
+                        case "CMDL2":
                             saveLODs = true;
                             if (fileInfo.AssetEntry.Type == "CMDL")
                                 ExtractCMDL(fileInfo.FileData, fileInfo, pak);
-                            savedMode = "2";
+                            savedMode = "CMDL2";
                             break;
-                        case "3":
+                        case "CHPR1":
+                            if (fileInfo.AssetEntry.Type == "CHPR")
+                                ExtractCharacterProject(fileInfo.FileData, fileInfo, pak);
+                            savedMode = "CHPR1";
+                            break;
+                        case "CHPR2":
                             saveLODs = true;
                             if (fileInfo.AssetEntry.Type == "CHPR")
                                 ExtractCharacterProject(fileInfo.FileData, fileInfo, pak);
-                            savedMode = "3";
+                            savedMode = "CHPR2";
                             break;
-                        case "4":
+                        case "TXTR1":
                             if (fileInfo.AssetEntry.Type == "TXTR")
                                 ExtractTXTR(fileInfo.FileData, fileInfo, pak);
-                            savedMode = "4";
+                            savedMode = "TXTR1";
                             break;
-                        case "5":
+                        case "TXTR2":
                             makeFolders = true;
                             if (fileInfo.AssetEntry.Type == "TXTR")
                                 ExtractTXTR(fileInfo.FileData, fileInfo, pak);
-                            savedMode = "5";
+                            savedMode = "TXTR2";
                             break;
-                        case "6":
+                        case "TERR":
                             if (fileInfo.AssetEntry.Type == "TERR")
                                 ExtractTerrain(fileInfo.FileData, fileInfo, pak);
-                            savedMode = "6";
+                            savedMode = "TERR";
                             break;
-                        case "7":
+                        case "TECM":
                             if (fileInfo.AssetEntry.Type == "TECM" )
-                                //if(fileInfo.AssetEntry.FileID.ToString() == "46a30d3a-c6b2-48b8-9eb1-e2148d61965f")
                                 ExtractTerrainClipMapStitched(fileInfo.FileData, fileInfo, pak);
-                            savedMode = "7";
+                            savedMode = "TECM";
+                            break;
+                            /*
+                        case "MCON":
+                            if (fileInfo.AssetEntry.Type == "MCON")
+                                ProcessModConTest(fileInfo.FileData, fileInfo, pak);
+                            savedMode = "MCON";
+                            break;
+                            */
+                        case "ROOM":
+                            if (fileInfo.AssetEntry.Type == "ROOM")
+                                ProcessRoomTest(fileInfo.FileData, fileInfo, pak);
+                            savedMode = "ROOM";
                             break;
                     }
                 }
@@ -134,30 +147,7 @@ namespace MetroidPrimeRemasterModelDumper
             }
         }
 
-        static void ExtractTerrain(Stream stream, FileEntry Entry, PAK pak)
-        {
-            Console.WriteLine("");
-            Console.WriteLine("WARNING: Processing the terrain format can be an intensive. For ease");
-            Console.WriteLine("of usage, the terrain tiles have been broken into groups. Please ensure");
-            Console.WriteLine("that your PC has a minimum of 8 gigabytes of ram before continuing with");
-            Console.WriteLine("the extraction. If you plan to bring every single tile into an application");
-            Console.WriteLine("such as Blender, ensure your PC has at least 8-16 gigabytes of ram.");
-            Console.WriteLine("");
-            Console.WriteLine("Press any key to continue.");
-            Console.ReadKey();
-
-            TERR terr = new TERR(Entry.FileData);
-            Console.WriteLine("TERR successfully consumed");
-
-            string folder = "SolValleyTerrainTiles";
-
-            TERRExporter.ExportGLTF(terr, folder, pak);
-            TERRExporter.ExportHeightmapPNG(terr, folder, pak);
-            TERRExporter.ExportTextureSelectMap(terr, folder, pak);
-            //TERRExporter.ExportUnknownBitMap(terr, folder, pak);
-            
-        }
-
+        #region Model Making
         static void ExtractCharacterProject(Stream stream, FileEntry Entry, PAK pak)
         {
             Console.WriteLine("Beginning Character Project extract on file: " + Entry.AssetEntry.FileID.ToString());
@@ -169,7 +159,7 @@ namespace MetroidPrimeRemasterModelDumper
                 foreach (var model in charInfo.ModelNodes)
                 {
                     FileEntry file = new FileEntry();
-                    file = SearchForModel(model.ModelFileGuid.ToString());
+                    file = SearchForFile(model.ModelFileGuid.ToString());
 
                     if( file == null)
                     {
@@ -223,7 +213,9 @@ namespace MetroidPrimeRemasterModelDumper
             string path = Path.Combine(folder, modelName);
             CMDLExporter.Export(cmdl, path, null, saveLODs);
         }
+        #endregion
 
+        #region Texture
         static void ExtractTXTR(Stream stream, FileEntry Entry, PAK pak)
         {
             var txtr = new TXTR(Entry.FileData);
@@ -314,6 +306,30 @@ namespace MetroidPrimeRemasterModelDumper
             }
 
             genericTexture.Export(outputPath);
+        }
+        #endregion
+
+        #region Terrain
+        static void ExtractTerrain(Stream stream, FileEntry Entry, PAK pak)
+        {
+            Console.WriteLine("");
+            Console.WriteLine("WARNING: Processing the terrain format can be an intensive. For ease");
+            Console.WriteLine("of usage, the terrain tiles have been broken into groups. Please ensure");
+            Console.WriteLine("that your PC has a minimum of 8 gigabytes of ram before continuing with");
+            Console.WriteLine("the extraction. If you plan to bring every single tile into an application");
+            Console.WriteLine("such as Blender, ensure your PC has at least 8-16 gigabytes of ram.");
+            Console.WriteLine("");
+            Console.WriteLine("Press any key to continue.");
+            Console.ReadKey();
+
+            TERR terr = new TERR(Entry.FileData);
+            Console.WriteLine("TERR successfully consumed");
+
+            string folder = "SolValleyTerrainTiles";
+
+            TERRExporter.ExportGLTF(terr, folder, pak);
+            TERRExporter.ExportHeightmapPNG(terr, folder, pak);
+            TERRExporter.ExportTextureSelectMap(terr, folder, pak);
         }
 
         static void ExtractTerrainClipMapStitched(Stream stream, FileEntry Entry, PAK pak)
@@ -576,69 +592,10 @@ namespace MetroidPrimeRemasterModelDumper
 
             genericTexture.ImageFormat = new ImageFormat(TXTR.FormatList[formatToUse]);
 
-            if (mortonOrder)
-            {
-                // BC blocks operate in 4x4 chunks.
-                int blockX = width / 4;
-                int blockY = height / 4;
-
-                rawBlocks = DeMortonTECM(
-                    rawBlocks,
-                    blockX, // e.g., 24
-                    blockY, // e.g., 24
-                    bytesPerBlock); // e.g., 16
-            }
-
             genericTexture.Data = rawBlocks;
             genericTexture.Export(path);
         }
 
-        private static byte[] DeMortonTECM(byte[] packedMortonData, int gridX, int gridY, int bytesPerBlock)
-        {
-            int totalBlocks = gridX * gridY;
-            int expectedSize = totalBlocks * bytesPerBlock;
-
-            if (packedMortonData.Length < expectedSize)
-            {
-                throw new InvalidDataException(
-                    $"TECM data is too small. " +
-                    $"Expected at least {expectedSize} bytes, " +
-                    $"got {packedMortonData.Length}.");
-            }
-
-            byte[] linearData = new byte[expectedSize];
-
-            // Find the bounding power of 2 for the curve (e.g., 24 -> 32)
-            int pow2X = 1; while (pow2X < gridX) pow2X <<= 1;
-            int pow2Y = 1; while (pow2Y < gridY) pow2Y <<= 1;
-            int maxMorton = pow2X * pow2Y; // e.g., 32x32 = 1024 max indices
-
-            int packedOffset = 0;
-
-            for (uint m = 0; m < maxMorton; m++)
-            {
-                // Decode the Z-curve back into 2D coordinates
-                uint x = DecodeMorton2X(m);
-                uint y = DecodeMorton2Y(m);
-
-                // Filter out the "holes" in the non-power-of-two grid
-                if (x < gridX && y < gridY)
-                {
-                    int linearTileIndex = (int)(y * gridX + x);
-                    Buffer.BlockCopy(
-                        packedMortonData,
-                        packedOffset,
-                        linearData,
-                        linearTileIndex * bytesPerBlock,
-                        bytesPerBlock);
-
-                    // Only increment the read offset when a block was actually valid
-                    packedOffset += bytesPerBlock;
-                }
-            }
-
-            return linearData;
-        }
 
         private static uint Compact1By1(uint x)
         {
@@ -649,74 +606,126 @@ namespace MetroidPrimeRemasterModelDumper
             x = (x ^ (x >> 8)) & 0x0000ffff;
             return x;
         }
+        #endregion
 
-        private static uint DecodeMorton2X(uint code)
+        #region Room Dumping
+        static void ProcessModConTest(Stream stream, FileEntry Entry, PAK pak)
         {
-            return Compact1By1(code);
+            var mcon = new MCON(Entry.FileData);
+
+            foreach(var atlast in mcon.data.visualData.visualAtlas)
+            {
+
+            }
+
+
+            Console.WriteLine("Successfully consumed a MCON: " + Entry.AssetEntry.FileID.ToString());
         }
 
-        private static uint DecodeMorton2Y(uint code)
+        static void ProcessRoomTest(Stream stream, FileEntry Entry, PAK pak)
         {
-            return Compact1By1(code >> 1);
+            ROOM room = new ROOM(Entry.FileData);
+
+            ConstructedRoom newRoom = ConstructedRoom.ProcessRoomForConstruction(room);
+
+            string roomName = Entry.AssetEntry.FileID.ToString();
+            string folder = Path.Combine(Path.GetFileNameWithoutExtension(pak.FileInfo.FilePath), roomName);
+            if (!Directory.Exists(folder))
+            {
+                Directory.CreateDirectory(folder);
+            }
+
+            RoomInfoPrinter.PrintParsedObjects(folder, newRoom);
+            RoomInfoPrinter.PrintStaticLights(folder, newRoom);
+            MCONExporter.ExportRoom(newRoom, folder, false);
+
+            Console.WriteLine("Successfully consumed a ROOM: " + Entry.AssetEntry.FileID.ToString());
         }
+
+        /*
+        static void ExtractLTPB(Stream stream, FileEntry Entry, PAK pak)
+        {
+            var ltpb = new LTPB(Entry.FileData);
+            string lightProbeName = Entry.AssetEntry.FileID.ToString();
+
+            string folder = Path.Combine(
+                Path.GetFileNameWithoutExtension(pak.FileInfo.FilePath),
+                "LTPB_" + lightProbeName);
+
+            if (!Directory.Exists(folder))
+                Directory.CreateDirectory(folder);
+
+            for (int i = 0; i < ltpb.lightProbeBundles.Count; i++)
+            {
+                var bundle = ltpb.lightProbeBundles[i];
+                string textureName = $"{lightProbeName}_{i:D4}";
+                string path = Path.Combine(folder, $"{textureName}.txtr.png");
+
+                try
+                {
+                    ExportLTPBToPng(path, bundle.texture);
+                }
+                catch
+                {
+                    File.AppendAllText(
+                        Path.Combine(folder, "ErroredTextures.txt"),
+                        $"{Environment.NewLine}{textureName}     Format: {bundle.texture.TextureHeader.Format}");
+                    File.WriteAllBytes(
+                        Path.Combine(folder, $"{textureName}.bin"),
+                        bundle.texture.BufferData ?? Array.Empty<byte>());
+                }
+            }
+
+            Console.WriteLine(
+                $"LTPB {lightProbeName}: parsed {ltpb.lightProbeBundles.Count} embedded textures.");
+        }
+        */
+        #endregion
+
 
         #region File Gathering
-        public static FileEntry SearchForModel(string FileID)
+        public static FileEntry SearchForFile(string FileID)
         {
             foreach (var fileInfo in currentPak.files)
             {
                 if (fileInfo.AssetEntry.FileID.ToString() == FileID)
                 {
-                    Console.WriteLine("Found model: " + FileID);
                     return fileInfo;
                 }
             }
 
-            // If it reaches here, in theory, the material isn't in the pak.
-            // If this is the case, time to consult the material manifest!
-            // Console.WriteLine(FileID.ToString() + " isn't in this pak! ");
+            // If it reaches here, in theory, the file isn't in the pak.
+            // If this is the case, time to consult the manifest!
 
-            //System.IO.File.WriteAllText(AppContext.BaseDirectory + "/" + FileID + ".txt", FileID);
-
-            return LocateModel(FileID);
-            
+            return LocateFile(FileID);
         }
 
-        public static FileEntry LocateModel(string ModelName)
+        public static FileEntry LocateFile(string ModelName)
         {
-            string ManifestContent = File.ReadAllText(AppContext.BaseDirectory + "/ModelManifest.json");
-            ModelManifestSerializableEntry[] manifestEntries = JsonSerializer.Deserialize<ModelManifestSerializableEntry[]>(ManifestContent);
+            string ManifestContent = File.ReadAllText(AppContext.BaseDirectory + "/FileManifest.json");
+            ManifestSerializableEntry[] manifestEntries = JsonSerializer.Deserialize<ManifestSerializableEntry[]>(ManifestContent);
             //Console.WriteLine("Total manifest entries: " + manifestEntries.Count());
+
             FileEntry TargetedFile = new FileEntry();
 
-            bool foundFile = false;
-
-            for (int i = 0; i < manifestEntries.Length; i++)
+            foreach (var entry in manifestEntries)
             {
-                for (int c = 0; c < manifestEntries[i].SMDLFiles.Count(); c++)
+                for (int c = 0; c < entry.Files.Count(); c++)
                 {
-                    if (manifestEntries[i].SMDLFiles[c] == ModelName)
+                    if (entry.Files[c] == ModelName)
                     {
-                        // Console.WriteLine("Missing model should be in: " + manifestEntries[i].PakName);
-                        TargetedFile = FetchModel(manifestEntries[i].PakPath, ModelName);
-                        foundFile = true;
+                        TargetedFile = FetchFile(entry.PakPath, ModelName);
                         break;
                     }
                 }
             }
 
-            if (!foundFile)
-            {
-                Console.WriteLine("Unable to find file");
-                TargetedFile = null;
-            }
-
             return TargetedFile;
         }
 
-        public static FileEntry FetchModel(string pakFile, string ModelName)
+        public static FileEntry FetchFile(string pakFile, string ModelName)
         {
-            FileEntry TargetedModelFile = new FileEntry();
+            FileEntry TargetedFile = new FileEntry();
 
             var ctx = new AvaloniaToolbox.Core.FileContext()
             {
@@ -732,72 +741,6 @@ namespace MetroidPrimeRemasterModelDumper
             {
                 if (fileInfo.AssetEntry.FileID.ToString() == ModelName)
                 {
-                    TargetedModelFile = fileInfo;
-                    break;
-                }
-            }
-            return TargetedModelFile;
-        }
-
-        // File searching because Retro Studios is darn weird with materials.
-        public static FileEntry SearchForMaterial(string MaterialName, int TypeToggle)
-        {   
-            foreach (var fileInfo in currentPak.files)
-            {
-                if (fileInfo.AssetEntry.FileID.ToString() == MaterialName)
-                {
-                    Console.WriteLine("Good news! The file is in the pak!");
-                    return fileInfo;
-                }
-            }
-
-            // If it reaches here, in theory, the material isn't in the pak.
-            // If this is the case, time to consult the material manifest!
-            Console.WriteLine("Material file isn't in this pak. Locating file.");
-            return LocateMATIFile(MaterialName);
-        }
-
-        public static FileEntry LocateMATIFile(string MaterialName)
-        {
-            string ManifestContent = File.ReadAllText(AppContext.BaseDirectory + "/MaterialManifest.json");
-            MaterialManifestSerializableEntry[] manifestEntries = JsonSerializer.Deserialize<MaterialManifestSerializableEntry[]>(ManifestContent);
-            //Console.WriteLine("Total manifest entries: " + manifestEntries.Count());
-
-            FileEntry TargetedFile = new FileEntry();
-
-            foreach(var entry in manifestEntries)
-            {
-                for (int c = 0; c < entry.MATIFiles.Count(); c++)
-                {
-                    if (entry.MATIFiles[c] == MaterialName)
-                    {
-                        TargetedFile = FetchMATIFile(entry.MatiPakPath, MaterialName);
-                        break;
-                    }
-                }
-            }
-
-            return TargetedFile;
-        }
-
-        public static FileEntry FetchMATIFile(string pakFile, string MaterialName)
-        {
-            FileEntry TargetedFile = new FileEntry();
-
-            var ctx = new AvaloniaToolbox.Core.FileContext()
-            {
-                FilePath = pakFile,
-                FileName = Path.GetFileName(pakFile),
-                Stream = File.OpenRead(pakFile),
-            };
-
-            PAK pak = new PAK() { FileInfo = ctx };
-            pak.Load(ctx);
-
-            foreach (var fileInfo in pak.files)
-            {
-                if (fileInfo.AssetEntry.FileID.ToString() == MaterialName)
-                {
                     TargetedFile = fileInfo;
                     break;
                 }
@@ -807,8 +750,8 @@ namespace MetroidPrimeRemasterModelDumper
 
         public static string LocateTextureParentPak(string TextureName)
         {
-            string ManifestContent = File.ReadAllText(AppContext.BaseDirectory + "/TextureManifest.json");
-            TextureManifestSerializableEntry[] manifestEntries = JsonSerializer.Deserialize<TextureManifestSerializableEntry[]>(ManifestContent);
+            string ManifestContent = File.ReadAllText(AppContext.BaseDirectory + "/Manifest.json");
+            ManifestSerializableEntry[] manifestEntries = JsonSerializer.Deserialize<ManifestSerializableEntry[]>(ManifestContent);
             //Console.WriteLine("Total manifest entries: " + manifestEntries.Count());
             string TargetedFileParent = null;
 
@@ -816,11 +759,11 @@ namespace MetroidPrimeRemasterModelDumper
 
             for (int i = 0; i < manifestEntries.Length; i++)
             {
-                for (int c = 0; c < manifestEntries[i].TXTRFiles.Count(); c++)
+                for (int c = 0; c < manifestEntries[i].Files.Count(); c++)
                 {
-                    if (manifestEntries[i].TXTRFiles[c] == TextureName)
+                    if (manifestEntries[i].Files[c] == TextureName)
                     {
-                        TargetedFileParent = manifestEntries[i].TxtrPakName;
+                        TargetedFileParent = manifestEntries[i].PakName;
                         foundFile = true;
                         break;
                     }
@@ -835,13 +778,15 @@ namespace MetroidPrimeRemasterModelDumper
 
             return TargetedFileParent;
         }
+        #endregion
 
+        #region Debugging
         public static void DocumentModelComplexes(Stream stream, FileEntry Entry, PAK pak)
         {
             var cmdl = new CMDL(Entry.FileData);
             string modelName = Entry.AssetEntry.FileID.ToString();
 
-            for(int i = 0; i < cmdl.Materials.Count; i++)
+            for (int i = 0; i < cmdl.Materials.Count; i++)
             {
                 if (cmdl.Materials[i].HasComplex)
                 {
@@ -868,7 +813,7 @@ namespace MetroidPrimeRemasterModelDumper
             for (int i = 0; i < cmdl.MaterialsNew.Count; i++)
             {
                 if (cmdl.MaterialsNew[i].HasComplex)
-             
+
                 {
                     if (!File.Exists(AppContext.BaseDirectory + "/ComplexDocumentation.txt"))
                     {
@@ -889,11 +834,7 @@ namespace MetroidPrimeRemasterModelDumper
                     }
                 }
             }
-
-
-            
         }
-
         #endregion
 
     }

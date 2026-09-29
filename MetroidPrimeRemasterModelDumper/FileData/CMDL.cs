@@ -220,17 +220,15 @@ namespace DKCTF
                     string typeCheck = new string(reader.ReadChars(4));
                     string formatCheck = new string(reader.ReadChars(4));
 
-                    Console.WriteLine($"dtype {typeCheck} {formatCheck}");
+                    // Console.WriteLine($"dtype {typeCheck} {formatCheck}");
 
                     switch (dType)
                     {
                         case "COLR": //Color
                             material.Colors.Add(dID, reader.ReadStruct<Color4f>());
-                            //Console.WriteLine("material format: COLR");
                             break;
                         case "SCLR": //Scaler
                             material.Scalars.Add(dID, reader.ReadSingle());
-                            //Console.WriteLine("material format: SCLR");
                             break;
                         case "CPLX": //CLayeredTextureData
                             material.HasComplex = true;
@@ -255,21 +253,21 @@ namespace DKCTF
                     material.Name = reader.ReadFixedString((int)size);
                     material.ID = reader.ReadStruct<CObjectId>();
                     reader.ReadStruct<CObjectId>(); // Not sure.
-                    Console.WriteLine("Material Name Check: " + material.Name.ToString());
+                    //Console.WriteLine("Material Name Check: " + material.Name.ToString());
 
                     uint check = reader.ReadUInt32(); // unk1
-                    Console.WriteLine("Data Check: " + check.ToString("X8"));
+                    //Console.WriteLine("Data Check: " + check.ToString("X8"));
 
                     reader.ReadUInt32(); // unk2
                     uint traitCount = reader.ReadUInt32();
-                    Console.WriteLine("Trait Count Check: " + traitCount.ToString("X8"));
+                    //Console.WriteLine("Trait Count Check: " + traitCount.ToString("X8"));
 
                     for (int v = 0; v < traitCount; v++)
                     {
                         reader.ReadChars(4); // This stuff. RLTG.
                     }
                     uint variableDescCount = reader.ReadUInt32();
-                    Console.WriteLine("Variable Desc Count Check: " + variableDescCount.ToString("X8"));
+                    //Console.WriteLine("Variable Desc Count Check: " + variableDescCount.ToString("X8"));
 
                     for (int v = 0; v < variableDescCount; v++)
                     {
@@ -278,7 +276,7 @@ namespace DKCTF
                         variableDesc = reader.ReadStruct<CVariableDesc>();
                     }
                     uint numData = reader.ReadUInt32();
-                    Console.WriteLine("Data Number Check: " + numData.ToString("X8"));
+                    //Console.WriteLine("Data Number Check: " + numData.ToString("X8"));
 
                     //Actual data type data
                     for (int j = 0; j < numData; j++)
@@ -291,14 +289,14 @@ namespace DKCTF
                         string typeCheck = new string(reader.ReadChars(4));
                         string formatCheck = new string(reader.ReadChars(4));
 
-                        Console.WriteLine($"dtype {typeCheck} {formatCheck}");
+                        //Console.WriteLine($"dtype {typeCheck} {formatCheck}");
 
                         switch (dType)
                         {
                             case "TXTR": //Texture
                                 CTextureOld texture = new CTextureOld();
                                 CMaterialTextureTokenData tokenData = reader.ReadStruct<CMaterialTextureTokenData>();
-                                texture.TextureTokenData = tokenData;
+                                texture.textureTokenData = tokenData;
                                 texture.type = typeCheck;
                                 material.Textures.Add( texture );
                                 //material.Textures.Add(reader.ReadStruct<CMaterialTextureTokenData>());
@@ -335,7 +333,6 @@ namespace DKCTF
                                 break;
                             default:
                                 material.FailedType = dID;
-                                Console.WriteLine($"Unsupported material type {formatCheck}!");
                                 throw new Exception($"Unsupported material type {formatCheck}!");
                         }
                     }
@@ -368,7 +365,7 @@ namespace DKCTF
             
             foreach (var item in MSHPEntries)
             {
-                FileEntry file = BatchPakExtractor.SearchForMaterial(item.MatiID.ToString(), 0);
+                FileEntry file = BatchPakExtractor.SearchForFile(item.MatiID.ToString());
 
                 // Time to brute force this crap, because apparently no one ever fully looked into it.
                 FileReader MATIReader = new FileReader(file.FileData);
@@ -752,11 +749,9 @@ namespace DKCTF
             public Vector4 BoneWeights = new Vector4(1, 0, 0, 0);
             public Vector4 BoneIndices = new Vector4(0);
 
-            public bool hasTexCoord1 = false;
-            public bool hasTexCoord2 = false;
-            public bool hasTexCoord3 = false;
+            public Vector4 Color1 = Vector4.One;
 
-            public Vector4 Color = Vector4.One;
+            public bool hasTexCoord1 = false;
 
             public Vector4 Tangent;
         }
@@ -985,7 +980,7 @@ namespace DKCTF
 
         public class CTextureOld
         {
-            public CMaterialTextureTokenData TextureTokenData;
+            public CMaterialTextureTokenData textureTokenData;
             public string type;
         }
 
@@ -1006,13 +1001,7 @@ namespace DKCTF
 
             public HashSet<int> LODs = new HashSet<int>();
 
-            //public List<int> LODs = new List<int>();
-
-            //public int parentLOD;
-
             public bool hasTexCoord1 = false;
-            public bool hasTexCoord2 = false;
-            public bool hasTexCoord3 = false;
 
             public void SetupVertices(List<CVertex> vertices)
             {
@@ -1049,8 +1038,8 @@ namespace DKCTF
                 if (vertexList.Count > 0)
                 {
                     hasTexCoord1 = vertexList[0].hasTexCoord1;
-                    hasTexCoord2 = vertexList[0].hasTexCoord2;
-                    hasTexCoord3 = vertexList[0].hasTexCoord3;
+                    //hasTexCoord2 = vertexList[0].hasTexCoord2;
+                    //hasTexCoord3 = vertexList[0].hasTexCoord3;
                 }
 
                 this.Vertices = vertexList;
@@ -1138,14 +1127,60 @@ namespace DKCTF
 
         public enum VertexFormat
         {
-            Byte = 0,
-            Format_16_16_HalfSingle = 20,
+            R8_UNorm = 0,
+            R8_UInt = 1,
+            R8_SNorm = 2,
+            R8_SInt = 3,
+
+            R16_UNorm = 4,
+            R16_UInt = 5,
+            R16_SNorm = 6,
+            R16_SInt = 7,
+            R16_Float = 8,
+
+            RG8_UNorm = 9,
+            RG8_UInt = 10,
+            RG8_SNorm = 11,
+            RG8_SInt = 12,
+
+            R32_UInt = 13,
+            R32_SInt = 14,
+            R32_Float = 15,
+
+            RG16_UNorm = 16,
+            RG16_UInt = 17,
+            RG16_SNorm = 18,
+            RG16_SInt = 19,
+            RG16_Float = 20,
+
             Format_8_8_8_8_UNorm = 21,
             Format_8_8_8_8_Uint = 22,
-            Format_16_16_16_16_UNorm = 30,
+            RGBA8_SNorm = 23,
+            RGBA8_SInt = 24,
+
+            RGB10A2_UNorm = 25,
+            RGB10A2_UInt = 26,
+
+            RG32_UInt = 27,
+            RG32_SInt = 28,
+            RG32_Float = 29,
+
+            RGBA16_UNorm = 30,
+            RGBA16_UInt = 31,
+            RGBA16_SNorm = 32,
+            RGBA16_SInt = 33,
             Format_16_16_16_HalfSingle = 34,
+
+            RGB32_UInt = 35,
+            RGB32_SInt = 36,
             Format_32_32_32_Single = 37,
+
+            RGBA32_UInt = 38,
+            RGBA32_SInt = 39,
             Format_32_32_32_32_Single = 40,
+
+            // Backwards-compatible aliases used by the existing code.
+            Format_16_16_HalfSingle = RG16_Float,
         }
 
         public enum EVertexComponent

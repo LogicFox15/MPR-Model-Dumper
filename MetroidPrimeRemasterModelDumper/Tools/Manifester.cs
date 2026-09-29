@@ -3,19 +3,18 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
-using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.Json;
 using System.Threading.Tasks;
-#nullable disable
 
-namespace MetroidPrimeRemasterModelDumper
+namespace MetroidPrimeRemasterModelDumper.Tools
 {
-    public static class MaterialManifester
+    public static class Manifester
     {
         static List<FileInfo> RomFiles = new List<FileInfo>();
-        static List<MaterialManifestEntry> PakManifestEntry = new List<MaterialManifestEntry>();
+        static List<ManifestEntry> PakManifestEntry = new List<ManifestEntry>();
 
-        public static void ProcessMP4Materials(string romDir)
+        public static void ProcessModels(string romDir)
         {
             DirectoryInfo DirInfo = new DirectoryInfo(@romDir);
 
@@ -29,7 +28,7 @@ namespace MetroidPrimeRemasterModelDumper
                 ScanForFile(DirInfo);
             }
 
-            foreach(var file in RomFiles)
+            foreach (var file in RomFiles)
             {
                 string pakFile = file.FullName;
                 Console.WriteLine(file.Name);
@@ -43,51 +42,39 @@ namespace MetroidPrimeRemasterModelDumper
                 PAK pak = new PAK() { FileInfo = ctx };
                 pak.Load(ctx);
 
-                MaterialManifestEntry entry = new MaterialManifestEntry();
-                entry.MatiPakName = ctx.FileName;
-                entry.MatiPakPath = ctx.FilePath;
+                ManifestEntry entry = new ManifestEntry();
+                entry.PakName = ctx.FileName;
+                entry.PakPath = ctx.FilePath;
 
                 foreach (var fileInfo in pak.files)
                 {
-                    if (fileInfo.AssetEntry.Type == "MATI")
-                    {
-                        entry.MATIFiles.Add(fileInfo.AssetEntry.FileID);
-                    }
-                    if (fileInfo.AssetEntry.Type == "MTRL")
-                    {
-                        entry.MTRLFiles.Add(fileInfo.AssetEntry.FileID);
-                    }
+                    entry.Files.Add(fileInfo.AssetEntry.FileID);
+                    
                 }
 
                 PakManifestEntry.Add(entry);
             }
 
-            List<MaterialManifestSerializableEntry> SerialEntry = new List<MaterialManifestSerializableEntry>();
+            List<ManifestSerializableEntry> SerialEntry = new List<ManifestSerializableEntry>();
 
             foreach (var entry in PakManifestEntry)
             {
-                List<string> mati = new List<string>();
-                List<string> mtrl = new List<string>();
+                List<string> file = new List<string>();
 
-                foreach(var matiEntry in entry.MATIFiles)
+                foreach (var fileEntry in entry.Files)
                 {
-                    mati.Add(matiEntry.ToString());
+                    file.Add(fileEntry.ToString());
                 }
 
-                foreach (var mtrlEntry in entry.MTRLFiles)
+                var newEntry = new ManifestSerializableEntry
                 {
-                    mati.Add(mtrlEntry.ToString());
-                }
-
-                var newEntry = new MaterialManifestSerializableEntry
-                {
-                    MatiPakName = entry.MatiPakName,
-                    MatiPakPath = entry.MatiPakPath,
-                    MATIFiles = mati,
-                    MTRLFiles = mtrl
+                    PakName = entry.PakName,
+                    PakPath = entry.PakPath,
+                    Files = file,
+                    //CMDLFiles = cmdl
                 };
 
-                SerialEntry.Add(newEntry);
+                SerialEntry.Add(newEntry);          
             }
 
             string jsonOutput = JsonSerializer.Serialize(SerialEntry, new JsonSerializerOptions
@@ -95,7 +82,7 @@ namespace MetroidPrimeRemasterModelDumper
                 WriteIndented = true
             });
 
-            File.WriteAllText(AppContext.BaseDirectory + "/MaterialManifest.json", jsonOutput);
+            File.WriteAllText(AppContext.BaseDirectory + "/FileManifest.json", jsonOutput);
 
         }
 
@@ -127,30 +114,30 @@ namespace MetroidPrimeRemasterModelDumper
                 {
                     RomFiles.Add(file);
                 }
+
             }
         }
     }
 
-    public class MaterialManifestEntry()
+    public class ManifestEntry()
     {
-        public string MatiPakName = "";
-        public string MatiPakPath = "";
-        public List<CObjectId> MATIFiles = new List<CObjectId>();
-        public List<CObjectId> MTRLFiles = new List<CObjectId>();
+        public string PakName = "";
+        public string PakPath = "";
+        public List<CObjectId> Files = new List<CObjectId>();
+        //public List<CObjectId> CMDLFiles = new List<CObjectId>();
     }
 
-    public class MaterialManifestSerializableEntry()
+    public class ManifestSerializableEntry()
     {
         [JsonPropertyName("PakName")]
-        public string MatiPakName { get; set; }
+        public string PakName { get; set; }
         [JsonPropertyName("PakPath")]
-        public string MatiPakPath { get; set; }
+        public string PakPath { get; set; }
 
-        [JsonPropertyName("MATIFiles")]
-        public List<string> MATIFiles { get; set; }
+        [JsonPropertyName("Files")]
+        public List<string> Files { get; set; }
 
-        [JsonPropertyName("MTRLFiles")]
-        public List<string> MTRLFiles { get; set; }
+        //[JsonPropertyName("CMDLFiles")]
+        //public List<string> CMDLFiles { get; set; }
     }
-
 }
