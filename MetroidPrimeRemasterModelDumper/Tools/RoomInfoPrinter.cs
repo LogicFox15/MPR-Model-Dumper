@@ -107,29 +107,6 @@ namespace MetroidPrimeRemasterModelDumper
                     ObjectTXT += System.Environment.NewLine;
                 }
 
-                // Print the doors.
-                if (room.layers[i].doorMP1s.Count > 0)
-                {
-                    ObjectTXT += System.Environment.NewLine + System.Environment.NewLine + "DoorMP1s: ";
-                }
-                foreach (var door in room.layers[i].doorMP1s)
-                {
-                    try
-                    {
-                        ObjectTXT += System.Environment.NewLine + "Door CHPR ID: " + door.chprId.ToString();
-                    }
-                    catch
-                    {
-                        ObjectTXT += System.Environment.NewLine + "Problem with getting Visual ID";
-                    }
-
-                    ObjectTXT += System.Environment.NewLine + "Position: " + door.commonObjectData.entityProperties.position.X.ToString() + ", " + (-door.commonObjectData.entityProperties.position.Z).ToString() + ", " + door.commonObjectData.entityProperties.position.Y.ToString();
-                    ObjectTXT += System.Environment.NewLine + "Rotation: " + door.commonObjectData.entityProperties.blenderRotation.X.ToString() + ", " + door.commonObjectData.entityProperties.blenderRotation.Y.ToString() + ", " + door.commonObjectData.entityProperties.blenderRotation.Z.ToString();
-                    ObjectTXT += System.Environment.NewLine + "Scale: " + door.commonObjectData.entityProperties.scale.X.ToString() + ", " + door.commonObjectData.entityProperties.scale.Z.ToString() + ", " + door.commonObjectData.entityProperties.scale.Y.ToString();
-                    ObjectTXT = AppendAtlasLookup(ObjectTXT, room, door.commonObjectData);
-                    ObjectTXT += System.Environment.NewLine;
-                }
-
                 // Print volume setups
                 if (room.layers[i].volumetricFogs.Count > 0)
                 {
@@ -239,66 +216,151 @@ namespace MetroidPrimeRemasterModelDumper
                     ObjectTXT += System.Environment.NewLine;
                 }
 
-                // Print the actors.
-                if (room.layers[i].actorMP1s.Count > 0)
+
+                if (room.layers[i].renders.Count > 0)
                 {
-                    ObjectTXT += System.Environment.NewLine + System.Environment.NewLine + "ActorMP1s: ";
+                    ObjectTXT += System.Environment.NewLine + System.Environment.NewLine + "Renders: ";
                 }
-                foreach (var actor in room.layers[i].actorMP1s)
+                foreach (var render in room.layers[i].renders)
                 {
-                    try
-                    {
-                        ObjectTXT += System.Environment.NewLine + "Actor Model ID: " + actor.staticModelId.ToString();
-                    }
-                    catch
-                    {
-
-                        try
-                        {
-                            ObjectTXT += System.Environment.NewLine + "Actor CHPR ID: " + actor.chprId.ToString();
-                        }
-                        catch
-                        {
-                            ObjectTXT += System.Environment.NewLine + "Couldn't find an ID to print";
-                        }
-                        
-                    }
-
-                    ObjectTXT += System.Environment.NewLine + "Position: " + actor.commonObjectData.entityProperties.position.X.ToString() + ", " + (-actor.commonObjectData.entityProperties.position.Z).ToString() + ", " + actor.commonObjectData.entityProperties.position.Y.ToString();
-                    ObjectTXT += System.Environment.NewLine + "Rotation: " + actor.commonObjectData.entityProperties.blenderRotation.X.ToString() + ", " + actor.commonObjectData.entityProperties.blenderRotation.Y.ToString() + ", " + actor.commonObjectData.entityProperties.blenderRotation.Z.ToString();
-                    ObjectTXT += System.Environment.NewLine + "Scale: " + actor.commonObjectData.entityProperties.scale.X.ToString() + ", " + actor.commonObjectData.entityProperties.scale.Z.ToString() + ", " + actor.commonObjectData.entityProperties.scale.Y.ToString();
-                    ObjectTXT += System.Environment.NewLine + "instance data guid: " + actor.commonObjectData.originalInstanceData.id.ToString();
-                    ObjectTXT = AppendAtlasLookup(ObjectTXT, room, actor.commonObjectData);
-                    ObjectTXT += System.Environment.NewLine;
+                    ObjectTXT = AppendRenderInfo(ObjectTXT, render);
                 }
 
-                // Print the platforms.
-                if (room.layers[i].platformMP1s.Count > 0)
-                {
-                    ObjectTXT += System.Environment.NewLine + System.Environment.NewLine + "PlatformMP1s: ";
-                }
-                foreach (var platform in room.layers[i].platformMP1s)
-                {
-                    try
-                    {
-                        ObjectTXT += System.Environment.NewLine + "Platform Visual ID: " + platform.staticModelId.ToString();
-                    }
-                    catch
-                    {
-                        ObjectTXT += System.Environment.NewLine + "Problem with getting Visual ID";
-                    }
-
-                    ObjectTXT += System.Environment.NewLine + "Position: " + platform.commonObjectData.entityProperties.position.X.ToString() + ", " + (-platform.commonObjectData.entityProperties.position.Z).ToString() + ", " + platform.commonObjectData.entityProperties.position.Y.ToString();
-                    ObjectTXT += System.Environment.NewLine + "Rotation: " + platform.commonObjectData.entityProperties.blenderRotation.X.ToString() + ", " + platform.commonObjectData.entityProperties.blenderRotation.Y.ToString() + ", " + platform.commonObjectData.entityProperties.blenderRotation.Z.ToString();
-                    ObjectTXT += System.Environment.NewLine + "Scale: " + platform.commonObjectData.entityProperties.scale.X.ToString() + ", " + platform.commonObjectData.entityProperties.scale.Z.ToString() + ", " + platform.commonObjectData.entityProperties.scale.Y.ToString();
-                    ObjectTXT += System.Environment.NewLine + "instance data guid: " + platform.commonObjectData.originalInstanceData.id.ToString();
-                    ObjectTXT = AppendAtlasLookup(ObjectTXT, room, platform.commonObjectData);
-                    ObjectTXT += System.Environment.NewLine;
-                }
             }
 
             File.WriteAllText(path + ".json", ObjectTXT);
             ObjectTXT = "Room Object Information: ";
+        }
+
+        // Putting this down here because it is massive
+        private static string AppendRenderInfo(string text, Render render)
+        {
+            text += System.Environment.NewLine + System.Environment.NewLine + "Render:";
+
+            // -----------------------------------------------------------------
+            // IDs belonging to the Render component itself.
+            // -----------------------------------------------------------------
+
+            if (render.commonObjectData != null)
+            {
+                if (render.commonObjectData.originalInstanceData != null)
+                {
+                    text += System.Environment.NewLine + "Instance Data ID: " + render.commonObjectData.originalInstanceData.id.ToString();
+                }
+
+                // This is the EntityProperties GUID associated with the Render.
+                if (render.commonObjectData.entityProperties != null)
+                {
+                    text += System.Environment.NewLine + "Entity Properties Instance GUID: " + render.commonObjectData.entityProperties.InstanceGUID.ToString();
+                }
+            }
+
+            if (render.commonObjectData != null && render.commonObjectData.entityProperties != null)
+            {
+                var transform = render.commonObjectData.entityProperties;
+
+                text += System.Environment.NewLine + "Position: " + transform.position.X.ToString() + ", " + (-transform.position.Z).ToString() + ", " + transform.position.Y.ToString();
+                text += System.Environment.NewLine + "Rotation: " + transform.blenderRotation.X.ToString() + ", " + transform.blenderRotation.Y.ToString() + ", " + transform.blenderRotation.Z.ToString();
+                text += System.Environment.NewLine + "Scale: " + transform.scale.X.ToString() + ", " + transform.scale.Z.ToString() + ", " + transform.scale.Y.ToString();
+            }
+            else
+            {
+                text += System.Environment.NewLine + "Transform: Not Found";
+            }
+
+            // -----------------------------------------------------------------
+            // 0x948D7F67 - RenderProperties
+            // -----------------------------------------------------------------
+
+            if (render.renderProperties != null)
+            {
+                text += System.Environment.NewLine + "Render Properties Type: " + (render.renderProperties.knownType?.ToString() ?? "0x" + render.renderProperties.typeHash.ToString("X8"));
+
+                // Every object/resource ID currently decoded by Render.cs.
+                if (render.renderProperties.assetIds != null && render.renderProperties.assetIds.Count > 0)
+                {
+                    text += System.Environment.NewLine + "Render Object IDs:";
+
+                    for (int idIndex = 0; idIndex < render.renderProperties.assetIds.Count; idIndex++)
+                    {
+                        text += System.Environment.NewLine + "  [" + idIndex.ToString() + "] " + render.renderProperties.assetIds[idIndex].ToString();
+                    }
+                }
+                else
+                {
+                    text += System.Environment.NewLine + "Render Object IDs: None";
+                }
+
+                // Also print every raw property hash, which is useful when
+                // encountering one of the currently unsupported Render subtypes.
+                if (render.renderProperties.properties != null && render.renderProperties.properties.Count > 0)
+                {
+                    text += System.Environment.NewLine + "Render Properties:";
+
+                    for (int propertyIndex = 0; propertyIndex < render.renderProperties.properties.Count; propertyIndex++)
+                    {
+                        var property = render.renderProperties.properties[propertyIndex];
+
+                        text += System.Environment.NewLine + "  Property " + propertyIndex.ToString() + ": 0x" + property.propertyId.ToString("X8") + " (" + property.propertySize.ToString() + " bytes)";
+                    }
+                }
+            }
+            else
+            {
+                text += System.Environment.NewLine + "Render Properties: None";
+            }
+
+            // -----------------------------------------------------------------
+            // 0x2B1317A0 - ModelLightingData
+            // -----------------------------------------------------------------
+
+            if (render.modelLightingData != null)
+            {
+                text += System.Environment.NewLine + "Model Lighting Data:";
+
+                // 0x1A89119F
+                if (render.modelLightingData.linkData != null)
+                {
+                    text += System.Environment.NewLine + "  Link Data Primary Object ID: " + render.modelLightingData.linkData.primaryObjectId.ToString();
+                    text += System.Environment.NewLine + "  Link Data Trailing Object ID: " + render.modelLightingData.linkData.trailingObjectId.ToString();
+                }
+
+                // 0x7822056C
+                if (HasRenderProperty(render.modelLightingData.properties, 0x7822056C))
+                {
+                    text += System.Environment.NewLine + "  Model ID: " + render.modelLightingData.modelId.ToString();
+                }
+            }
+
+            // -----------------------------------------------------------------
+            // Remaining outer Render properties.
+            // -----------------------------------------------------------------
+
+            text += System.Environment.NewLine + "Render Target Scene: 0x" + render.renderTargetSceneHash.ToString("X8");
+            text += System.Environment.NewLine + "Unknown Int: " + render.unkInt.ToString();
+            text += System.Environment.NewLine + "Unknown Bool 1: " + render.unkBool1.ToString();
+            text += System.Environment.NewLine + "Unknown Bool 2: " + render.unkBool2.ToString();
+            text += System.Environment.NewLine + "Unknown Bool 3: " + render.unkBool3.ToString();
+            text += System.Environment.NewLine + "Unknown Bool 4: " + render.unkBool4.ToString();
+            text += System.Environment.NewLine + "Unknown Bool 5: " + render.unkBool5.ToString();
+            text += System.Environment.NewLine + "Unknown UInt: " + render.unkUint.ToString();
+            text += System.Environment.NewLine;
+
+            return text;
+        }
+
+        private static bool HasRenderProperty(List<RenderRawProperty> properties, uint propertyId)
+        {
+            if (properties == null)
+                return false;
+
+            for (int i = 0; i < properties.Count; i++)
+            {
+                if (properties[i].propertyId == propertyId)
+                    return true;
+            }
+
+            return false;
         }
 
         private static string AppendAtlasLookup(string text, ConstructedRoom room, CommonObjectData objectData)

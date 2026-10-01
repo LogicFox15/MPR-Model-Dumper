@@ -45,6 +45,12 @@ namespace EvilWithin2Tool
                 List<CMDL> cmdls = new List<CMDL>();
                 IOModel iomodel = new IOModel();
 
+                string folder = Path.Combine(path, mcons[m].fileName.ToString());
+                if (!Directory.Exists(folder))
+                {
+                    Directory.CreateDirectory(folder);
+                }  
+
                 // Build each unique CMDL file
                 for (int i = 0; i < mcons[m].data.visualData.modelIdCount; i++)
                 {
@@ -55,11 +61,8 @@ namespace EvilWithin2Tool
 
                     string modelId = mcons[m].data.visualData.modelID[i].ToString();
 
-                    if (writtenMaterialFiles.Add(modelId))
-                    {
-                        string materialPath = Path.Combine(path, modelId);
-                        WriteMaterialTextFile(cmdl, materialPath);
-                    }
+                    string materialPath = Path.Combine(folder, "CMDL_" + modelId);
+                    WriteMaterialTextFile(cmdl, materialPath);
                 }
 
                 // Each entry in the model-index array is one room-model instance. The corresponding entry in xf is that instance's transform.
@@ -96,37 +99,16 @@ namespace EvilWithin2Tool
 
                     int modelIndex = mcons[m].data.visualData.modelIndex[i];
 
-                    if ((uint)modelIndex >= (uint)cmdls.Count)
-                    {
-                        Console.WriteLine(
-                            $"WARNING: MCON {mcons[m].fileName} instance {i} references invalid model index {modelIndex}.");
-                        continue;
-                    }
-
-                    if (mcons[m].data.visualData.visualAtlasCount != 0 && mcons[m].data.visualData.visualAtlasCount != mcons[m].data.visualData.transformCount)
-                    {
-                        Console.WriteLine(
-                            $"WARNING: MCON visual atlas count mismatch: " +
-                            $"visualAtlasCount={mcons[m].data.visualData.visualAtlasCount}, " +
-                            $"transformCount={mcons[m].data.visualData.transformCount}");
-                    }
-
                     iomodel.Name = $"M{m}_A{i}";
 
                     var cmdlToBuild = cmdls[modelIndex];
-                    BuildStaticModel(iomodel, cmdlToBuild, mcons[m].data.visualData.xf[i], false, atlasLookup);
+                    BuildStaticModel(iomodel, cmdlToBuild, mcons[m].data.visualData.xf[i], false, i, modelIndex,atlasLookup);
                 }
 
                 ioscene.Models.Add(iomodel);
 
                 Console.WriteLine(mcons[m].fileName.ToString());
                 Console.WriteLine(mcons[m].data.visualData.transformCount);
-
-                string folder = Path.Combine(path, mcons[m].fileName.ToString());
-                if (!Directory.Exists(folder))
-                {
-                    Directory.CreateDirectory(folder);
-                }
 
                 string newPath = Path.Combine(folder, mcons[m].fileName.ToString());
 
@@ -138,11 +120,9 @@ namespace EvilWithin2Tool
             }
 
             //WriteLightmapInfo(room, mcons, path);
-
-
         }
 
-        public static void BuildStaticModel(IOModel iomodel, CMDL cmdl, CTransform4f transform, bool saveLODs, SAtlasLookup? atlasLookup = null)
+        public static void BuildStaticModel(IOModel iomodel, CMDL cmdl, CTransform4f transform, bool saveLODs, int assetNumber, int assetInstance, SAtlasLookup? atlasLookup = null)
         {
             // CTransform4f is a 3x4 transform whose translation is stored in
             // M0.W, M1.W and M2.W. System.Numerics uses the equivalent affine
@@ -180,13 +160,13 @@ namespace EvilWithin2Tool
                 if (cmdl.Materials.Count > 0)
                 {
                     var mat = cmdl.Materials[mesh.Header.MaterialIndex];
-                    iomesh.Name = $"Mesh{iomodel.Meshes.Count}_{mat.Name}";
+                    iomesh.Name = $"M{iomodel.Meshes.Count}I{assetInstance}A{assetNumber}_{mat.Name}";
                     matName = mat.Name;
                 }
                 else
                 {
                     var mat = cmdl.MaterialsNew[mesh.Header.MaterialIndex];
-                    iomesh.Name = $"Mesh{iomodel.Meshes.Count}_{mat.Name}";
+                    iomesh.Name = $"M{iomodel.Meshes.Count}I{assetInstance}A{assetNumber}_{mat.Name}";
                     matName = mat.Name;
                 }
                 
@@ -296,216 +276,139 @@ namespace EvilWithin2Tool
             string materialTXT = "Texture IDs: ";
 
             List<CMDL.CMaterial> mats = new List<CMDL.CMaterial>();
+            List<CMDL.CMaterialNew> matsNew = new List<CMDL.CMaterialNew>();
 
-            foreach (var mat in cmdl.Materials)
+            if (cmdl.Materials.Count > 0)
             {
-                mats.Add(mat);
+                foreach (var mat in cmdl.Materials)
+                {
+                    mats.Add(mat);
+                }
+            }
+
+            if (cmdl.MaterialsNew.Count > 0)
+            {
+                foreach (var mat in cmdl.MaterialsNew)
+                {
+                    matsNew.Add(mat);
+                }
             }
 
             CMDL.CMaterial[] cleanMats = mats.Distinct().ToArray();
+            CMDL.CMaterialNew[] cleanMatsNew = matsNew.Distinct().ToArray();
 
             foreach (var mat in cleanMats)
             {
-                materialTXT += Environment.NewLine + "Material: " + mat.Name;
-
+                int count = 0;
+                materialTXT += (System.Environment.NewLine + "Material: " + mat.Name);
                 foreach (var texture in mat.Textures)
                 {
-                    materialTXT += System.Environment.NewLine + "UV Map: " + texture.textureTokenData.UsageInfo.Flags.ToString() + "     Type: " + texture.type.ToString() + "     " + texture.textureTokenData.FileID.ToString();
+                    materialTXT += (System.Environment.NewLine + "UV Map: " + texture.textureTokenData.UsageInfo.Flags.ToString() + "     Type: " + texture.type.ToString() + "     " + texture.textureTokenData.FileID.ToString());
+                    string parentName = BatchPakExtractor.LocateTextureParentPak(texture.textureTokenData.FileID.ToString());
+                    materialTXT += "     Location: " + parentName;
+                }
+
+                foreach (var Complex in mat.ComplexTypeAs)
+                {
+                    materialTXT += (System.Environment.NewLine + "Complex Type 1: ");
+                    if (Complex.hasTex1)
+                    {
+                        materialTXT += (System.Environment.NewLine + "UV Map: " + Complex.Texture1.UsageInfo.Flags.ToString() + "     " + Complex.Texture1.FileID.ToString());
+                    }
+                    if (Complex.hasTex2)
+                    {
+                        materialTXT += (System.Environment.NewLine + "UV Map: " + Complex.Texture2.UsageInfo.Flags.ToString() + "     " + Complex.Texture2.FileID.ToString());
+                    }
+                    if (Complex.hasTex3)
+                    {
+                        materialTXT += (System.Environment.NewLine + "UV Map: " + Complex.Texture3.UsageInfo.Flags.ToString() + "     " + Complex.Texture3.FileID.ToString());
+                    }
+                }
+
+                foreach (var Complex in mat.ComplexTypeBs)
+                {
+                    materialTXT += (System.Environment.NewLine + "Complex Type B: ");
+                    for (int i = 0; i < Complex.colors.Count; i++)
+                    {
+                        materialTXT += System.Environment.NewLine + "Color " + i + ": " + Complex.colors[i].R.ToString() + ", " + Complex.colors[i].G.ToString() + ", " + Complex.colors[i].B.ToString() + ", " + Complex.colors[i].A.ToString();
+                    }
                 }
 
                 foreach (var scalar in mat.Scalars)
                 {
-                    materialTXT += Environment.NewLine
-                        + "Scalar Type: "
-                        + scalar.Key
-                        + "     Value: "
-                        + scalar.Value;
+                    materialTXT += (System.Environment.NewLine + "Scalar Type: " + scalar.Key + "     Value: " + scalar.Value.ToString());
                 }
 
                 foreach (var i in mat.Int)
                 {
-                    materialTXT += Environment.NewLine
-                        + "Integer Type: "
-                        + i.Key
-                        + "     Value: "
-                        + i.Value;
+                    materialTXT += (System.Environment.NewLine + "Integer Type: " + i.Key + "     Value: " + i.Value.ToString());
                 }
 
                 foreach (var i4 in mat.Int4)
                 {
-                    materialTXT += Environment.NewLine
-                        + "Integer 4 Type: "
-                        + i4.Key;
-
-                    for (int j = 0; j < i4.Value.Length; j++)
-                    {
-                        materialTXT += Environment.NewLine + i4.Value[j];
-                    }
+                    materialTXT += (System.Environment.NewLine + "Integer 4 Type: " + i4.Key);
+                    materialTXT += (System.Environment.NewLine + i4.Value[0]);
+                    materialTXT += (System.Environment.NewLine + i4.Value[1]);
+                    materialTXT += (System.Environment.NewLine + i4.Value[2]);
+                    materialTXT += (System.Environment.NewLine + i4.Value[3]);
                 }
 
                 foreach (var matrix in mat.Matrices)
                 {
-                    materialTXT += Environment.NewLine
-                        + "Matrix Type: "
-                        + matrix.Key;
-
-                    materialTXT += Environment.NewLine
-                        + matrix.Value[0] + ", "
-                        + matrix.Value[1] + ", "
-                        + matrix.Value[2] + ", "
-                        + matrix.Value[3];
-
-                    materialTXT += Environment.NewLine
-                        + matrix.Value[4] + ", "
-                        + matrix.Value[5] + ", "
-                        + matrix.Value[6] + ", "
-                        + matrix.Value[7];
-
-                    materialTXT += Environment.NewLine
-                        + matrix.Value[8] + ", "
-                        + matrix.Value[9] + ", "
-                        + matrix.Value[10] + ", "
-                        + matrix.Value[11];
-
-                    materialTXT += Environment.NewLine
-                        + matrix.Value[12] + ", "
-                        + matrix.Value[13] + ", "
-                        + matrix.Value[14] + ", "
-                        + matrix.Value[15];
+                    materialTXT += (System.Environment.NewLine + "Matrix Type: " + matrix.Key);
+                    materialTXT += (System.Environment.NewLine + matrix.Value[0].ToString() + ", " + matrix.Value[1].ToString() + ", " + matrix.Value[2].ToString() + ", " + matrix.Value[3].ToString());
+                    materialTXT += (System.Environment.NewLine + matrix.Value[4].ToString() + ", " + matrix.Value[5].ToString() + ", " + matrix.Value[6].ToString() + ", " + matrix.Value[7].ToString());
+                    materialTXT += (System.Environment.NewLine + matrix.Value[8].ToString() + ", " + matrix.Value[9].ToString() + ", " + matrix.Value[10].ToString() + ", " + matrix.Value[11].ToString());
+                    materialTXT += (System.Environment.NewLine + matrix.Value[12].ToString() + ", " + matrix.Value[13].ToString() + ", " + matrix.Value[14].ToString() + ", " + matrix.Value[15].ToString());
                 }
 
                 foreach (var color in mat.Colors)
                 {
-                    materialTXT += Environment.NewLine
-                        + "Color Type: "
-                        + color.Key;
-
-                    materialTXT += Environment.NewLine + "R: " + color.Value.R;
-                    materialTXT += Environment.NewLine + "G: " + color.Value.G;
-                    materialTXT += Environment.NewLine + "B: " + color.Value.B;
-                    materialTXT += Environment.NewLine + "A: " + color.Value.A;
+                    materialTXT += (System.Environment.NewLine + "Color Type: " + color.Key);
+                    materialTXT += (System.Environment.NewLine + "R: " + color.Value.R.ToString());
+                    materialTXT += (System.Environment.NewLine + "G: " + color.Value.G.ToString());
+                    materialTXT += (System.Environment.NewLine + "B: " + color.Value.B.ToString());
+                    materialTXT += (System.Environment.NewLine + "A: " + color.Value.A.ToString());
                 }
 
-                materialTXT += Environment.NewLine;
+
+                materialTXT += System.Environment.NewLine;
             }
 
-            string directory = Path.GetDirectoryName(path);
-
-            if (!string.IsNullOrEmpty(directory))
+            foreach (var mat in cleanMatsNew)
             {
-                Directory.CreateDirectory(directory);
+                materialTXT += (System.Environment.NewLine + "Material: " + mat.Name);
+                foreach (var texture in mat.Textures)
+                {
+                    materialTXT += (System.Environment.NewLine + "UV Map: " + texture.unkUint.ToString() + "     Type: " + texture.type + " " + texture.FileID.ToString());
+                    string parentName = BatchPakExtractor.LocateTextureParentPak(texture.FileID.ToString());
+                    materialTXT += "     Location: " + parentName;
+                }
+                foreach (var Complex in mat.Complex)
+                {
+                    materialTXT += (System.Environment.NewLine + "Complex: ");
+                    for (int i = 0; i < Complex.Colors.Count; i++)
+                    {
+                        materialTXT += System.Environment.NewLine + "Color " + i + ": " + Complex.Colors[i].R.ToString() + ", " + Complex.Colors[i].G.ToString() + ", " + Complex.Colors[i].B.ToString() + ", " + Complex.Colors[i].A.ToString();
+                    }
+                }
+                foreach (var scalar in mat.Scalars)
+                {
+                    materialTXT += (System.Environment.NewLine + "Scalar Type: " + scalar.Key + "     Value: " + scalar.Value.ToString());
+                }
+                foreach (var color in mat.Colors)
+                {
+                    materialTXT += (System.Environment.NewLine + "Color Type: " + color.Key);
+                    materialTXT += (System.Environment.NewLine + "R: " + color.Value.R.ToString());
+                    materialTXT += (System.Environment.NewLine + "G: " + color.Value.G.ToString());
+                    materialTXT += (System.Environment.NewLine + "B: " + color.Value.B.ToString());
+                    materialTXT += (System.Environment.NewLine + "A: " + color.Value.A.ToString());
+                }
+
+                materialTXT += System.Environment.NewLine;
             }
 
             File.WriteAllText(path + ".txt", materialTXT);
         }
-
-        /*
-        private static void WriteLightmapInfo( ConstructedRoom room, List<MCON> mcons, string path)
-        {
-            StringBuilder text = new StringBuilder();
-
-            text.AppendLine("ROOM LIGHTMAP INFORMATION");
-            text.AppendLine("==========================");
-            text.AppendLine();
-
-            if (room.lightMapTxtr.IsZero())
-            {
-                text.AppendLine("Lightmap Texture ID: NONE");
-            }
-            else
-            {
-                text.AppendLine(
-                    "Lightmap Texture ID: " +
-                    room.lightMapTxtr);
-            }
-
-            text.AppendLine();
-
-            if (room.lightMapIds.Count > 0)
-            {
-                text.AppendLine("ROOM Lightmap IDs:");
-
-                for (int i = 0; i < room.lightMapIds.Count; i++)
-                {
-                    text.AppendLine(
-                        $"  [{i}] {room.lightMapIds[i]}");
-                }
-
-                text.AppendLine();
-            }
-
-            foreach (var mcon in mcons)
-            {
-                text.AppendLine(
-                    "MCON: " +
-                    mcon.fileName);
-
-                text.AppendLine(
-                    $"  Instances: {mcon.data.visualData.transformCount}");
-
-                text.AppendLine();
-
-                int instanceCount = Math.Min(
-                    (int)mcon.data.visualData.transformCount,
-                    (int)mcon.data.visualData.modelIndexCount);
-
-                for (int i = 0; i < instanceCount; i++)
-                {
-                    int modelIndex =
-                        mcon.data.visualData.modelIndex[i];
-
-                    text.AppendLine(
-                        $"  Instance {i}:");
-
-                    text.AppendLine(
-                        $"    Model Index: {modelIndex}");
-
-                    if (modelIndex >= 0 &&
-                        modelIndex < mcon.data.visualData.modelID.Count)
-                    {
-                        text.AppendLine(
-                            $"    Model ID: " +
-                            mcon.data.visualData.modelID[modelIndex]);
-                    }
-
-                    if (mcon.data.visualData.visualAtlas.Count > i)
-                    {
-                        var atlas =
-                            mcon.data.visualData.visualAtlas[i];
-
-                        text.AppendLine(
-                            $"    Atlas Offset U: {atlas.offsetU}");
-
-                        text.AppendLine(
-                            $"    Atlas Offset V: {atlas.offsetV}");
-
-                        text.AppendLine(
-                            $"    Atlas Scale: {atlas.scale}");
-
-                        text.AppendLine(
-                            $"    Atlas Unknown: {atlas.unkD}");
-
-                        text.AppendLine(
-                            $"    Lightmap UV: " +
-                            $"UV' = UV * {atlas.scale} + " +
-                            $"({atlas.offsetU}, {atlas.offsetV})");
-                    }
-                    else
-                    {
-                        text.AppendLine(
-                            "    Atlas Lookup: NONE");
-                    }
-
-                    text.AppendLine();
-                }
-
-                text.AppendLine();
-            }
-
-            File.WriteAllText(
-                Path.Combine(path, "LightmapInfo.txt"),
-                text.ToString());
-        }
-        */
     }
 }

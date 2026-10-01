@@ -61,6 +61,7 @@ namespace MetroidPrimeRemasterModelDumper
                             constructedLayer.modCons.Add(ModConScript.Build(component, entity, instance));
                             break;
                         case EGOComponentType.EntityProperties:
+                            Console.WriteLine("Found EntityProperties");
                             constructedLayer.entityProperties.Add(EntityProperties.Build(component, entity, instance));
                             break;
                         case EGOComponentType.RoomSettings:
@@ -75,30 +76,34 @@ namespace MetroidPrimeRemasterModelDumper
                             Console.WriteLine("Found Light Static");
                             constructedLayer.lightStatics.Add(LightStatic.Build(component, entity, instance));
                             break;
-                            /*
                         case EGOComponentType.ColorModifier:
                             Console.WriteLine("Found Color Modifier");
                             constructedLayer.colorModifiers.Add(ColorModifier.Build(component, entity, instance));
-                            break;
-                            */
-                        
-                            /*
-                        case EGOComponentType.ActorMP1:
-                            Console.WriteLine("Found ActorMP1");
-                            constructedLayer.actorMP1s.Add(ActorMP1.Build(component, entity, instance));
-                            break;
-                        case EGOComponentType.PlatformMP1:
-                            Console.WriteLine("Found PlatformMP1");
-                            constructedLayer.platformMP1s.Add(PlatformMP1.Build(component, entity, instance));
-                            break;
-                        case EGOComponentType.DoorMP1:
-                            Console.WriteLine("Found DoorMP1");
-                            constructedLayer.doorMP1s.Add(DoorMP1.Build(component, entity, instance));
                             break;
                         case EGOComponentType.Skybox:
                             Console.WriteLine("Found Skybox");
                             constructedLayer.skyboxes.Add(Skybox.Build(component, entity, instance));
                             break;
+                        case EGOComponentType.Render:
+                            Console.WriteLine("Found Render");
+                            constructedLayer.renders.Add(Render.Build(component, entity, instance));
+                            break;
+
+                        /*
+                    case EGOComponentType.ActorMP1:
+                        Console.WriteLine("Found ActorMP1");
+                        constructedLayer.actorMP1s.Add(ActorMP1.Build(component, entity, instance));
+                        break;
+                    case EGOComponentType.PlatformMP1:
+                        Console.WriteLine("Found PlatformMP1");
+                        constructedLayer.platformMP1s.Add(PlatformMP1.Build(component, entity, instance));
+                        break;
+                    case EGOComponentType.DoorMP1:
+                        Console.WriteLine("Found DoorMP1");
+                        constructedLayer.doorMP1s.Add(DoorMP1.Build(component, entity, instance));
+                        break;
+                        */
+
                         case EGOComponentType.VolumetricFog:
                             Console.WriteLine("Found VolumetricFog");
                             constructedLayer.volumetricFogs.Add(VolumetricFog.Build(component, entity, instance));
@@ -115,7 +120,6 @@ namespace MetroidPrimeRemasterModelDumper
                             Console.WriteLine("Found LavaRenderVolume");
                             constructedLayer.lavaRenderVolumes.Add(LavaRenderVolume.Build(component, entity, instance));
                             break;
-                            */
                     }
                 }
 
@@ -148,6 +152,10 @@ namespace MetroidPrimeRemasterModelDumper
             {
                 Skybox.prepTransform(retroObject, parsed);
             }
+            foreach (var retroObject in parsed.renders)
+            {
+                Render.prepTransform(retroObject, parsed);
+            }
             foreach (var retroObject in parsed.volumetricFogs)
             {
                 VolumetricFog.prepTransform(retroObject, parsed);
@@ -175,13 +183,13 @@ namespace MetroidPrimeRemasterModelDumper
         public List<RoomSettings> roomSettings = new List<RoomSettings>();
         public List<RoomController> roomControllers = new List<RoomController>();
         public List<LightStatic> lightStatics = new List<LightStatic>();
-        public List<VolumetricFog> volumetricFogs = new List<VolumetricFog>();
-        
-        public List<ActorMP1> actorMP1s = new List<ActorMP1>();
-        public List<PlatformMP1> platformMP1s = new List<PlatformMP1>();
-        public List<DoorMP1> doorMP1s = new List<DoorMP1>();
+        public List<ColorModifier> colorModifiers = new List<ColorModifier>();
+
         public List<Skybox> skyboxes = new List<Skybox>();
-        
+        public List<Render> renders = new List<Render>();
+
+
+        public List<VolumetricFog> volumetricFogs = new List<VolumetricFog>();
         public List<VolumetricFogRegion> volumetricFogRegions = new List<VolumetricFogRegion>();
         public List<WaterRenderVolume> waterRenderVolumes = new List<WaterRenderVolume>();
         public List<LavaRenderVolume> lavaRenderVolumes = new List<LavaRenderVolume>();

@@ -750,7 +750,7 @@ namespace MetroidPrimeRemasterModelDumper
 
         public static string LocateTextureParentPak(string TextureName)
         {
-            string ManifestContent = File.ReadAllText(AppContext.BaseDirectory + "/Manifest.json");
+            string ManifestContent = File.ReadAllText(AppContext.BaseDirectory + "/FileManifest.json");
             ManifestSerializableEntry[] manifestEntries = JsonSerializer.Deserialize<ManifestSerializableEntry[]>(ManifestContent);
             //Console.WriteLine("Total manifest entries: " + manifestEntries.Count());
             string TargetedFileParent = null;

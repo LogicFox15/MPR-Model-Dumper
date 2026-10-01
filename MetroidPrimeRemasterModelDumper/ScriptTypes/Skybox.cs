@@ -35,9 +35,9 @@ namespace MetroidPrimeRemasterModelDumper.ScriptTypes
         {
             foreach (var prop in parsed.entityProperties)
             {
-                foreach (var link in prop.originalInstanceData.links)
+                foreach (var link in prop.linkGUIDs)
                 {
-                    if (link.target.ToString() == retroObject.commonObjectData.originalInstanceData.id.ToString())
+                    if (link.ToString() == retroObject.commonObjectData.originalInstanceData.id.ToString())
                     {
                         retroObject.commonObjectData.entityProperties = prop;
                         break;
