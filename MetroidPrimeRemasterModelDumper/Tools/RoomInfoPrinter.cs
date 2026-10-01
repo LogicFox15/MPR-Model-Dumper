@@ -237,9 +237,9 @@ namespace MetroidPrimeRemasterModelDumper
         {
             text += System.Environment.NewLine + System.Environment.NewLine + "Render:";
 
-            // -----------------------------------------------------------------
-            // IDs belonging to the Render component itself.
-            // -----------------------------------------------------------------
+            // -------------------------------------------------------------
+            // Render instance / transform
+            // -------------------------------------------------------------
 
             if (render.commonObjectData != null)
             {
@@ -248,96 +248,92 @@ namespace MetroidPrimeRemasterModelDumper
                     text += System.Environment.NewLine + "Instance Data ID: " + render.commonObjectData.originalInstanceData.id.ToString();
                 }
 
-                // This is the EntityProperties GUID associated with the Render.
                 if (render.commonObjectData.entityProperties != null)
                 {
-                    text += System.Environment.NewLine + "Entity Properties Instance GUID: " + render.commonObjectData.entityProperties.InstanceGUID.ToString();
+                    var transform = render.commonObjectData.entityProperties;
+
+                    text += System.Environment.NewLine + "Entity Properties Instance GUID: " + transform.InstanceGUID.ToString();
+                    text += System.Environment.NewLine + "Position: " + transform.position.X.ToString() + ", " + (-transform.position.Z).ToString() + ", " + transform.position.Y.ToString();
+                    text += System.Environment.NewLine + "Rotation: " + transform.blenderRotation.X.ToString() + ", " + transform.blenderRotation.Y.ToString() + ", " + transform.blenderRotation.Z.ToString();
+                    text += System.Environment.NewLine + "Scale: " + transform.scale.X.ToString() + ", " + transform.scale.Z.ToString() + ", " + transform.scale.Y.ToString();
+                }
+                else
+                {
+                    text += System.Environment.NewLine + "Transform: Not Found";
                 }
             }
 
-            if (render.commonObjectData != null && render.commonObjectData.entityProperties != null)
-            {
-                var transform = render.commonObjectData.entityProperties;
-
-                text += System.Environment.NewLine + "Position: " + transform.position.X.ToString() + ", " + (-transform.position.Z).ToString() + ", " + transform.position.Y.ToString();
-                text += System.Environment.NewLine + "Rotation: " + transform.blenderRotation.X.ToString() + ", " + transform.blenderRotation.Y.ToString() + ", " + transform.blenderRotation.Z.ToString();
-                text += System.Environment.NewLine + "Scale: " + transform.scale.X.ToString() + ", " + transform.scale.Z.ToString() + ", " + transform.scale.Y.ToString();
-            }
-            else
-            {
-                text += System.Environment.NewLine + "Transform: Not Found";
-            }
-
-            // -----------------------------------------------------------------
-            // 0x948D7F67 - RenderProperties
-            // -----------------------------------------------------------------
+            // -------------------------------------------------------------
+            // RenderProperties
+            // -------------------------------------------------------------
 
             if (render.renderProperties != null)
             {
                 text += System.Environment.NewLine + "Render Properties Type: " + (render.renderProperties.knownType?.ToString() ?? "0x" + render.renderProperties.typeHash.ToString("X8"));
 
-                // Every object/resource ID currently decoded by Render.cs.
-                if (render.renderProperties.assetIds != null && render.renderProperties.assetIds.Count > 0)
+                if (render.renderProperties.objectIds.Count > 0)
                 {
                     text += System.Environment.NewLine + "Render Object IDs:";
 
-                    for (int idIndex = 0; idIndex < render.renderProperties.assetIds.Count; idIndex++)
+                    for (int j = 0; j < render.renderProperties.objectIds.Count; j++)
                     {
-                        text += System.Environment.NewLine + "  [" + idIndex.ToString() + "] " + render.renderProperties.assetIds[idIndex].ToString();
+                        var objectId = render.renderProperties.objectIds[j];
+                        text += System.Environment.NewLine + "  [" + j.ToString() + "] " + objectId.description + ": " + objectId.objectId.ToString() + " (Property 0x" + objectId.propertyId.ToString("X8") + ")";
                     }
                 }
                 else
                 {
-                    text += System.Environment.NewLine + "Render Object IDs: None";
+                    text += System.Environment.NewLine +
+                            "Render Object IDs: None";
                 }
 
-                // Also print every raw property hash, which is useful when
-                // encountering one of the currently unsupported Render subtypes.
-                if (render.renderProperties.properties != null && render.renderProperties.properties.Count > 0)
+                // Keep the raw properties visible so unsupported Render
+                // types can still be investigated.
+                if (render.renderProperties.properties.Count > 0)
                 {
-                    text += System.Environment.NewLine + "Render Properties:";
+                    text += System.Environment.NewLine +
+                            "Render Properties:";
 
-                    for (int propertyIndex = 0; propertyIndex < render.renderProperties.properties.Count; propertyIndex++)
+                    for (int j = 0;
+                         j < render.renderProperties.properties.Count;
+                         j++)
                     {
-                        var property = render.renderProperties.properties[propertyIndex];
+                        var property = render.renderProperties.properties[j];
 
-                        text += System.Environment.NewLine + "  Property " + propertyIndex.ToString() + ": 0x" + property.propertyId.ToString("X8") + " (" + property.propertySize.ToString() + " bytes)";
+                        text += System.Environment.NewLine + "  Property " + j.ToString() + ": 0x" + property.propertyId.ToString("X8") + " (" + property.propertySize.ToString() + " bytes)";
                     }
                 }
             }
             else
             {
-                text += System.Environment.NewLine + "Render Properties: None";
+                text += System.Environment.NewLine +
+                        "Render Properties: None";
             }
 
-            // -----------------------------------------------------------------
-            // 0x2B1317A0 - ModelLightingData
-            // -----------------------------------------------------------------
+            // -------------------------------------------------------------
+            // ModelLightingData
+            // -------------------------------------------------------------
 
             if (render.modelLightingData != null)
             {
-                text += System.Environment.NewLine + "Model Lighting Data:";
+                text += System.Environment.NewLine +
+                        "Model Lighting Data:";
 
-                // 0x1A89119F
                 if (render.modelLightingData.linkData != null)
                 {
-                    text += System.Environment.NewLine + "  Link Data Primary Object ID: " + render.modelLightingData.linkData.primaryObjectId.ToString();
-                    text += System.Environment.NewLine + "  Link Data Trailing Object ID: " + render.modelLightingData.linkData.trailingObjectId.ToString();
+                    text += System.Environment.NewLine + "  Primary Object ID: " + render.modelLightingData.linkData.primaryObjectId.ToString();
+                    text += System.Environment.NewLine + "  Trailing Object ID: " + render.modelLightingData.linkData.trailingObjectId.ToString();
                 }
 
-                // 0x7822056C
-                if (HasRenderProperty(render.modelLightingData.properties, 0x7822056C))
-                {
-                    text += System.Environment.NewLine + "  Model ID: " + render.modelLightingData.modelId.ToString();
-                }
+                text += System.Environment.NewLine + "  ENUM File ID: " + render.modelLightingData.enumFileId.ToString();
             }
 
-            // -----------------------------------------------------------------
-            // Remaining outer Render properties.
-            // -----------------------------------------------------------------
+            // -------------------------------------------------------------
+            // Other Render properties
+            // -------------------------------------------------------------
 
             text += System.Environment.NewLine + "Render Target Scene: 0x" + render.renderTargetSceneHash.ToString("X8");
-            text += System.Environment.NewLine + "Unknown Int: " + render.unkInt.ToString();
+            text += System.Environment.NewLine +"Unknown Int: " + render.unkInt.ToString();
             text += System.Environment.NewLine + "Unknown Bool 1: " + render.unkBool1.ToString();
             text += System.Environment.NewLine + "Unknown Bool 2: " + render.unkBool2.ToString();
             text += System.Environment.NewLine + "Unknown Bool 3: " + render.unkBool3.ToString();

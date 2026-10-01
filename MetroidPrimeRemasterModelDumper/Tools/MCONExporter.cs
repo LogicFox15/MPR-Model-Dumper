@@ -216,13 +216,52 @@ namespace EvilWithin2Tool
 
                 iopoly.MaterialName = matName;
 
-                // Bake the MCON instance transform directly into the mesh vertices.
-                // This avoids depending on whether the IONET IOModel node transform
-                // is preserved by its glTF exporter.
-                iomesh.TransformVertices(matrix);
+                TransformMCONMesh(iomesh, matrix);
 
                 for (int i = 0; i < mesh.Indices.Length; i++)
                     iopoly.Indicies.Add((int)mesh.Indices[i]);
+            }
+        }
+
+        private static void TransformMCONMesh(IOMesh mesh, Matrix4x4 transform)
+        {
+            // A normal must be transformed by the inverse-transpose of the linear portion of the model transform.
+            if (!Matrix4x4.Invert(transform, out Matrix4x4 inverse))
+                throw new InvalidOperationException(
+                    "MCON transform is singular and cannot be used to transform normals.");
+
+            Matrix4x4 normalMatrix = Matrix4x4.Transpose(inverse);
+
+            // Only the upper-left 3x3 matters for handedness.
+            float determinant =
+                transform.M11 * (transform.M22 * transform.M33 - transform.M23 * transform.M32)
+                - transform.M12 * (transform.M21 * transform.M33 - transform.M23 * transform.M31)
+                + transform.M13 * (transform.M21 * transform.M32 - transform.M22 * transform.M31);
+
+            bool mirrored = determinant < 0.0f;
+
+            foreach (var vertex in mesh.Vertices)
+            {
+                vertex.Position = Vector3.Transform(vertex.Position, transform);
+                vertex.Normal = Vector3.Normalize(
+                    Vector3.TransformNormal(vertex.Normal, normalMatrix));
+                vertex.Tangent = Vector3.Normalize(
+                    Vector3.TransformNormal(vertex.Tangent, transform));
+                vertex.Binormal = Vector3.Normalize(
+                    Vector3.TransformNormal(vertex.Binormal, transform));
+            }
+
+            if (mirrored)
+            {
+                foreach (var polygon in mesh.Polygons)
+                {
+                    for (int i = 0; i + 2 < polygon.Indicies.Count; i += 3)
+                    {
+                        int temp = polygon.Indicies[i + 1];
+                        polygon.Indicies[i + 1] = polygon.Indicies[i + 2];
+                        polygon.Indicies[i + 2] = temp;
+                    }
+                }
             }
         }
 

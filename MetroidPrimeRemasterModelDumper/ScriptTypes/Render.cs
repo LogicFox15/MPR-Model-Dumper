@@ -182,14 +182,19 @@ namespace MetroidPrimeRemasterModelDumper.ScriptTypes
     /// The decomp reads a 32-bit subtype hash, then the subtype's field count
     /// and fields. This class deliberately keeps the field list generic.
     /// </summary>
+
     public class RenderPropertiesBlock
     {
         public uint typeHash;
-        public ushort fieldCount;
-        public List<RenderRawProperty> properties = new List<RenderRawProperty>();
 
-        // Known resource/object IDs found inside documented Render subtypes.
-        public List<CObjectId> assetIds = new List<CObjectId>();
+        // Size in bytes of the subtype's serialized data.
+        public ushort dataSize;
+
+        // The complete serialized payload belonging to the subtype.
+        public byte[] data = Array.Empty<byte>();
+
+        // Retained separately for any future subtype-specific parsing.
+        public List<RenderRawProperty> properties = new List<RenderRawProperty>();
 
         public ERenderPropertiesType? knownType
         {
@@ -209,110 +214,40 @@ namespace MetroidPrimeRemasterModelDumper.ScriptTypes
             if (reader.BaseStream.Position + 4 > reader.BaseStream.Length)
                 return block;
 
+            // 0x948D7F67 is followed by the polymorphic type hash.
             block.typeHash = reader.ReadUInt32();
 
-            // A null Property is represented by type hash 0 in the game code.
             if (block.typeHash == 0)
                 return block;
 
-            // FUN_71002edcb0 reads a u16 before handing the typed object to its
-            // subtype deserializer. For these generated property containers,
-            // this is the subtype field count.
+            // FUN_71002edcb0 reads this value and treats it as the
+            // number of bytes belonging to the typed object.
             if (reader.BaseStream.Position + 2 > reader.BaseStream.Length)
                 return block;
 
-            block.fieldCount = reader.ReadUInt16();
+            block.dataSize = reader.ReadUInt16();
 
-            for (int i = 0; i < block.fieldCount; i++)
+            if (block.dataSize >
+                reader.BaseStream.Length - reader.BaseStream.Position)
             {
-                if (reader.BaseStream.Position + 6 > reader.BaseStream.Length)
-                    break;
+                block.dataSize = (ushort)
+                    (reader.BaseStream.Length - reader.BaseStream.Position);
+            }
 
-                uint propertyId = reader.ReadUInt32();
-                ushort propertySize = reader.ReadUInt16();
-                byte[] propertyData = propertySize > 0
-                    ? reader.ReadBytes(propertySize)
-                    : Array.Empty<byte>();
-
-                block.properties.Add(new RenderRawProperty
-                {
-                    propertyId = propertyId,
-                    propertySize = propertySize,
-                    data = propertyData
-                });
-
-                ParseKnownSubtypeProperty(block, propertyId, propertyData);
+            if (block.dataSize > 0)
+            {
+                block.data = reader.ReadBytes(block.dataSize);
             }
 
             return block;
         }
+    }
 
-        private static void ParseKnownSubtypeProperty(
-            RenderPropertiesBlock block,
-            uint propertyId,
-            byte[] propertyData)
-        {
-            // RenderAnimatedModel -> model/object resource ID.
-            if (block.typeHash == (uint)ERenderPropertiesType.RenderAnimatedModel && propertyId == 0x6CD6726A)
-            {
-                TryReadObjectId(propertyData, block.assetIds);
-                return;
-            }
-
-            // RenderStaticModel -> static model resource ID.
-            if (block.typeHash == (uint)ERenderPropertiesType.RenderStaticModel && propertyId == 0xE8BDC12B)
-            {
-                TryReadObjectId(propertyData, block.assetIds);
-                return;
-            }
-
-            // RenderStaticModelArray -> list<CObjectId>.
-            // The cross-version format definition documents E2517798 as a
-            // List<CObjectId>; generated lists use a u32 element count.
-            if (block.typeHash == (uint)ERenderPropertiesType.RenderStaticModelArray && propertyId == 0xE2517798)
-            {
-                TryReadObjectIdList(propertyData, block.assetIds);
-            }
-        }
-
-        private static void TryReadObjectId(byte[] data, List<CObjectId> destination)
-        {
-            try
-            {
-                using MemoryStream ms = new MemoryStream(data);
-                using FileReader br = new FileReader(ms);
-                destination.Add(br.ReadStruct<CObjectId>());
-            }
-            catch
-            {
-                // Keep the raw property instead of failing the whole component.
-            }
-        }
-
-        private static void TryReadObjectIdList(byte[] data, List<CObjectId> destination)
-        {
-            try
-            {
-                using MemoryStream ms = new MemoryStream(data);
-                using FileReader br = new FileReader(ms);
-
-                if (br.BaseStream.Position + 4 > br.BaseStream.Length)
-                    return;
-
-                uint count = br.ReadUInt32();
-                if (count > 0x100000)
-                    return;
-
-                for (uint i = 0; i < count; i++)
-                {
-                    destination.Add(br.ReadStruct<CObjectId>());
-                }
-            }
-            catch
-            {
-                // Keep the raw property instead of failing the whole component.
-            }
-        }
+    public class RenderObjectIdEntry
+    {
+        public uint propertyId;
+        public string description;
+        public CObjectId objectId;
     }
 
     /// <summary>
@@ -340,7 +275,7 @@ namespace MetroidPrimeRemasterModelDumper.ScriptTypes
         public uint unkUint1;
         public bool unkBool1;
         public bool unkBool2;
-        public CObjectId modelId;
+        public CObjectId enumFileId;
         public bool unkBool3;
 
         public List<RenderRawProperty> properties = new List<RenderRawProperty>();
@@ -404,7 +339,7 @@ namespace MetroidPrimeRemasterModelDumper.ScriptTypes
                     case 0x7822056C:
                         try
                         {
-                            data.modelId = propertyReader.ReadStruct<CObjectId>();
+                            data.enumFileId = propertyReader.ReadStruct<CObjectId>();
                         }
                         catch
                         {
