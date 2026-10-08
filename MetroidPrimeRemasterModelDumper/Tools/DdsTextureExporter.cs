@@ -170,7 +170,22 @@ namespace DKCTF
             FormatInfo format = GetFormatInfo(texture.TextureHeader.Format);
             TextureShape shape = GetTextureShape(texture.TextureHeader);
 
-            uint mipCount = checked((uint)texture.MipSizes.Length);
+            // MipSizes in the Prime 4 TXTR header describe the GPU-side
+            // allocation and are not the tight linear DDS surface sizes.
+            // Derive the tight per-mip sizes from the texture dimensions and
+            // format instead.
+            uint mipCount = texture.TextureHeader.MipCount;
+            if (mipCount == 0)
+                throw new InvalidDataException("TXTR reports zero mip levels.");
+
+            uint[] linearMipSizes = CalculateLinearMipSizes(
+                texture.TextureHeader.Width,
+                texture.TextureHeader.Height,
+                shape.Depth,
+                shape.Is3D,
+                shape.PhysicalLayerCount,
+                mipCount,
+                format);
 
             // TXTR GPU data is still Switch/Tegra swizzled. Convert it to the
             // normal array/mip surface order used by DDS.
@@ -191,21 +206,27 @@ namespace DKCTF
                 target: 1,
                 is_orin: false);
 
-            ulong logicalSize = GetLogicalLinearSize(texture.MipSizes);
+            ulong logicalSize = GetLogicalLinearSize(linearMipSizes);
 
             if ((ulong)linearData.Length < logicalSize)
             {
                 throw new InvalidDataException(
-                    $"Deswizzled TXTR is smaller than the logical mip payload. " +
-                    $"Expected at least {logicalSize} bytes, got {linearData.Length}.");
+                    $"Deswizzled TXTR is smaller than the tight linear mip payload. " +
+                    $"Expected {logicalSize} bytes, got {linearData.Length}. " +
+                    $"Format={texture.TextureHeader.Format}, " +
+                    $"Type={texture.TextureHeader.Type}, " +
+                    $"Width={texture.TextureHeader.Width}, " +
+                    $"Height={texture.TextureHeader.Height}, " +
+                    $"Depth={texture.TextureHeader.Depth}, " +
+                    $"Mips={mipCount}, " +
+                    $"Layers={shape.PhysicalLayerCount}.");
             }
 
             if (logicalSize > int.MaxValue)
                 throw new InvalidDataException("Texture is too large for the current DDS exporter.");
 
             // A deswizzler may return trailing alignment bytes. Those do not
-            // belong in the DDS payload because HEAD.MipSizes describes the
-            // actual texture surfaces.
+            // belong in the DDS payload.
             if ((ulong)linearData.Length != logicalSize)
                 Array.Resize(ref linearData, checked((int)logicalSize));
 
@@ -224,7 +245,7 @@ namespace DKCTF
             {
                 linearData = ReorderMipMajorToLayerMajor(
                     linearData,
-                    texture.MipSizes,
+                    linearMipSizes,
                     shape.PhysicalLayerCount);
             }
 
@@ -261,7 +282,7 @@ namespace DKCTF
             {
                 byte[] layerData = ExtractLayer(
                     linearData,
-                    texture.MipSizes,
+                    linearMipSizes,
                     shape.PhysicalLayerCount,
                     layer);
 
@@ -619,6 +640,65 @@ namespace DKCTF
                 total += mipSize;
 
             return total;
+        }
+
+        /// <summary>
+        /// Calculates the tight linear payload size of every mip level.
+        ///
+        /// Prime 4's TXTR MipSizes are GPU allocation sizes and may include
+        /// alignment/padding, so they must not be used as the DDS payload
+        /// lengths. These values instead describe the actual linear surfaces
+        /// produced by TextureConverter.Deswizzle().
+        /// </summary>
+        private static uint[] CalculateLinearMipSizes(
+            uint width,
+            uint height,
+            uint depth,
+            bool is3D,
+            uint physicalLayerCount,
+            uint mipCount,
+            FormatInfo format)
+        {
+            if (physicalLayerCount == 0)
+                throw new InvalidDataException("Invalid zero physical layer count.");
+
+            uint[] sizes = new uint[checked((int)mipCount)];
+
+            for (uint mip = 0; mip < mipCount; mip++)
+            {
+                uint mipWidth = Math.Max(width >> checked((int)mip), 1);
+                uint mipHeight = Math.Max(height >> checked((int)mip), 1);
+                uint mipDepth = is3D
+                    ? Math.Max(depth >> checked((int)mip), 1)
+                    : 1;
+
+                uint blocksWide = Math.Max(
+                    (mipWidth + format.BlockWidth - 1) / format.BlockWidth,
+                    1);
+
+                uint blocksHigh = Math.Max(
+                    (mipHeight + format.BlockHeight - 1) / format.BlockHeight,
+                    1);
+
+                uint blocksDeep = Math.Max(
+                    (mipDepth + format.BlockDepth - 1) / format.BlockDepth,
+                    1);
+
+                ulong mipSize =
+                    (ulong)blocksWide *
+                    blocksHigh *
+                    blocksDeep *
+                    format.BytesPerBlockOrPixel *
+                    (is3D ? 1UL : physicalLayerCount);
+
+                if (mipSize > uint.MaxValue)
+                    throw new InvalidDataException(
+                        $"Mip {mip} is too large: {mipSize} bytes.");
+
+                sizes[mip] = (uint)mipSize;
+            }
+
+            return sizes;
         }
 
         /// <summary>
