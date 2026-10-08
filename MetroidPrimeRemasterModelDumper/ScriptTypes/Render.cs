@@ -160,7 +160,8 @@ namespace MetroidPrimeRemasterModelDumper.ScriptTypes
         RenderStaticModel = 0x13F5701A,
         RenderStaticModelArray = 0x26BE03FA,
         RenderTexture = 0x6FC13B67,
-        RenderVertexAnimatedModel = 0xB93BFEB8
+        RenderVertexAnimatedModel = 0xB93BFEB8,
+        RenderUnknownUIWidget = 0x6C507C77
     }
 
     public enum ERenderTargetScene : uint
@@ -182,19 +183,27 @@ namespace MetroidPrimeRemasterModelDumper.ScriptTypes
     /// The decomp reads a 32-bit subtype hash, then the subtype's field count
     /// and fields. This class deliberately keeps the field list generic.
     /// </summary>
-
     public class RenderPropertiesBlock
     {
         public uint typeHash;
 
-        // Size in bytes of the subtype's serialized data.
+        // This is the size consumed by FUN_71002edcb0 before it
+        // invokes the concrete subtype reader.
         public ushort dataSize;
 
-        // The complete serialized payload belonging to the subtype.
+        // Exact serialized data of the concrete render-method object.
         public byte[] data = Array.Empty<byte>();
 
-        // Retained separately for any future subtype-specific parsing.
+        // The concrete object's own property-list count.
+        public ushort fieldCount;
+
+        // Concrete subtype properties.
         public List<RenderRawProperty> properties = new List<RenderRawProperty>();
+
+        // Known model/resource IDs extracted from known Render subtypes.
+        public List<RenderObjectIdEntry> objectIds = new List<RenderObjectIdEntry>();
+
+        public List<RenderObjectIdEntry> objectIdCandidates = new List<RenderObjectIdEntry>();
 
         public ERenderPropertiesType? knownType
         {
@@ -211,35 +220,278 @@ namespace MetroidPrimeRemasterModelDumper.ScriptTypes
         {
             RenderPropertiesBlock block = new RenderPropertiesBlock();
 
+            // RenderProperties starts with the concrete interface/type hash.
             if (reader.BaseStream.Position + 4 > reader.BaseStream.Length)
                 return block;
 
-            // 0x948D7F67 is followed by the polymorphic type hash.
             block.typeHash = reader.ReadUInt32();
 
+            // Null polymorphic property.
             if (block.typeHash == 0)
                 return block;
 
-            // FUN_71002edcb0 reads this value and treats it as the
-            // number of bytes belonging to the typed object.
+            // FUN_71002edcb0 reads this before invoking the concrete loader.
             if (reader.BaseStream.Position + 2 > reader.BaseStream.Length)
                 return block;
 
             block.dataSize = reader.ReadUInt16();
 
-            if (block.dataSize >
-                reader.BaseStream.Length - reader.BaseStream.Position)
+            long remaining = reader.BaseStream.Length - reader.BaseStream.Position;
+            int readSize = (int)Math.Min(block.dataSize, remaining);
+
+            if (readSize > 0)
             {
-                block.dataSize = (ushort)
-                    (reader.BaseStream.Length - reader.BaseStream.Position);
+                block.data = reader.ReadBytes(readSize);
             }
 
-            if (block.dataSize > 0)
-            {
-                block.data = reader.ReadBytes(block.dataSize);
-            }
+            // The concrete Render method is itself a generated property-list
+            // object. Parse that independently from the size wrapper above.
+            ParseTypedObject(block);
 
             return block;
+        }
+
+        private static void ParseTypedObject(RenderPropertiesBlock block)
+        {
+            if (block.data == null || block.data.Length < 2)
+                return;
+
+            using MemoryStream ms = new MemoryStream(block.data);
+            using FileReader reader = new FileReader(ms);
+
+            block.fieldCount = reader.ReadUInt16();
+
+            for (int i = 0; i < block.fieldCount; i++)
+            {
+                if (reader.BaseStream.Position + 6 > reader.BaseStream.Length)
+                    break;
+
+                uint propertyId = reader.ReadUInt32();
+                ushort propertySize = reader.ReadUInt16();
+
+                long remaining = reader.BaseStream.Length - reader.BaseStream.Position;
+
+                int readSize = (int)Math.Min(propertySize, remaining);
+
+                byte[] propertyData = readSize > 0 ? reader.ReadBytes(readSize)  : Array.Empty<byte>();
+
+                RenderRawProperty property = new RenderRawProperty
+                {
+                    propertyId = propertyId,
+                    propertySize = propertySize,
+                    data = propertyData
+                };
+
+                block.properties.Add(property);
+
+                ParseKnownModelProperty(
+                    block,
+                    propertyId,
+                    propertyData);
+            }
+        }
+
+        private static void ParseKnownModelProperty(RenderPropertiesBlock block, uint propertyId, byte[] propertyData)
+        {
+            bool handled = false;
+
+            // Dispatch by the concrete RenderProperties subtype first.
+            switch (block.typeHash)
+            {
+                // =============================================================
+                // RenderAnimatedModel
+                // =============================================================
+                case (uint)ERenderPropertiesType.RenderAnimatedModel:
+                    switch (propertyId)
+                    {
+                        case 0x6CD6726A:
+                            AddObjectId(block, propertyId, "Animated Model", propertyData);
+                            handled = true;
+                            break;
+                            // Add additional RenderAnimatedModel properties here.
+                    }
+                    break;
+
+                // =============================================================
+                // RenderCharacterModel
+                // =============================================================
+                case (uint)ERenderPropertiesType.RenderCharacterModel:
+                    switch (propertyId)
+                    {
+                        case 0x82960328:
+                            AddObjectId(block, propertyId, "Character Model", propertyData);
+                            handled = true;
+                            break;
+                            /*
+                        case 0x8E70C6D9:
+                            AddObjectId(block, propertyId, "Runtime ID", propertyData);
+                            handled = true;
+                            break;
+                            */
+                    }
+                    break;
+
+                // =============================================================
+                // RenderMethodGameMode
+                // =============================================================
+                case (uint)ERenderPropertiesType.RenderMethodGameMode:
+                    switch (propertyId)
+                    {
+                        // Add fields here as they are identified.
+                    }
+                    break;
+
+                // =============================================================
+                // RenderStaticModel
+                // =============================================================
+                case (uint)ERenderPropertiesType.RenderStaticModel:
+                    switch (propertyId)
+                    {
+                        case 0xE8BDC12B:
+                            AddObjectId(block, propertyId, "Static Model", propertyData);
+                            handled = true;
+                            break;
+                    }
+                    break;
+
+                // =============================================================
+                // RenderStaticModelArray
+                // =============================================================
+                case (uint)ERenderPropertiesType.RenderStaticModelArray:
+                    switch (propertyId)
+                    {
+                        case 0xE2517798:
+                            AddObjectIdList(block, propertyId, "Static Model Array", propertyData);
+                            handled = true;
+                            break;
+                    }
+                    break;
+
+                // =============================================================
+                // RenderTexture
+                // =============================================================
+                case (uint)ERenderPropertiesType.RenderTexture:
+                    switch (propertyId)
+                    {
+                        case 0xF32F06A2:
+                            AddObjectId(block, propertyId, "Render Texture", propertyData);
+                            handled = true;
+                            break;
+                    }
+                    break;
+
+                // =============================================================
+                // RenderVertexAnimatedModel
+                // =============================================================
+                case (uint)ERenderPropertiesType.RenderVertexAnimatedModel:
+                    switch (propertyId)
+                    {
+                        // Add fields here as they are identified.
+                    }
+                    break;
+
+                case (uint)ERenderPropertiesType.RenderUnknownUIWidget:
+                    switch (propertyId)
+                    {
+                        case 0x4ED7CA3D:
+                            AddObjectId(block, propertyId, "Render UI Widget", propertyData);
+                            handled = true;
+                            break;
+                    }
+                    break;
+            }
+
+
+            // =============================================================
+            // Diagnostic handling for unclassified 16-byte properties.
+            //
+            // We do NOT automatically claim these are CObjectIds.
+            // They are simply recorded because CObjectId is 16 bytes and
+            // these are the fields worth checking during reverse engineering.
+            // =============================================================
+
+            if (!handled && propertyData.Length == 16)
+            {
+                block.objectIdCandidates.Add(
+                    new RenderObjectIdEntry
+                    {
+                        propertyId = propertyId,
+                        description = "Unclassified 16-byte property",
+                        objectId = TryReadObjectId(propertyData)
+                    });
+            }
+        }
+
+        private static void AddObjectId(RenderPropertiesBlock block, uint propertyId, string description, byte[] propertyData)
+        {
+            try
+            {
+                CObjectId objectId = TryReadObjectId(propertyData);
+
+                block.objectIds.Add(
+                    new RenderObjectIdEntry
+                    {
+                        propertyId = propertyId,
+                        description = description,
+                        objectId = objectId
+                    });
+            }
+            catch
+            {
+                // Leave the raw property intact if decoding fails.
+            }
+        }
+
+        private static CObjectId TryReadObjectId(byte[] propertyData)
+        {
+            using MemoryStream ms = new MemoryStream(propertyData);
+            using FileReader reader = new FileReader(ms);
+
+            return reader.ReadStruct<CObjectId>();
+        }
+
+        private static void AddObjectIdList( RenderPropertiesBlock block, uint propertyId, string description, byte[] propertyData)
+        {
+            try
+            {
+                using MemoryStream ms = new MemoryStream(propertyData);
+                using FileReader reader = new FileReader(ms);
+
+                if (reader.BaseStream.Position + 4 > reader.BaseStream.Length)
+                {
+                    return;
+                }
+
+                uint count = reader.ReadUInt32();
+
+                // Sanity check.
+                if (count > 0x100000)
+                    return;
+
+                long requiredBytes = (long)count * 16;
+
+                if (requiredBytes > reader.BaseStream.Length - reader.BaseStream.Position)
+                {
+                    return;
+                }
+
+                for (uint i = 0; i < count; i++)
+                {
+                    CObjectId objectId = reader.ReadStruct<CObjectId>();
+
+                    block.objectIds.Add(
+                        new RenderObjectIdEntry
+                        {
+                            propertyId = propertyId,
+                            description = description + " [" + i + "]",
+                            objectId = objectId
+                        });
+                }
+            }
+            catch
+            {
+                // Preserve the raw property if the list cannot be decoded.
+            }
         }
     }
 
@@ -336,6 +588,10 @@ namespace MetroidPrimeRemasterModelDumper.ScriptTypes
                         if (propertySize >= 1)
                             data.unkBool2 = propertyReader.ReadByte() != 0;
                         break;
+                    case 0xB24E2719:
+                        if (propertySize >= 1)
+                            data.unkBool2 = propertyReader.ReadByte() != 0;
+                        break;
                     case 0x7822056C:
                         try
                         {
@@ -349,6 +605,7 @@ namespace MetroidPrimeRemasterModelDumper.ScriptTypes
                         if (propertySize >= 1)
                             data.unkBool3 = propertyReader.ReadByte() != 0;
                         break;
+
                     default:
                         // Already consumed into propertyData.
                         break;

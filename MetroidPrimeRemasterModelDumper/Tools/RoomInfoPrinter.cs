@@ -274,46 +274,41 @@ namespace MetroidPrimeRemasterModelDumper
                 if (render.renderProperties.objectIds.Count > 0)
                 {
                     text += System.Environment.NewLine + "Render Object IDs:";
-
                     for (int j = 0; j < render.renderProperties.objectIds.Count; j++)
                     {
                         var objectId = render.renderProperties.objectIds[j];
-                        text += System.Environment.NewLine + "  [" + j.ToString() + "] " + objectId.description + ": " + objectId.objectId.ToString() + " (Property 0x" + objectId.propertyId.ToString("X8") + ")";
+                        text += System.Environment.NewLine + "  [" + j.ToString() + "] " + objectId.description + ": " + objectId.objectId.ToString() + " (Property 0x" + objectId.propertyId.ToString("X8") + ")     Location: " + BatchPakExtractor.LocateTextureParentPak(objectId.objectId.ToString());
                     }
                 }
                 else
                 {
-                    text += System.Environment.NewLine +
-                            "Render Object IDs: None";
+                    text += System.Environment.NewLine + "Render Object IDs: None";
                 }
 
-                // Keep the raw properties visible so unsupported Render
-                // types can still be investigated.
+                text += System.Environment.NewLine + "  Render Method Data Size: " + render.renderProperties.dataSize.ToString();
+                text += System.Environment.NewLine + "  Render Method Field Count: " + render.renderProperties.fieldCount.ToString();
+
                 if (render.renderProperties.properties.Count > 0)
                 {
-                    text += System.Environment.NewLine +
-                            "Render Properties:";
+                    text += System.Environment.NewLine + "  Render Method Properties:";
 
-                    for (int j = 0;
-                         j < render.renderProperties.properties.Count;
-                         j++)
+                    for (int i = 0; i < render.renderProperties.properties.Count; i++)
                     {
-                        var property = render.renderProperties.properties[j];
-
-                        text += System.Environment.NewLine + "  Property " + j.ToString() + ": 0x" + property.propertyId.ToString("X8") + " (" + property.propertySize.ToString() + " bytes)";
+                        var property = render.renderProperties.properties[i];
+                        text += System.Environment.NewLine + "    [" + i + "] 0x" + property.propertyId.ToString("X8") + " (" + property.propertySize.ToString() + " bytes)";
                     }
                 }
             }
             else
             {
-                text += System.Environment.NewLine +
-                        "Render Properties: None";
+                text += System.Environment.NewLine + "Render Properties: None";
             }
 
             // -------------------------------------------------------------
             // ModelLightingData
             // -------------------------------------------------------------
-
+            // While knowing this is nice, it is not needed
+            /*
             if (render.modelLightingData != null)
             {
                 text += System.Environment.NewLine +
@@ -341,6 +336,8 @@ namespace MetroidPrimeRemasterModelDumper
             text += System.Environment.NewLine + "Unknown Bool 5: " + render.unkBool5.ToString();
             text += System.Environment.NewLine + "Unknown UInt: " + render.unkUint.ToString();
             text += System.Environment.NewLine;
+            */
+
 
             return text;
         }

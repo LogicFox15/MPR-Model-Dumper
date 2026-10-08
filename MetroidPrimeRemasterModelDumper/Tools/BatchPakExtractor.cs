@@ -72,7 +72,7 @@ namespace MetroidPrimeRemasterModelDumper
                 mode = savedMode;
             }
 
-            
+
 
             foreach (var fileInfo in pak.files)
             {
@@ -119,17 +119,17 @@ namespace MetroidPrimeRemasterModelDumper
                             savedMode = "TERR";
                             break;
                         case "TECM":
-                            if (fileInfo.AssetEntry.Type == "TECM" )
+                            if (fileInfo.AssetEntry.Type == "TECM")
                                 ExtractTerrainClipMapStitched(fileInfo.FileData, fileInfo, pak);
                             savedMode = "TECM";
                             break;
-                            /*
-                        case "MCON":
-                            if (fileInfo.AssetEntry.Type == "MCON")
-                                ProcessModConTest(fileInfo.FileData, fileInfo, pak);
-                            savedMode = "MCON";
-                            break;
-                            */
+                        /*
+                    case "MCON":
+                        if (fileInfo.AssetEntry.Type == "MCON")
+                            ProcessModConTest(fileInfo.FileData, fileInfo, pak);
+                        savedMode = "MCON";
+                        break;
+                        */
                         case "ROOM":
                             if (fileInfo.AssetEntry.Type == "ROOM")
                                 ProcessRoomTest(fileInfo.FileData, fileInfo, pak);
@@ -143,7 +143,7 @@ namespace MetroidPrimeRemasterModelDumper
                     Console.WriteLine("Pak Name: " + pakFile);
                     throw;
                 }
-                
+
             }
         }
 
@@ -161,7 +161,7 @@ namespace MetroidPrimeRemasterModelDumper
                     FileEntry file = new FileEntry();
                     file = SearchForFile(model.ModelFileGuid.ToString());
 
-                    if( file == null)
+                    if (file == null)
                     {
                         Console.WriteLine("Error while trying to locate " + model.ModelFileGuid.ToString());
                         continue;
@@ -221,65 +221,57 @@ namespace MetroidPrimeRemasterModelDumper
             var txtr = new TXTR(Entry.FileData);
             string textureName = Entry.AssetEntry.FileID.ToString();
 
-            Console.WriteLine(txtr.TextureHeader.Format);
+            bool isCubemap = txtr.TextureHeader.Type == 3;
 
-            GenericTextureBase genericTexture = new()
+            bool isLightmap =
+                txtr.TextureHeader.Format == 81 ||
+                txtr.TextureHeader.Format == 82;
+
+            bool useDds = isCubemap || isLightmap;
+
+            string folder = Path.Combine(Path.GetFileNameWithoutExtension(pak.FileInfo.FilePath));
+
+            if (makeFolders && (txtr.TextureHeader.Type == 3 || txtr.TextureHeader.Type >= 4))
             {
-                Name = textureName,
-                Width = txtr.TextureHeader.Width,
-                Height = txtr.TextureHeader.Height,
-                ImageFormat = new ImageFormat(TXTR.FormatList[txtr.TextureHeader.Format]),
-            };
-
-            string folder;
-            string path;
-
-            if (makeFolders && txtr.TextureHeader.Type >= 2)
-            {
-                folder = Path.Combine(Path.GetFileNameWithoutExtension(pak.FileInfo.FilePath));
-
-                if (!Directory.Exists(folder))
-                {
-                    Directory.CreateDirectory(folder);
-                }
-
-                folder += "/" + textureName;
-
-                if (!Directory.Exists(folder))
-                {
-                    Directory.CreateDirectory(folder);
-                }
-
-                path = Path.Combine(folder, $"{textureName}.png");
+                folder = Path.Combine(folder, textureName);
             }
-            else
-            {
-                folder = Path.Combine(Path.GetFileNameWithoutExtension(pak.FileInfo.FilePath));
-
-                if (!Directory.Exists(folder))
-                {
-                    Directory.CreateDirectory(folder);
-                }
-                path = Path.Combine(folder, $"{textureName}.png");
-            }
+            Directory.CreateDirectory(folder);
+            string extension = useDds ? ".dds" : ".png";
+            string outputPath = Path.Combine(folder, textureName + extension);
 
             try
             {
-                ExportTXTRToPng(path, txtr, Entry);
-            }
-            catch
-            {
-                if (!File.Exists(AppContext.BaseDirectory + "/ErroredTextures.txt"))
+                Console.WriteLine($"Exporting {textureName} " + $"Format={txtr.TextureHeader.Format} " + $"Type={txtr.TextureHeader.Type} " + $"Layers={txtr.TextureHeader.Depth} " + $"Cubemap={isCubemap} " + $"Lightmap={isLightmap} " + $"Output={extension}");
+                if (useDds)
                 {
-                    string brokenTex = textureName + "     Format: " + txtr.TextureHeader.Format;
-                    File.WriteAllText(AppContext.BaseDirectory + "/ErroredTextures.txt", brokenTex);
+                    DdsTextureExporter.Export(txtr, outputPath, true);
                 }
                 else
                 {
-                    string brokenTexCont = Environment.NewLine + textureName + "     Format: " + txtr.TextureHeader.Format;
-                    File.AppendAllText(AppContext.BaseDirectory + "/ErroredTextures.txt", brokenTexCont);
+                    ExportTXTRToPng(outputPath, txtr, Entry);
                 }
-                File.WriteAllBytes(Path.Combine(folder, $"{textureName}" + ".bin"), txtr.BufferData);
+            }
+            catch (Exception ex)
+            {
+                string errorText =
+                    $"{textureName}     " +
+                    $"Format: {txtr.TextureHeader.Format}     " +
+                    $"Type: {txtr.TextureHeader.Type}     " +
+                    $"Depth/Layers: {txtr.TextureHeader.Depth}{Environment.NewLine}" +
+                    ex + Environment.NewLine;
+
+                File.AppendAllText(
+                    Path.Combine(folder, "ErroredTextures.txt"),
+                    errorText);
+
+                Console.WriteLine();
+                Console.WriteLine($"DDS export FAILED for {textureName}");
+                Console.WriteLine(ex);
+                Console.WriteLine();
+
+                File.WriteAllBytes(
+                    Path.Combine(folder, $"{textureName}.bin"),
+                    txtr.BufferData ?? Array.Empty<byte>());
             }
         }
 
@@ -299,9 +291,13 @@ namespace MetroidPrimeRemasterModelDumper
             genericTexture.PlatformSwizzle = new PlatformSwizzleSwitch();
             genericTexture.Data = txtr.BufferData;
 
-            if (txtr.TextureHeader.Type >= 2)
+            if (txtr.TextureHeader.Type == 3)
             {
-                Console.WriteLine("Found a 3D texture. Type " + txtr.TextureHeader.Type + ".");
+                // A Type 3 resource is a six-face cubemap.
+                genericTexture.ArrayCount = 6;
+            }
+            else if (txtr.TextureHeader.Type >= 4)
+            {
                 genericTexture.ArrayCount = txtr.TextureHeader.Depth;
             }
 
@@ -613,13 +609,14 @@ namespace MetroidPrimeRemasterModelDumper
         {
             var mcon = new MCON(Entry.FileData);
 
-            foreach(var atlast in mcon.data.visualData.visualAtlas)
-            {
-
-            }
-
-
             Console.WriteLine("Successfully consumed a MCON: " + Entry.AssetEntry.FileID.ToString());
+
+            if (mcon.data.visualData.worldModelCount > 0)
+            {
+                Console.WriteLine("Found a MCON with the second asset list populated");
+                Console.WriteLine("Press any key to continue");
+                Console.ReadKey();
+            }
         }
 
         static void ProcessRoomTest(Stream stream, FileEntry Entry, PAK pak)
@@ -681,7 +678,6 @@ namespace MetroidPrimeRemasterModelDumper
         }
         */
         #endregion
-
 
         #region File Gathering
         public static FileEntry SearchForFile(string FileID)

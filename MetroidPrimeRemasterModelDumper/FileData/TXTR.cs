@@ -136,7 +136,8 @@ namespace DKCTF
                 writer.Write(textureInfo);
                 writer.Write(textureData);
 
-                using (writer.TemporarySeek(pos + 4, SeekOrigin.Begin)) {
+                using (writer.TemporarySeek(pos + 4, SeekOrigin.Begin))
+                {
                     writer.Write((long)textureData.Length);
                 }
 
@@ -391,7 +392,7 @@ namespace DKCTF
         }
 
         public static Dictionary<uint, TextureFormat> FormatList = new()
-        {       
+        {
             {  0, TextureFormat.R8_UNORM },
             {  1, TextureFormat.R8_SNORM },
             {  2, TextureFormat.R8_UINT },
@@ -508,8 +509,5 @@ namespace DKCTF
             ClampToBorder = 4,
             Clamp = 5,
         }
-
-
-
     }
 }

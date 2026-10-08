@@ -71,14 +71,10 @@ namespace EvilWithin2Tool
 
                 if (mcons[m].data.visualData.modelIndexCount != mcons[m].data.visualData.transformCount)
                 {
-                    Console.WriteLine(
-                        $"WARNING: MCON instance/index count mismatch: " +
-                        $"modelIndexCount={mcons[m].data.visualData.modelIndexCount}, " +
-                        $"transformCount={mcons[m].data.visualData.transformCount}");
+                    Console.WriteLine($"WARNING: MCON instance/index count mismatch: " + $"modelIndexCount={mcons[m].data.visualData.modelIndexCount}, " + $"transformCount={mcons[m].data.visualData.transformCount}");
                 }
 
-                Console.WriteLine(
-                    $"MCON {mcons[m].fileName}: models={cmdls.Count}, instances={instanceCount}");
+                Console.WriteLine($"MCON {mcons[m].fileName}: models={cmdls.Count}, instances={instanceCount}");
 
                 for (int i = 0; i < instanceCount; i++)
                 {
@@ -92,8 +88,7 @@ namespace EvilWithin2Tool
                         }
                         else
                         {
-                            Console.WriteLine(
-                                $"WARNING: MCON {mcons[m].fileName} instance {i} has no visual atlas lookup.");
+                            Console.WriteLine( $"WARNING: MCON {mcons[m].fileName} instance {i} has no visual atlas lookup.");
                         }
                     }
 
@@ -216,10 +211,10 @@ namespace EvilWithin2Tool
 
                 iopoly.MaterialName = matName;
 
-                TransformMCONMesh(iomesh, matrix);
-
                 for (int i = 0; i < mesh.Indices.Length; i++)
                     iopoly.Indicies.Add((int)mesh.Indices[i]);
+
+                TransformMCONMesh(iomesh, matrix);
             }
         }
 
