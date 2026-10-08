@@ -170,21 +170,18 @@ namespace DKCTF
             FormatInfo format = GetFormatInfo(texture.TextureHeader.Format);
             TextureShape shape = GetTextureShape(texture.TextureHeader);
 
-            // Derive the tight linear mip sizes for layer splitting. The
-            // serialized Prime 4 mip-size values are not needed by the DDS
-            // writer itself.
             uint mipCount = texture.TextureHeader.MipCount;
             if (mipCount == 0)
                 throw new InvalidDataException("TXTR reports zero mip levels.");
 
-            uint[] linearMipSizes = CalculateLinearMipSizes(
-                texture.TextureHeader.Width,
-                texture.TextureHeader.Height,
-                shape.Depth,
-                shape.Is3D,
-                shape.PhysicalLayerCount,
-                mipCount,
-                format);
+            if (texture.MipSizes.Length != mipCount)
+                throw new InvalidDataException(
+                    $"TXTR reports {mipCount} mip levels but {texture.MipSizes.Length} mip sizes were parsed.");
+
+            // Prime 4 stores the linear payload size of each mip in the HEAD
+            // chunk. These values include all physical layers for non-3D
+            // textures, matching Retrotool's slice_texture() behavior.
+            uint[] linearMipSizes = texture.MipSizes;
 
             // TXTR GPU data is still Switch/Tegra swizzled. Convert it to the
             // normal array/mip surface order used by DDS.
@@ -203,10 +200,25 @@ namespace DKCTF
                 target: 1,
                 is_orin: false);
 
+            ulong logicalSize = GetLogicalLinearSize(linearMipSizes);
+
+            if ((ulong)linearData.Length != logicalSize)
+            {
+                throw new InvalidDataException(
+                    $"Deswizzled Prime 4 TXTR size does not match HEAD mip sizes. " +
+                    $"Expected {logicalSize} bytes, got {linearData.Length}. " +
+                    $"Format={texture.TextureHeader.Format}, " +
+                    $"Type={texture.TextureHeader.Type}, " +
+                    $"Width={texture.TextureHeader.Width}, " +
+                    $"Height={texture.TextureHeader.Height}, " +
+                    $"Depth={texture.TextureHeader.Depth}, " +
+                    $"Mips={mipCount}, " +
+                    $"Layers={shape.PhysicalLayerCount}.");
+            }
+
             // Retrotool writes the deswizzled Prime 4 data directly to DDS.
-            // TextureConverter.Deswizzle() already produces the linear array
-            // ordering expected by the DDS writer, so do not reorder or trim
-            // the result here.
+            // TextureConverter.Deswizzle() already produces the array/layer
+            // ordering expected by the DDS writer, so do not reorder it.
 
             uint firstMipPitchOrLinearSize = CalculateDdsPitchOrLinearSize(
                 texture.TextureHeader.Width,
@@ -287,7 +299,7 @@ namespace DKCTF
         /// the correct DDS concepts:
         ///   - for non-3D array textures, TXTR Depth is a layer count;
         ///   - for 3D textures, TXTR Depth is the true volume depth;
-///   - plain cubemaps are always six physical faces in Prime 4.
+        ///   - plain cubemaps are always six physical faces in Prime 4.
         /// </summary>
         private static TextureShape GetTextureShape(TXTR.STextureHeader header)
         {
@@ -303,7 +315,7 @@ namespace DKCTF
                 7 => MprTextureType.D2MultisampleArray,
                 8 => MprTextureType.CubeArray,
                 _ => throw new InvalidDataException(
-                    $"Unknown MPR TXTR texture type {header.Type}.")
+                    $"Unknown Prime 4 TXTR texture type {header.Type}.")
             };
 
             if (type == MprTextureType.D3)
@@ -364,7 +376,7 @@ namespace DKCTF
         }
 
         /// <summary>
-        /// MPR format IDs are NOT the same numeric values as DXGI_FORMAT.
+        /// Prime 4 format IDs are NOT the same numeric values as DXGI_FORMAT.
         /// TXTR.FormatList already maps the MPR IDs to ImageLibrary's
         /// TextureFormat enum, whose values match DXGI_FORMAT.
         ///
@@ -599,208 +611,6 @@ namespace DKCTF
                 total += mipSize;
 
             return total;
-        }
-
-        /// <summary>
-        /// Calculates the tight linear payload size of every mip level.
-        ///
-        /// Prime 4's TXTR MipSizes are GPU allocation sizes and may include
-        /// alignment/padding, so they must not be used as the DDS payload
-        /// lengths. These values instead describe the actual linear surfaces
-        /// produced by TextureConverter.Deswizzle().
-        /// </summary>
-        private static uint[] CalculateLinearMipSizes(
-            uint width,
-            uint height,
-            uint depth,
-            bool is3D,
-            uint physicalLayerCount,
-            uint mipCount,
-            FormatInfo format)
-        {
-            if (physicalLayerCount == 0)
-                throw new InvalidDataException("Invalid zero physical layer count.");
-
-            uint[] sizes = new uint[checked((int)mipCount)];
-
-            for (uint mip = 0; mip < mipCount; mip++)
-            {
-                uint mipWidth = Math.Max(width >> checked((int)mip), 1);
-                uint mipHeight = Math.Max(height >> checked((int)mip), 1);
-                uint mipDepth = is3D
-                    ? Math.Max(depth >> checked((int)mip), 1)
-                    : 1;
-
-                uint blocksWide = Math.Max(
-                    (mipWidth + format.BlockWidth - 1) / format.BlockWidth,
-                    1);
-
-                uint blocksHigh = Math.Max(
-                    (mipHeight + format.BlockHeight - 1) / format.BlockHeight,
-                    1);
-
-                uint blocksDeep = Math.Max(
-                    (mipDepth + format.BlockDepth - 1) / format.BlockDepth,
-                    1);
-
-                ulong mipSize =
-                    (ulong)blocksWide *
-                    blocksHigh *
-                    blocksDeep *
-                    format.BytesPerBlockOrPixel *
-                    (is3D ? 1UL : physicalLayerCount);
-
-                if (mipSize > uint.MaxValue)
-                    throw new InvalidDataException(
-                        $"Mip {mip} is too large: {mipSize} bytes.");
-
-                sizes[mip] = (uint)mipSize;
-            }
-
-            return sizes;
-        }
-
-        /// <summary>
-        /// Converts the MPR/Tegra non-3D texture layout from mip-major to
-        /// the layer-major layout required by DDS.
-        ///
-        /// Source:
-        ///   Mip0: L0 L1 L2 ...
-        ///   Mip1: L0 L1 L2 ...
-        ///
-        /// Destination:
-        ///   L0: Mip0 Mip1 ...
-        ///   L1: Mip0 Mip1 ...
-        /// </summary>
-        private static byte[] ReorderMipMajorToLayerMajor(
-            byte[] mipMajorData,
-            uint[] mipSizes,
-            uint physicalLayerCount)
-        {
-            if (physicalLayerCount <= 1)
-                return mipMajorData;
-
-            ulong totalSize = 0;
-
-            foreach (uint mipSize in mipSizes)
-            {
-                if (mipSize % physicalLayerCount != 0)
-                {
-                    throw new InvalidDataException(
-                        $"Mip size {mipSize} is not divisible by the layer count " +
-                        $"{physicalLayerCount}.");
-                }
-
-                totalSize += mipSize;
-            }
-
-            byte[] output = new byte[checked((int)totalSize)];
-
-            // Destination is layer-major. Every layer has the complete mip
-            // chain, so calculate its stride once.
-            ulong layerStride = 0;
-            foreach (uint mipSize in mipSizes)
-                layerStride += mipSize / physicalLayerCount;
-
-            ulong sourceOffset = 0;
-
-            for (uint mip = 0; mip < mipSizes.Length; mip++)
-            {
-                uint mipSize = mipSizes[mip];
-                uint perLayerSize = mipSize / physicalLayerCount;
-
-                for (uint layer = 0; layer < physicalLayerCount; layer++)
-                {
-                    ulong source = sourceOffset + (ulong)layer * perLayerSize;
-                    ulong destination =
-                        (ulong)layer * layerStride +
-                        GetMipOffsetWithinLayer(
-                            mipSizes,
-                            physicalLayerCount,
-                            mip);
-
-                    Buffer.BlockCopy(
-                        mipMajorData,
-                        checked((int)source),
-                        output,
-                        checked((int)destination),
-                        checked((int)perLayerSize));
-                }
-
-                sourceOffset += mipSize;
-            }
-
-            return output;
-        }
-
-        /// <summary>
-        /// Returns one physical layer's complete mip chain from layer-major
-        /// DDS data.
-        /// </summary>
-        private static byte[] ExtractLayer(
-            byte[] layerMajorData,
-            uint[] mipSizes,
-            uint physicalLayerCount,
-            uint layerIndex)
-        {
-            if (physicalLayerCount == 0)
-                throw new InvalidDataException("Invalid zero layer count.");
-
-            if (layerIndex >= physicalLayerCount)
-                throw new ArgumentOutOfRangeException(nameof(layerIndex));
-
-            ulong layerStride = 0;
-            foreach (uint mipSize in mipSizes)
-            {
-                if (mipSize % physicalLayerCount != 0)
-                {
-                    throw new InvalidDataException(
-                        $"Mip size {mipSize} is not divisible by the layer count " +
-                        $"{physicalLayerCount}.");
-                }
-
-                layerStride += mipSize / physicalLayerCount;
-            }
-
-            ulong layerOffset = layerStride * layerIndex;
-
-            if (layerOffset + layerStride > (ulong)layerMajorData.Length)
-            {
-                throw new InvalidDataException(
-                    $"Layer {layerIndex} falls outside the DDS data.");
-            }
-
-            byte[] result = new byte[checked((int)layerStride)];
-
-            Buffer.BlockCopy(
-                layerMajorData,
-                checked((int)layerOffset),
-                result,
-                0,
-                result.Length);
-
-            return result;
-        }
-
-        private static uint GetMipOffsetWithinLayer(
-            uint[] mipSizes,
-            uint layerCount,
-            uint mipIndex)
-        {
-            uint offset = 0;
-
-            for (uint i = 0; i < mipIndex; i++)
-            {
-                if (mipSizes[i] % layerCount != 0)
-                {
-                    throw new InvalidDataException(
-                        $"Mip size {mipSizes[i]} is not divisible by the layer count {layerCount}.");
-                }
-
-                offset = checked(offset + mipSizes[i] / layerCount);
-            }
-
-            return offset;
         }
 
         private static uint CalculateDdsPitchOrLinearSize(
