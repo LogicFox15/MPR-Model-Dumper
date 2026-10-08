@@ -265,7 +265,7 @@ namespace MetroidPrimeRemasterModelDumper
                     errorText);
 
                 Console.WriteLine();
-                Console.WriteLine($"DDS export FAILED for {textureName}");
+                Console.WriteLine($"Texture export FAILED for {textureName}");
                 Console.WriteLine(ex);
                 Console.WriteLine();
 
