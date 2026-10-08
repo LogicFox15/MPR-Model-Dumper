@@ -65,9 +65,6 @@ namespace EvilWithin2Tool
                     WriteMaterialTextFile(cmdl, materialPath);
                 }
 
-                
-
-
                 // Each entry in the model-index array is one room-model instance. The corresponding entry in xf is that instance's transform.
                 // This matches the current Retro MCON layout: modelIndex[i] selects a model from modelID[], while xf[i] contains that instance's transform.
                 int instanceCount = Math.Min((int)mcons[m].data.visualData.modelIndexCount, (int)mcons[m].data.visualData.transformCount);
@@ -497,6 +494,8 @@ namespace EvilWithin2Tool
                 foreach (var texture in mat.Textures)
                 {
                     materialTXT += System.Environment.NewLine + "UV Map: " + texture.textureTokenData.UsageInfo.Flags.ToString() + "     Type: " + texture.type.ToString() + "     " + texture.textureTokenData.FileID.ToString();
+                    string parentName = BatchPakExtractor.LocateParentPak(texture.textureTokenData.FileID.ToString());
+                    materialTXT += "     Location: " + parentName;
                 }
 
                 foreach (var scalar in mat.Scalars)

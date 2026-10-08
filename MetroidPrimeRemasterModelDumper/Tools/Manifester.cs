@@ -12,7 +12,7 @@ namespace MetroidPrimeRemasterModelDumper.Tools
     public static class Manifester
     {
         static List<FileInfo> RomFiles = new List<FileInfo>();
-        static List<MaterialManifestEntry> PakManifestEntry = new List<MaterialManifestEntry>();
+        static List<ManifestEntry> PakManifestEntry = new List<ManifestEntry>();
 
         public static void ProcessModels(string romDir)
         {
@@ -42,7 +42,7 @@ namespace MetroidPrimeRemasterModelDumper.Tools
                 PAK pak = new PAK() { FileInfo = ctx };
                 pak.Load(ctx);
 
-                MaterialManifestEntry entry = new MaterialManifestEntry();
+                ManifestEntry entry = new ManifestEntry();
                 entry.PakName = ctx.FileName;
                 entry.PakPath = ctx.FilePath;
 
@@ -55,7 +55,7 @@ namespace MetroidPrimeRemasterModelDumper.Tools
                 PakManifestEntry.Add(entry);
             }
 
-            List<MaterialManifestSerializableEntry> SerialEntry = new List<MaterialManifestSerializableEntry>();
+            List<ManifestSerializableEntry> SerialEntry = new List<ManifestSerializableEntry>();
 
             foreach (var entry in PakManifestEntry)
             {
@@ -66,7 +66,7 @@ namespace MetroidPrimeRemasterModelDumper.Tools
                     file.Add(fileEntry.ToString());
                 }
 
-                var newEntry = new MaterialManifestSerializableEntry
+                var newEntry = new ManifestSerializableEntry
                 {
                     PakName = entry.PakName,
                     PakPath = entry.PakPath,
@@ -119,7 +119,7 @@ namespace MetroidPrimeRemasterModelDumper.Tools
         }
     }
 
-    public class MaterialManifestEntry()
+    public class ManifestEntry()
     {
         public string PakName = "";
         public string PakPath = "";
@@ -127,7 +127,7 @@ namespace MetroidPrimeRemasterModelDumper.Tools
         //public List<CObjectId> CMDLFiles = new List<CObjectId>();
     }
 
-    public class MaterialManifestSerializableEntry()
+    public class ManifestSerializableEntry()
     {
         [JsonPropertyName("PakName")]
         public string PakName { get; set; }

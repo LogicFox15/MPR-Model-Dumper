@@ -7,6 +7,7 @@ using IONET.Collada.Core.Transform;
 using IONET.Core;
 using IONET.Core.Model;
 using IONET.Core.Skeleton;
+using MetroidPrimeRemasterModelDumper;
 using RetroStudioPlugin.Files.FileData;
 using System;
 using System.Collections;
@@ -191,6 +192,8 @@ namespace EvilWithin2Tool
                 foreach (var texture in mat.Textures)
                 {
                     materialTXT += System.Environment.NewLine + "UV Map: " + texture.textureTokenData.UsageInfo.Flags.ToString() +"     Type: " + texture.type.ToString() + "     " + texture.textureTokenData.FileID.ToString();
+                    string parentName = BatchPakExtractor.LocateParentPak(texture.textureTokenData.FileID.ToString());
+                    materialTXT += "     Location: " + parentName;
                 }
                 
                 foreach (var scalar in mat.Scalars)

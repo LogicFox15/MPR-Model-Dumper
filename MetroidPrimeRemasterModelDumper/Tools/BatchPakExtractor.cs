@@ -120,11 +120,13 @@ namespace MetroidPrimeRemasterModelDumper
                                 ExtractLTPB(fileInfo.FileData, fileInfo, pak);
                             savedMode = "LTPB";
                             break;
+                            /*
                         case "MCON":
                             if (fileInfo.AssetEntry.Type == "MCON")
                                 ProcessModConTest(fileInfo.FileData, fileInfo, pak);
                             savedMode = "MCON";
                             break;
+                            */
                         case "ROOM":
                             if (fileInfo.AssetEntry.Type == "ROOM")
                                 ProcessRoomTest(fileInfo.FileData, fileInfo, pak);
@@ -214,7 +216,7 @@ namespace MetroidPrimeRemasterModelDumper
 
             string folder = Path.Combine(Path.GetFileNameWithoutExtension(pak.FileInfo.FilePath));
 
-            if (makeFolders && txtr.TextureHeader.Type >= 3)
+            if (makeFolders && txtr.TextureHeader.Type >= 2)
             {
                 folder = Path.Combine(folder, textureName);
             }
@@ -453,7 +455,7 @@ namespace MetroidPrimeRemasterModelDumper
         public static FileEntry LocateFile(string ModelName)
         {
             string ManifestContent = File.ReadAllText(AppContext.BaseDirectory + "/FileManifest.json");
-            MaterialManifestSerializableEntry[] manifestEntries = JsonSerializer.Deserialize<MaterialManifestSerializableEntry[]>(ManifestContent);
+            ManifestSerializableEntry[] manifestEntries = JsonSerializer.Deserialize<ManifestSerializableEntry[]>(ManifestContent);
             //Console.WriteLine("Total manifest entries: " + manifestEntries.Count());
 
             FileEntry TargetedFile = new FileEntry();
@@ -496,6 +498,37 @@ namespace MetroidPrimeRemasterModelDumper
                 }
             }
             return TargetedFile;
+        }
+
+        public static string LocateParentPak(string TextureName)
+        {
+            string ManifestContent = File.ReadAllText(AppContext.BaseDirectory + "/FileManifest.json");
+            ManifestSerializableEntry[] manifestEntries = JsonSerializer.Deserialize<ManifestSerializableEntry[]>(ManifestContent);
+            //Console.WriteLine("Total manifest entries: " + manifestEntries.Count());
+            string TargetedFileParent = null;
+
+            bool foundFile = false;
+
+            for (int i = 0; i < manifestEntries.Length; i++)
+            {
+                for (int c = 0; c < manifestEntries[i].Files.Count(); c++)
+                {
+                    if (manifestEntries[i].Files[c] == TextureName)
+                    {
+                        TargetedFileParent = manifestEntries[i].PakName;
+                        foundFile = true;
+                        break;
+                    }
+                }
+            }
+
+            if (!foundFile)
+            {
+                //Console.WriteLine("Unable to find file");
+                TargetedFileParent = null;
+            }
+
+            return TargetedFileParent;
         }
         #endregion
 

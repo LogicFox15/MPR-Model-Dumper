@@ -158,8 +158,6 @@ namespace DKCTF
             }
         }
 
-
-
         public void ReadEmbedded(FileReader reader)
         {
             StreamBaseOffset = reader.Position;
@@ -192,7 +190,6 @@ namespace DKCTF
                 reader.SeekBegin(pos + chunk.DataSize);
             }
         }
-
 
 
         [StructLayout(LayoutKind.Sequential, Pack = 1)]
