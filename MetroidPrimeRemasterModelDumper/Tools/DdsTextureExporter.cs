@@ -7,7 +7,7 @@ using System.IO;
 namespace DKCTF
 {
     /// <summary>
-    /// Lossless DDS exporter for Metroid Prime Remastered TXTR files.
+    /// Lossless DDS exporter for Metroid Prime 4 TXTR files.
     ///
     /// This exporter:
     ///   - deswizzles Switch/Tegra texture data;
@@ -182,7 +182,11 @@ namespace DKCTF
                 mipCount,
                 (format.BlockWidth, format.BlockHeight, format.BlockDepth),
                 format.BytesPerBlockOrPixel,
-                texture.TextureHeader.TileMode,
+                // Prime 4 no longer stores TileMode in STextureHeader.
+                // PlatformSwizzleSwitch/TextureConverter use TileMode = 0
+                // for these textures; the current TextureConverter implementation
+                // also derives the block height from the texture dimensions.
+                0,
                 texture.BufferData,
                 target: 1,
                 is_orin: false);
@@ -205,7 +209,7 @@ namespace DKCTF
             if ((ulong)linearData.Length != logicalSize)
                 Array.Resize(ref linearData, checked((int)logicalSize));
 
-            // The MPR/Tegra deswizzler returns non-3D arrays in mip-major order:
+            // The Prime 4/Tegra deswizzler returns non-3D arrays in mip-major order:
             //
             //   Mip0: Layer0 Layer1 Layer2 ...
             //   Mip1: Layer0 Layer1 Layer2 ...
@@ -299,10 +303,11 @@ namespace DKCTF
         }
 
         /// <summary>
-        /// Returns the MPR texture type and converts the TXTR Depth field into
+        /// Returns the Prime 4 texture type and converts the TXTR Depth field into
         /// the correct DDS concepts:
-        ///   - for non-3D textures, TXTR Depth is actually a layer count;
-        ///   - for 3D textures, TXTR Depth is the true volume depth.
+        ///   - for non-3D array textures, TXTR Depth is a layer count;
+        ///   - for 3D textures, TXTR Depth is the true volume depth;
+///   - plain cubemaps are always six physical faces in Prime 4.
         /// </summary>
         private static TextureShape GetTextureShape(TXTR.STextureHeader header)
         {
@@ -334,8 +339,6 @@ namespace DKCTF
                     depth: depth);
             }
 
-            uint physicalLayers = Math.Max(header.Depth, 1);
-
             bool isCube =
                 type == MprTextureType.Cube ||
                 type == MprTextureType.CubeArray;
@@ -344,21 +347,32 @@ namespace DKCTF
                 type == MprTextureType.D1 ||
                 type == MprTextureType.D1Array;
 
-            uint ddsArrayCount = physicalLayers;
+            // Prime 4's TXTR header does not use Depth as the six-face count
+            // for a plain cubemap. Type == Cube implies exactly six physical
+            // faces, matching the existing Prime 4 PNG path.
+            uint physicalLayers;
 
-            if (isCube)
+            if (type == MprTextureType.Cube)
             {
-                if (physicalLayers == 0 || physicalLayers % 6 != 0)
+                physicalLayers = 6;
+            }
+            else
+            {
+                physicalLayers = Math.Max(header.Depth, 1);
+
+                if (type == MprTextureType.CubeArray && physicalLayers % 6 != 0)
                 {
                     throw new InvalidDataException(
-                        $"Cubemap TXTR reports {physicalLayers} layers; " +
+                        $"Cubemap-array TXTR reports {physicalLayers} physical layers; " +
                         "the layer count must be divisible by 6.");
                 }
-
-                // DDS/DX10 arraySize is the number of cubes, not the number
-                // of individual cube faces.
-                ddsArrayCount = physicalLayers / 6;
             }
+
+            // DDS/DX10 arraySize is the number of cubes for cubemaps and the
+            // number of physical layers for ordinary array textures.
+            uint ddsArrayCount = isCube
+                ? physicalLayers / 6
+                : physicalLayers;
 
             return new TextureShape(
                 is3D: false,
@@ -381,7 +395,7 @@ namespace DKCTF
         /// </summary>
         private static FormatInfo GetFormatInfo(uint mprFormat)
         {
-            // MPR TXTR format IDs are game-specific. The values below are the
+            // Prime 4 TXTR format IDs are game-specific. The values below are the
             // corresponding DXGI values written into DDS_HEADER_DXT10.
             uint dxgi = mprFormat switch
             {
@@ -437,7 +451,7 @@ namespace DKCTF
                 49 => 14,
                 50 => 3,
                 51 => 4,
-                52 => throw new NotSupportedException("MPR texture format 52 is the None/unknown format."),
+                52 => throw new NotSupportedException("Prime 4 TXTR texture format 52 is the None/unknown format."),
                 53 => 134,
                 54 => 138,
                 55 => 142,
@@ -470,7 +484,7 @@ namespace DKCTF
                 82 => 96,
                 83 => 98,
                 84 => 99,
-                _ => throw new NotSupportedException($"MPR texture format {mprFormat} is not supported by the DDS exporter.")
+                _ => throw new NotSupportedException($"Prime 4 TXTR texture format {mprFormat} is not supported by the DDS exporter.")
             };
 
             uint bytesPerUnit = GetBytesPerBlockOrPixel(mprFormat);
@@ -806,7 +820,7 @@ namespace DKCTF
             if (format.LegacyRgb24 && !legacy)
             {
                 throw new NotSupportedException(
-                    "MPR RGB8_UNORM can only be exported as a single 2D surface " +
+                    "Prime 4 RGB8_UNORM can only be exported as a single 2D surface " +
                     "or a legacy six-face cubemap.");
             }
 
