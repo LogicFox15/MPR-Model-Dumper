@@ -266,34 +266,14 @@ namespace DKCTF
                 Meta.DecompressedSize = reader.ReadUInt32();
 
                 // Read the info count and explicitly loop it.
-                //
-                // Prime 4 TXTR metadata (reader version 0x41) does NOT store
-                // the one-byte Index field used by MP1R. The index is implicit
-                // from the position in the info array. Reading an Index byte
-                // here shifts Offset/Size by one byte and corrupts buffer
-                // locations for affected textures.
+                // Prime 4 uses the same STextureReadInfo record shape here:
+                // a one-byte index followed by offset and size.
                 uint infoCount = reader.ReadUInt32();
                 Meta.InfoCount = infoCount;
                 Meta.TextureInfo = new List<STextureReadInfo>((int)infoCount);
 
-                bool prime4Metadata = FileHeader != null && FileHeader.VersionA == 0x41;
-
                 for (int i = 0; i < infoCount; i++)
-                {
-                    if (prime4Metadata)
-                    {
-                        Meta.TextureInfo.Add(new STextureReadInfo
-                        {
-                            Index = (byte)i,
-                            Offset = reader.ReadUInt32(),
-                            Size = reader.ReadUInt32()
-                        });
-                    }
-                    else
-                    {
-                        Meta.TextureInfo.Add(reader.ReadStruct<STextureReadInfo>());
-                    }
-                }
+                    Meta.TextureInfo.Add(reader.ReadStruct<STextureReadInfo>());
 
                 // Read the single fixed buffer struct
                 Meta.Buffers = reader.ReadStruct<SCompressedBufferInfo2>();
