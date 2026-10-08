@@ -170,10 +170,9 @@ namespace DKCTF
             FormatInfo format = GetFormatInfo(texture.TextureHeader.Format);
             TextureShape shape = GetTextureShape(texture.TextureHeader);
 
-            // MipSizes in the Prime 4 TXTR header describe the GPU-side
-            // allocation and are not the tight linear DDS surface sizes.
-            // Derive the tight per-mip sizes from the texture dimensions and
-            // format instead.
+            // Derive the tight linear mip sizes for layer splitting. The
+            // serialized Prime 4 mip-size values are not needed by the DDS
+            // writer itself.
             uint mipCount = texture.TextureHeader.MipCount;
             if (mipCount == 0)
                 throw new InvalidDataException("TXTR reports zero mip levels.");
@@ -198,56 +197,16 @@ namespace DKCTF
                 (format.BlockWidth, format.BlockHeight, format.BlockDepth),
                 format.BytesPerBlockOrPixel,
                 // Prime 4 no longer stores TileMode in STextureHeader.
-                // PlatformSwizzleSwitch/TextureConverter use TileMode = 0
-                // for these textures; the current TextureConverter implementation
-                // also derives the block height from the texture dimensions.
+                // TextureConverter derives the block height from dimensions.
                 0,
                 texture.BufferData,
                 target: 1,
                 is_orin: false);
 
-            ulong logicalSize = GetLogicalLinearSize(linearMipSizes);
-
-            if ((ulong)linearData.Length < logicalSize)
-            {
-                throw new InvalidDataException(
-                    $"Deswizzled TXTR is smaller than the tight linear mip payload. " +
-                    $"Expected {logicalSize} bytes, got {linearData.Length}. " +
-                    $"Format={texture.TextureHeader.Format}, " +
-                    $"Type={texture.TextureHeader.Type}, " +
-                    $"Width={texture.TextureHeader.Width}, " +
-                    $"Height={texture.TextureHeader.Height}, " +
-                    $"Depth={texture.TextureHeader.Depth}, " +
-                    $"Mips={mipCount}, " +
-                    $"Layers={shape.PhysicalLayerCount}.");
-            }
-
-            if (logicalSize > int.MaxValue)
-                throw new InvalidDataException("Texture is too large for the current DDS exporter.");
-
-            // A deswizzler may return trailing alignment bytes. Those do not
-            // belong in the DDS payload.
-            if ((ulong)linearData.Length != logicalSize)
-                Array.Resize(ref linearData, checked((int)logicalSize));
-
-            // The Prime 4/Tegra deswizzler returns non-3D arrays in mip-major order:
-            //
-            //   Mip0: Layer0 Layer1 Layer2 ...
-            //   Mip1: Layer0 Layer1 Layer2 ...
-            //
-            // DDS stores array textures in layer-major order:
-            //
-            //   Layer0: Mip0 Mip1 Mip2 ...
-            //   Layer1: Mip0 Mip1 Mip2 ...
-            //
-            // Reorder only non-3D arrays before writing DDS.
-            if (!shape.Is3D && shape.PhysicalLayerCount > 1)
-            {
-                linearData = ReorderMipMajorToLayerMajor(
-                    linearData,
-                    linearMipSizes,
-                    shape.PhysicalLayerCount);
-            }
+            // Retrotool writes the deswizzled Prime 4 data directly to DDS.
+            // TextureConverter.Deswizzle() already produces the linear array
+            // ordering expected by the DDS writer, so do not reorder or trim
+            // the result here.
 
             uint firstMipPitchOrLinearSize = CalculateDdsPitchOrLinearSize(
                 texture.TextureHeader.Width,
