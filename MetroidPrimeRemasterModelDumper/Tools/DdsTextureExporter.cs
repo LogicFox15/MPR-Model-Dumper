@@ -613,6 +613,57 @@ namespace DKCTF
             return total;
         }
 
+        /// <summary>
+        /// Extracts one physical array layer or cubemap face from the
+        /// deswizzled layer-major texture data. MipSizes contain the total
+        /// size of each mip across all physical layers.
+        /// </summary>
+        private static byte[] ExtractLayer(
+            byte[] layerMajorData,
+            uint[] mipSizes,
+            uint physicalLayerCount,
+            uint layerIndex)
+        {
+            if (physicalLayerCount == 0)
+                throw new InvalidDataException("Invalid zero physical layer count.");
+
+            if (layerIndex >= physicalLayerCount)
+                throw new ArgumentOutOfRangeException(nameof(layerIndex));
+
+            ulong layerStride = 0;
+
+            foreach (uint mipSize in mipSizes)
+            {
+                if (mipSize % physicalLayerCount != 0)
+                {
+                    throw new InvalidDataException(
+                        $"Mip size {mipSize} is not divisible by physical layer count " +
+                        $"{physicalLayerCount}.");
+                }
+
+                layerStride += mipSize / physicalLayerCount;
+            }
+
+            ulong layerOffset = layerStride * layerIndex;
+
+            if (layerOffset + layerStride > (ulong)layerMajorData.Length)
+            {
+                throw new InvalidDataException(
+                    $"Layer {layerIndex} falls outside the deswizzled texture data.");
+            }
+
+            byte[] result = new byte[checked((int)layerStride)];
+
+            Buffer.BlockCopy(
+                layerMajorData,
+                checked((int)layerOffset),
+                result,
+                0,
+                result.Length);
+
+            return result;
+        }
+
         private static uint CalculateDdsPitchOrLinearSize(
             uint width,
             uint height,
