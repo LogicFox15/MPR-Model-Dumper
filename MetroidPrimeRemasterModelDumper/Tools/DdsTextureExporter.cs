@@ -155,7 +155,7 @@ namespace DKCTF
             TXTR texture,
             string path,
             bool splitLayers = true,
-            bool isOrin = true)
+            bool isOrin = false)
         {
             if (texture == null)
                 throw new ArgumentNullException(nameof(texture));
