@@ -151,7 +151,11 @@ namespace DKCTF
         /// When splitLayers is true, additional files are created for each
         /// physical array/cubemap face.
         /// </summary>
-        internal static void Export(TXTR texture, string path, bool splitLayers = true)
+        internal static void Export(
+            TXTR texture,
+            string path,
+            bool splitLayers = true,
+            bool isOrin = true)
         {
             if (texture == null)
                 throw new ArgumentNullException(nameof(texture));
@@ -198,7 +202,7 @@ namespace DKCTF
                 0,
                 texture.BufferData,
                 target: 1,
-                is_orin: false);
+                is_orin: isOrin);
 
             ulong logicalSize = GetLogicalLinearSize(linearMipSizes);
 
