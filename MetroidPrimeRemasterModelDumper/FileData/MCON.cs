@@ -101,14 +101,14 @@ namespace DKCTF
         {
             public uint modelIdCount;
             public List<CObjectId> modelID;
-            public uint worldModelCount;
-            public List<CObjectId> worldModelID;
+            public uint waterModelCount;
+            public List<CObjectId> waterModelID;        // Unused in Prime 4
             public uint colorCount;
             public List<Color4f> color;
             public uint transformCount;
             public List<CTransform4f> xf;
-            public uint worldInstanceCount;
-            public List<ObjectXF> worldInstance;
+            public uint waterInstanceCount;
+            public List<ObjectXF> waterInstance;
             public uint byteCount;
             public byte[] bytes;
             public uint modelIndexCount;
@@ -141,16 +141,14 @@ namespace DKCTF
                     }
                 }
 
-                data.worldModelCount = br.ReadUInt32();
-                Console.WriteLine("World Model Count: " + data.worldModelCount.ToString());
-                if (data.worldModelCount > 0)
+                data.waterModelCount = br.ReadUInt32();
+                Console.WriteLine("World Model Count: " + data.waterModelCount.ToString());
+                if (data.waterModelCount > 0)
                 {
-                    data.worldModelID = new List<CObjectId>();
-                    for (int i = 0; i < data.worldModelCount; i++)
+                    data.waterModelID = new List<CObjectId>();
+                    for (int i = 0; i < data.waterModelCount; i++)
                     {
-                        
-
-                        data.worldModelID.Add(br.ReadStruct<CObjectId>());
+                        data.waterModelID.Add(br.ReadStruct<CObjectId>());
                     }
                 }
 
@@ -169,12 +167,12 @@ namespace DKCTF
                     data.xf.Add(CTransform4f.Read(br));
                 }
 
-                data.worldInstanceCount = br.ReadUInt32();
-                Console.WriteLine("Object Transform Count: " + data.worldInstanceCount.ToString());
-                data.worldInstance = new List<ObjectXF>();
-                for (int i = 0; i < data.worldInstanceCount; i++)
+                data.waterInstanceCount = br.ReadUInt32();
+                Console.WriteLine("Object Transform Count: " + data.waterInstanceCount.ToString());
+                data.waterInstance = new List<ObjectXF>();
+                for (int i = 0; i < data.waterInstanceCount; i++)
                 {
-                    data.worldInstance.Add(ObjectXF.Read(br));
+                    data.waterInstance.Add(ObjectXF.Read(br));
                 }
 
                 data.byteCount = br.ReadUInt32();

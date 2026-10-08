@@ -9,7 +9,6 @@ using MetroidPrimeRemasterModelDumper.Tools;
 using RetroStudioPlugin.Files.FileData;
 using System;
 using System.Text.Json;
-using System.Security.Cryptography.X509Certificates;
 //using static ImageLibrary.ImageDds;
 
 #nullable disable
@@ -121,13 +120,11 @@ namespace MetroidPrimeRemasterModelDumper
                                 ExtractLTPB(fileInfo.FileData, fileInfo, pak);
                             savedMode = "LTPB";
                             break;
-                            /*
                         case "MCON":
                             if (fileInfo.AssetEntry.Type == "MCON")
                                 ProcessModConTest(fileInfo.FileData, fileInfo, pak);
                             savedMode = "MCON";
                             break;
-                            */
                         case "ROOM":
                             if (fileInfo.AssetEntry.Type == "ROOM")
                                 ProcessRoomTest(fileInfo.FileData, fileInfo, pak);
@@ -207,51 +204,35 @@ namespace MetroidPrimeRemasterModelDumper
             var txtr = new TXTR(Entry.FileData);
             string textureName = Entry.AssetEntry.FileID.ToString();
 
-            Console.WriteLine(txtr.TextureHeader.Format);
+            bool isCubemap = txtr.TextureHeader.Type == 3;
 
-            GenericTextureBase genericTexture = new()
+            bool isLightmap =
+                txtr.TextureHeader.Format == 81 ||
+                txtr.TextureHeader.Format == 82;
+
+            bool useDds = isCubemap || isLightmap;
+
+            string folder = Path.Combine(Path.GetFileNameWithoutExtension(pak.FileInfo.FilePath));
+
+            if (makeFolders && txtr.TextureHeader.Type >= 3)
             {
-                Name = textureName,
-                Width = txtr.TextureHeader.Width,
-                Height = txtr.TextureHeader.Height,
-                ImageFormat = new ImageFormat(TXTR.FormatList[txtr.TextureHeader.Format]),
-            };
-
-            string folder;
-            string path;
-
-            if (makeFolders && txtr.TextureHeader.Type >= 4)
-            {
-                folder = Path.Combine(Path.GetFileNameWithoutExtension(pak.FileInfo.FilePath));
-
-                if (!Directory.Exists(folder))
-                {
-                    Directory.CreateDirectory(folder);
-                }
-
-                folder += "/" + textureName;
-
-                if (!Directory.Exists(folder))
-                {
-                    Directory.CreateDirectory(folder);
-                }
-
-                path = Path.Combine(folder, $"{textureName}.txtr.png");
+                folder = Path.Combine(folder, textureName);
             }
-            else
-            {
-                folder = Path.Combine(Path.GetFileNameWithoutExtension(pak.FileInfo.FilePath));
-
-                if (!Directory.Exists(folder))
-                {
-                    Directory.CreateDirectory(folder);
-                }
-                path = Path.Combine(folder, $"{textureName}.txtr.png");
-            }
+            Directory.CreateDirectory(folder);
+            string extension = useDds ? ".dds" : ".png";
+            string outputPath = Path.Combine(folder, textureName + extension);
 
             try
             {
-                ExportToPng(path, txtr);
+                Console.WriteLine($"Exporting {textureName} " + $"Format={txtr.TextureHeader.Format} " + $"Type={txtr.TextureHeader.Type} " + $"Layers={txtr.TextureHeader.Depth} " + $"Cubemap={isCubemap} " + $"Lightmap={isLightmap} " +$"Output={extension}");
+                if (useDds)
+                {
+                    DdsTextureExporter.Export(txtr, outputPath, true);
+                }
+                else
+                {
+                    ExportToPng(outputPath, txtr);
+                }
             }
             catch
             {
@@ -274,7 +255,17 @@ namespace MetroidPrimeRemasterModelDumper
         static void ProcessModConTest(Stream stream, FileEntry Entry, PAK pak)
         {
             var mcon = new MCON(Entry.FileData);
+
             Console.WriteLine("Successfully consumed a MCON: " + Entry.AssetEntry.FileID.ToString());
+
+            if (mcon.data.visualData.waterModelCount > 0)
+            {
+                Console.WriteLine("Found a MCON with the second asset list populated.");
+                Console.WriteLine("File ID: " + Entry.AssetEntry.FileID.ToString());
+                Console.WriteLine("Package: " + pak.FileInfo.FileName.ToString());
+                Console.WriteLine("Press any key to continue");
+                Console.ReadKey();
+            }
         }
 
         static void ProcessRoomTest(Stream stream, FileEntry Entry, PAK pak)
@@ -335,6 +326,7 @@ namespace MetroidPrimeRemasterModelDumper
         }
         #endregion
 
+        #region Image Handling
         static void ExportToPng(string outputPath, TXTR txtr)
         {
             // Type 2 = 3D Texture. If it is 3D, use Depth. Otherwise, Depth is 1.
@@ -353,7 +345,10 @@ namespace MetroidPrimeRemasterModelDumper
             genericTexture.PlatformSwizzle = new PlatformSwizzleSwitch();
             genericTexture.Data = txtr.BufferData;
 
-            if(txtr.TextureHeader.Type >= 2)
+
+            bool layered = txtr.TextureHeader.Type == 3 || txtr.TextureHeader.Type >= 4;
+
+            if (txtr.TextureHeader.Type >= 2)
             {
                 genericTexture.ArrayCount = txtr.TextureHeader.Depth;
             }
@@ -393,6 +388,50 @@ namespace MetroidPrimeRemasterModelDumper
 
             genericTexture.Export(outputPath);
         }
+
+        static void ExtractTXTRDDS(Stream stream, FileEntry Entry, PAK pak, bool useLayerFolders)
+        {
+            var txtr = new TXTR(Entry.FileData);
+
+            string textureName =
+                Entry.AssetEntry.FileID.ToString();
+
+            string pakFolder = Path.GetFileNameWithoutExtension( pak.FileInfo.FilePath);
+
+            string folder = Path.Combine(pakFolder);
+
+            bool layered = txtr.TextureHeader.Type == 3 || txtr.TextureHeader.Type >= 4;
+
+            if (useLayerFolders && layered)
+            {
+                folder = Path.Combine(folder, textureName);
+            }
+
+            if (!Directory.Exists(folder))
+                Directory.CreateDirectory(folder);
+
+            string outputPath = Path.Combine(folder, $"{textureName}.txtr.dds");
+
+            try
+            {
+                Console.WriteLine($"Exporting {textureName} " + $"Format={txtr.TextureHeader.Format} " + $"Type={txtr.TextureHeader.Type} " + $"Layers={txtr.TextureHeader.Depth}");
+                DdsTextureExporter.Export(txtr, outputPath, true);
+                Console.WriteLine($"Finished DDS export: {outputPath}");
+            }
+            catch (Exception ex)
+            {
+                string errorPath = Path.Combine( folder, "ErroredTextures.txt");
+
+                File.AppendAllText(errorPath, $"{Environment.NewLine}" + $"{textureName}     " + $"Format: {txtr.TextureHeader.Format}     " + $"Type: {txtr.TextureHeader.Type}" + $"{Environment.NewLine}" + ex);
+
+                /*
+                 * Keep your existing fallback behavior so a bad/unsupported texture
+                 * still gives you the raw GPU data for investigation.
+                 */
+                File.WriteAllBytes(Path.Combine(folder, $"{textureName}.bin"), txtr.BufferData ?? Array.Empty<byte>());
+            }
+        }
+        #endregion
 
         #region File gathering
         public static FileEntry SearchForFile(string FileID)

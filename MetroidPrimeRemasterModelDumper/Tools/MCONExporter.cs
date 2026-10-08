@@ -42,6 +42,7 @@ namespace EvilWithin2Tool
             {
                 IOScene ioscene = new IOScene();
                 List<CMDL> cmdls = new List<CMDL>();
+                List<CMDL> wmdls = new List<CMDL>();
                 IOModel iomodel = new IOModel();
 
                 string folder = Path.Combine(path, mcons[m].fileName.ToString());
@@ -64,20 +65,14 @@ namespace EvilWithin2Tool
                     WriteMaterialTextFile(cmdl, materialPath);
                 }
 
+                
+
+
                 // Each entry in the model-index array is one room-model instance. The corresponding entry in xf is that instance's transform.
                 // This matches the current Retro MCON layout: modelIndex[i] selects a model from modelID[], while xf[i] contains that instance's transform.
                 int instanceCount = Math.Min((int)mcons[m].data.visualData.modelIndexCount, (int)mcons[m].data.visualData.transformCount);
-
-                if (mcons[m].data.visualData.modelIndexCount != mcons[m].data.visualData.transformCount)
-                {
-                    Console.WriteLine(
-                        $"WARNING: MCON instance/index count mismatch: " +
-                        $"modelIndexCount={mcons[m].data.visualData.modelIndexCount}, " +
-                        $"transformCount={mcons[m].data.visualData.transformCount}");
-                }
-
-                Console.WriteLine(
-                    $"MCON {mcons[m].fileName}: models={cmdls.Count}, instances={instanceCount}");
+                int waterInstanceCount = (int)mcons[m].data.visualData.waterModelCount;
+                Console.WriteLine($"MCON {mcons[m].fileName}: models={cmdls.Count}, instances={instanceCount}");
 
                 for (int i = 0; i < instanceCount; i++)
                 {
@@ -89,34 +84,37 @@ namespace EvilWithin2Tool
                         {
                             atlasLookup = GetVisualAtlasLookup(mcons[m], i);
                         }
-                        else
-                        {
-                            Console.WriteLine(
-                                $"WARNING: MCON {mcons[m].fileName} instance {i} has no visual atlas lookup.");
-                        }
                     }
 
                     int modelIndex = mcons[m].data.visualData.modelIndex[i];
-
-                    if ((uint)modelIndex >= (uint)cmdls.Count)
-                    {
-                        Console.WriteLine(
-                            $"WARNING: MCON {mcons[m].fileName} instance {i} references invalid model index {modelIndex}.");
-                        continue;
-                    }
-
-                    if (mcons[m].data.visualData.visualAtlasCount != 0 && mcons[m].data.visualData.visualAtlasCount != mcons[m].data.visualData.transformCount)
-                    {
-                        Console.WriteLine(
-                            $"WARNING: MCON visual atlas count mismatch: " +
-                            $"visualAtlasCount={mcons[m].data.visualData.visualAtlasCount}, " +
-                            $"transformCount={mcons[m].data.visualData.transformCount}");
-                    }
-
-                    iomodel.Name = $"M{m}_A{i}";
-
                     var cmdlToBuild = cmdls[modelIndex];
-                    BuildStaticModel(iomodel, cmdlToBuild, mcons[m].data.visualData.xf[i], false, atlasLookup);
+                    BuildStaticModel(iomodel, cmdlToBuild, mcons[m].data.visualData.xf[i], false, i, modelIndex,atlasLookup);
+                }
+
+                // Build each unique WMDL file
+                for (int i = 0; i < mcons[m].data.visualData.waterModelCount; i++)
+                {
+                    FileEntry file = BatchPakExtractor.SearchForFile(mcons[m].data.visualData.waterModelID[i].ToString());
+                    var wmdl = new CMDL(file.FileData);
+                    Console.WriteLine("Unpacked model " + file.AssetEntry.FileID.ToString());
+                    //wmdls.Add(cmdl);
+
+                    string modelId = mcons[m].data.visualData.waterModelID[i].ToString();
+                    string materialPath = Path.Combine(folder, "WMDL_" + modelId);
+                    WriteMaterialTextFile(wmdl, materialPath);
+
+                    // Get the atlas lookup
+                    SAtlasLookup? atlasLookup = null;
+                    if (mcons[m].data.visualData.waterAtlasCount > 0)
+                    {
+                        if (i < mcons[m].data.visualData.waterAtlas.Count)
+                        {
+                            atlasLookup = GetWaterAtlasLookup(mcons[m], i);
+                        }
+                    }
+
+                    var cmdlToBuild = wmdl;
+                    BuildWaterModel(iomodel, cmdlToBuild, mcons[m].data.visualData.waterInstance[i].xf, false, i, i, atlasLookup);
                 }
 
                 ioscene.Models.Add(iomodel);
@@ -134,11 +132,9 @@ namespace EvilWithin2Tool
             }
 
             WriteLightmapInfo(room, mcons, path);
-
-
         }
 
-        public static void BuildStaticModel(IOModel iomodel, CMDL cmdl, CTransform4f transform, bool saveLODs, SAtlasLookup? atlasLookup = null)
+        public static void BuildStaticModel(IOModel iomodel, CMDL cmdl, CTransform4f transform, bool saveLODs, int assetNumber, int assetInstance, SAtlasLookup? atlasLookup = null)
         {
             // CTransform4f is a 3x4 transform whose translation is stored in
             // M0.W, M1.W and M2.W. System.Numerics uses the equivalent affine
@@ -174,7 +170,7 @@ namespace EvilWithin2Tool
 
                 IOMesh iomesh = new IOMesh();
 
-                iomesh.Name = $"{iomodel.Name}_Mesh{iomodel.Meshes.Count}_{mat.Name}";
+                iomesh.Name = $"M{iomodel.Meshes.Count}I{assetInstance}A{assetNumber}_{mat.Name}";
                 iomodel.Meshes.Add(iomesh);
 
                 foreach (var vert in mesh.Vertices)
@@ -200,6 +196,118 @@ namespace EvilWithin2Tool
                     Vector2 bakedLightingCoord;
 
 
+                    iovertex.SetUV(vert.TexCoord0.X, vert.TexCoord0.Y, 0);
+
+                    if (!mesh.hasTexCoord1)
+                    {
+                        if (atlasLookup.HasValue)
+                        {
+                            Vector2 bakedUV = TransformBakedAtlasUV(
+                                vert.TexCoord1,
+                                atlasLookup.Value);
+
+                            iovertex.SetUV(
+                                bakedUV.X,
+                                bakedUV.Y,
+                                3);
+                        }
+                    }
+                    else
+                    {
+                        iovertex.SetUV(vert.TexCoord1.X, vert.TexCoord1.Y, 1);
+                        iovertex.SetUV(vert.TexCoord2.X, vert.TexCoord2.Y, 2);
+                        if (atlasLookup.HasValue)
+                        {
+                            Vector2 bakedUV = TransformBakedAtlasUV(
+                                vert.TexCoord3,
+                                atlasLookup.Value);
+
+                            iovertex.SetUV(
+                                bakedUV.X,
+                                bakedUV.Y,
+                                3);
+                        }
+                    }
+
+                    iovertex.SetColor(
+                        vert.Color1.X,
+                        vert.Color1.Y,
+                        vert.Color1.Z,
+                        vert.Color1.W, 0);
+                }
+
+                IOPolygon iopoly = new IOPolygon();
+                iomesh.Polygons.Add(iopoly);
+
+                iopoly.MaterialName = mat.Name;
+
+                for (int i = 0; i < mesh.Indices.Length; i++)
+                    iopoly.Indicies.Add((int)mesh.Indices[i]);
+
+                TransformMCONMesh(iomesh, matrix);
+            }
+        }
+
+        public static void BuildWaterModel(IOModel iomodel, CMDL cmdl, CTransform4f transform, bool saveLODs, int assetNumber, int assetInstance, SAtlasLookup? atlasLookup = null)
+        {
+            // CTransform4f is a 3x4 transform whose translation is stored in
+            // M0.W, M1.W and M2.W. System.Numerics uses the equivalent affine
+            // representation with translation in M41, M42 and M43, so transpose
+            // the 3x3 portion when constructing Matrix4x4.
+            Matrix4x4 matrix = new Matrix4x4(
+                transform.M0.X, transform.M1.X, transform.M2.X, 0.0f,
+                transform.M0.Y, transform.M1.Y, transform.M2.Y, 0.0f,
+                transform.M0.Z, transform.M1.Z, transform.M2.Z, 0.0f,
+                transform.M0.W, transform.M1.W, transform.M2.W, 1.0f
+            );
+
+            Console.WriteLine($"M11: {matrix.M11}, M12: {matrix.M12}, M13: {matrix.M13}, M14: {matrix.M14}");
+            Console.WriteLine($"M21: {matrix.M21}, M22: {matrix.M22}, M23: {matrix.M23}, M24: {matrix.M24}");
+            Console.WriteLine($"M31: {matrix.M31}, M32: {matrix.M32}, M33: {matrix.M33}, M34: {matrix.M34}");
+            Console.WriteLine($"M41: {matrix.M41}, M42: {matrix.M42}, M43: {matrix.M43}, M44: {matrix.M44}");
+            Console.WriteLine("");
+
+            List<CMDL.CMesh> ExportMeshes;
+
+            if (saveLODs)
+            {
+                ExportMeshes = cmdl.Meshes;
+            }
+            else
+            {
+                ExportMeshes = cmdl.GetHighestLODMeshes();
+            }
+
+            foreach (var mesh in ExportMeshes)
+            {
+                var mat = cmdl.Materials[mesh.Header.MaterialIndex];
+
+                IOMesh iomesh = new IOMesh();
+
+                iomesh.Name = $"M{iomodel.Meshes.Count}WA{assetNumber}I{assetInstance}_{mat.Name}";
+                iomodel.Meshes.Add(iomesh);
+
+                foreach (var vert in mesh.Vertices)
+                {
+                    var iovertex = new IOVertex()
+                    {
+                        Position = new System.Numerics.Vector3(
+                            vert.Position.X,
+                            vert.Position.Y,
+                            vert.Position.Z),
+                        Normal = new System.Numerics.Vector3(
+                            vert.Normal.X,
+                            vert.Normal.Y,
+                            vert.Normal.Z),
+                        Tangent = new System.Numerics.Vector3(
+                            vert.Tangent.X,
+                            vert.Tangent.Y,
+                            vert.Tangent.Z),
+                    };
+
+                    iomesh.Vertices.Add(iovertex);
+
+                    Vector2 bakedLightingCoord;
                     iovertex.SetUV(vert.TexCoord0.X, vert.TexCoord0.Y, 0);
 
                     if (!mesh.hasTexCoord1)
@@ -327,6 +435,36 @@ namespace EvilWithin2Tool
                 return null;
 
             SAtlasLookup lookup = visualData.visualAtlas[placementIndex];
+
+            // Same validity rule used by Retrotool.
+            if (float.IsNaN(lookup.scale) ||
+                float.IsInfinity(lookup.scale) ||
+                lookup.scale < 0.0f)
+            {
+                return null;
+            }
+
+            return lookup;
+        }
+
+        private static SAtlasLookup? GetWaterAtlasLookup(MCON mcon, int placementIndex)
+        {
+            if (mcon?.data?.visualData == null)
+                return null;
+
+            var visualData = mcon.data.visualData;
+
+            // Retrotool treats an empty atlas table as "atlas lookup disabled".
+            if (visualData.waterAtlas == null || visualData.waterAtlas.Count == 0)
+                return null;
+
+            // The atlas table belongs to visual placement order.
+            if (placementIndex < 0 ||
+                placementIndex >= visualData.waterInstance.Count ||
+                placementIndex >= visualData.waterAtlas.Count)
+                return null;
+
+            SAtlasLookup lookup = visualData.waterAtlas[placementIndex];
 
             // Same validity rule used by Retrotool.
             if (float.IsNaN(lookup.scale) ||

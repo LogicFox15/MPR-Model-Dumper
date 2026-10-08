@@ -178,24 +178,51 @@ namespace MetroidPrimeRemasterModelDumper
                     ObjectTXT += System.Environment.NewLine;
                 }
 
-                // Print water setups
+                // Print fluid setups
                 if (room.layers[i].waterRenderVolumes.Count > 0)
                 {
                     ObjectTXT += System.Environment.NewLine + System.Environment.NewLine + "Water Render Volumes: ";
                 }
                 foreach (var actor in room.layers[i].waterRenderVolumes)
                 {
+                    ObjectTXT += System.Environment.NewLine + "Water Model ID: " + actor.waterModel.ToString();
+                    try 
+                    {
+                        ObjectTXT += System.Environment.NewLine + "Water Runtime ID: " + actor.runtimeId.ToString(); 
+                    }
+                    catch {}
                     try
                     {
-                        ObjectTXT += System.Environment.NewLine + "Water Model ID: " + actor.waterModel.ToString();
+                        ObjectTXT += System.Environment.NewLine + "Water Normal Map ID: " + actor.waterNormalMap.ToString();
                     }
-                    catch
+                    catch { }
+                    try
                     {
-                        ObjectTXT += System.Environment.NewLine + "Problem with getting Visual ID";
+                        ObjectTXT += System.Environment.NewLine + "Projected Lightmap ID: " + actor.projectedLightmap.ToString();
                     }
+                    catch { }
+                    try
+                    {
+                        ObjectTXT += System.Environment.NewLine + "Rain Drop Ripple Object ID: " + actor.rainDropRippleObject.ToString();
+                    }
+                    catch { }
 
-                    ObjectTXT += System.Environment.NewLine + "Water Normal Map: " + actor.waterNormalMap.ToString();
-                    ObjectTXT += System.Environment.NewLine + "Water Color: " + actor.waterColor.X.ToString() + ", " + actor.waterColor.Y.ToString() + ", " + actor.waterColor.Z.ToString() + ", " + actor.waterColor.W.ToString();
+                    ObjectTXT += System.Environment.NewLine + "Water Color: " + actor.waterColor.R.ToString() + ", " + actor.waterColor.G.ToString() + ", " + actor.waterColor.B.ToString() + ", " + actor.waterColor.A.ToString();
+                    ObjectTXT += System.Environment.NewLine + "Water Fog Color: " + actor.waterFogColor.R.ToString() + ", " + actor.waterFogColor.G.ToString() + ", " + actor.waterFogColor.B.ToString() + ", " + actor.waterFogColor.A.ToString();
+                    ObjectTXT += System.Environment.NewLine + "Water Fog Unknown: " + actor.waterFogUnknown.ToString();
+                    ObjectTXT += System.Environment.NewLine + "Water Direction A: " + actor.waterDirectionA.ToString();
+                    ObjectTXT += System.Environment.NewLine + "Water Direction B: " + actor.waterDirectionB.ToString();
+                    ObjectTXT += System.Environment.NewLine + "Normal Map Float A: " + actor.normalMapFloatA.ToString();
+                    ObjectTXT += System.Environment.NewLine + "Normal Map Float B: " + actor.normalMapFloatB.ToString();
+                    ObjectTXT += System.Environment.NewLine + "Feature Flags: ";
+                    for (int f = 0; f < actor.featureFlags.Length; f++)
+                    {
+                        ObjectTXT += $"{actor.featureFlags[f].ToString()}, ";
+                    }
+                    ObjectTXT += System.Environment.NewLine + "Wave Params B: " + $"{actor.waveParamsB[0].ToString()}, {actor.waveParamsB[1].ToString()}, {actor.waveParamsB[2].ToString()}, {actor.waveParamsB[3].ToString()}, {actor.waveParamsB[4].ToString()}";
+                    ObjectTXT += System.Environment.NewLine + "Material Floats: " + $"{actor.materialFloat0.ToString()}, {actor.materialFloat1.ToString()}, {actor.materialFloat2.ToString()}, {actor.materialFloat3.ToString()}, {actor.materialFloat4.ToString()}";
+                    ObjectTXT += System.Environment.NewLine + "Rain Drop Ripple Params: " + $"{actor.rainDropRippleParams[0]}, {actor.rainDropRippleParams[1]}, {actor.rainDropRippleParams[2]}, {actor.rainDropRippleParams[3]}, {actor.rainDropRippleParams[4]}, {actor.rainDropRippleParams[5]}, {actor.rainDropRippleParams[6]}, {actor.rainDropRippleParams[7]}, {actor.rainDropRippleParams[8]}";
+
                     ObjectTXT += System.Environment.NewLine + "Position: " + actor.commonObjectData.entityProperties.position.X.ToString() + ", " + (-actor.commonObjectData.entityProperties.position.Z).ToString() + ", " + actor.commonObjectData.entityProperties.position.Y.ToString();
                     ObjectTXT += System.Environment.NewLine + "Rotation: " + actor.commonObjectData.entityProperties.blenderRotation.X.ToString() + ", " + actor.commonObjectData.entityProperties.blenderRotation.Y.ToString() + ", " + actor.commonObjectData.entityProperties.blenderRotation.Z.ToString();
                     ObjectTXT += System.Environment.NewLine + "Scale: " + actor.commonObjectData.entityProperties.scale.X.ToString() + ", " + actor.commonObjectData.entityProperties.scale.Z.ToString() + ", " + actor.commonObjectData.entityProperties.scale.Y.ToString();
@@ -303,21 +330,14 @@ namespace MetroidPrimeRemasterModelDumper
 
         private static string AppendAtlasLookup(string text, ConstructedRoom room, CommonObjectData objectData)
         {
-            if (room == null ||
-                objectData == null ||
-                objectData.originalInstanceData == null ||
-                room.lightMapIds == null ||
-                room.lightMapAtlasLookups == null)
+            if (room == null || objectData == null || objectData.originalInstanceData == null || room.lightMapIds == null || room.lightMapAtlasLookups == null)
             {
                 return text;
             }
 
-            int count = Math.Min(
-                room.lightMapIds.Count,
-                room.lightMapAtlasLookups.Count);
+            int count = Math.Min(room.lightMapIds.Count, room.lightMapAtlasLookups.Count);
 
-            string objectId =
-                objectData.originalInstanceData.id.ToString();
+            string objectId = objectData.originalInstanceData.id.ToString();
 
             for (int i = 0; i < count; i++)
             {
@@ -326,29 +346,12 @@ namespace MetroidPrimeRemasterModelDumper
 
                 SAtlasLookup lookup = room.lightMapAtlasLookups[i];
 
-                text += System.Environment.NewLine +
-                    "Atlas Lookup Index: " + i;
-
-                text += System.Environment.NewLine +
-                    "Atlas Offset U: " + lookup.offsetU.ToString();
-
-                text += System.Environment.NewLine +
-                    "Atlas Offset V: " + lookup.offsetV.ToString();
-
-                text += System.Environment.NewLine +
-                    "Atlas Scale: " + lookup.scale.ToString();
-
-                text += System.Environment.NewLine +
-                    "Atlas Unknown: " + lookup.unkD.ToString();
-
-                text += System.Environment.NewLine +
-                    "Lightmap UV: UV' = UV * " +
-                    lookup.scale.ToString() +
-                    " + (" +
-                    lookup.offsetU.ToString() +
-                    ", " +
-                    lookup.offsetV.ToString() +
-                    ")";
+                text += System.Environment.NewLine + "Atlas Lookup Index: " + i;
+                text += System.Environment.NewLine + "Atlas Offset U: " + lookup.offsetU.ToString();
+                text += System.Environment.NewLine + "Atlas Offset V: " + lookup.offsetV.ToString();
+                text += System.Environment.NewLine + "Atlas Scale: " + lookup.scale.ToString();
+                text += System.Environment.NewLine + "Atlas Unknown: " + lookup.unkD.ToString();
+                text += System.Environment.NewLine + "Lightmap UV: UV' = UV * " + lookup.scale.ToString() + " + (" + lookup.offsetU.ToString() + ", " + lookup.offsetV.ToString() + ")";
 
                 return text;
             }

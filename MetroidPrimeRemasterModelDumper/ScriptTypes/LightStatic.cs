@@ -108,11 +108,7 @@ namespace MetroidPrimeRemasterModelDumper.ScriptTypes
                     script.renderTargetScene = propertyReader.ReadUInt32();
                     break;
                 case 0x8f421907: // Color
-                    script.color = new Vector4(
-                        propertyReader.ReadSingle(),
-                        propertyReader.ReadSingle(),
-                        propertyReader.ReadSingle(),
-                        propertyReader.ReadSingle());
+                    script.color = new Vector4(propertyReader.ReadSingle(), propertyReader.ReadSingle(), propertyReader.ReadSingle(), propertyReader.ReadSingle());
                     break;
                 case 0xdaf8bddf: // Luma intensity
                     script.lumaIntensity = propertyReader.ReadSingle();

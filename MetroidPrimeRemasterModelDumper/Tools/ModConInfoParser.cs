@@ -19,10 +19,10 @@ public class ModConParser
     public static void ParseModCon(MCON modcon, string path)
     {
         ModConInfo += System.Environment.NewLine + "Total Unique Objects 1: " + modcon.data.visualData.modelIdCount;
-        ModConInfo += System.Environment.NewLine + "Total Unique Objects 2: " + modcon.data.visualData.worldModelCount;
+        ModConInfo += System.Environment.NewLine + "Total Unique Objects 2: " + modcon.data.visualData.waterModelCount;
         ModConInfo += System.Environment.NewLine + "Total Colors: " + modcon.data.visualData.colorCount;
         ModConInfo += System.Environment.NewLine + "Total Object Transforms Type 1: " + modcon.data.visualData.transformCount;
-        ModConInfo += System.Environment.NewLine + "Total Object Transforms Type 2: " + modcon.data.visualData.worldInstanceCount;
+        ModConInfo += System.Environment.NewLine + "Total Object Transforms Type 2: " + modcon.data.visualData.waterInstanceCount;
         ModConInfo += System.Environment.NewLine;
 
         List<int> totals = new List<int>();
@@ -46,12 +46,12 @@ public class ModConParser
             ModConInfo += System.Environment.NewLine;
         }
 
-        if (modcon.data.visualData.worldModelCount > 0)
+        if (modcon.data.visualData.waterModelCount > 0)
         {
             ModConInfo += System.Environment.NewLine + "Unique IDs 2: ";
-            for (int i = 0; i < modcon.data.visualData.worldModelCount; i++)
+            for (int i = 0; i < modcon.data.visualData.waterModelCount; i++)
             {
-                ModConInfo += System.Environment.NewLine + "Model ID " + i + ": " + modcon.data.visualData.worldModelID[i].ToString();
+                ModConInfo += System.Environment.NewLine + "Model ID " + i + ": " + modcon.data.visualData.waterModelID[i].ToString();
             }
             ModConInfo += System.Environment.NewLine;
         }
@@ -94,17 +94,17 @@ public class ModConParser
             }
         }
 
-        if (modcon.data.visualData.worldInstanceCount > 0)
+        if (modcon.data.visualData.waterInstanceCount > 0)
         {
             ModConInfo += System.Environment.NewLine + "Object Visual Data 1: ";
-            for (int i = 0; i < modcon.data.visualData.worldInstanceCount; i++)
+            for (int i = 0; i < modcon.data.visualData.waterInstanceCount; i++)
             {
-                Vector3 position = TransformDecomposition.GetPosition(modcon.data.visualData.worldInstance[i].xf);
-                Quaternion rotation = TransformDecomposition.GetRotationQuaternion(modcon.data.visualData.worldInstance[i].xf);
-                Vector3 scale = TransformDecomposition.GetScale(modcon.data.visualData.worldInstance[i].xf);
+                Vector3 position = TransformDecomposition.GetPosition(modcon.data.visualData.waterInstance[i].xf);
+                Quaternion rotation = TransformDecomposition.GetRotationQuaternion(modcon.data.visualData.waterInstance[i].xf);
+                Vector3 scale = TransformDecomposition.GetScale(modcon.data.visualData.waterInstance[i].xf);
 
                 ModConInfo += System.Environment.NewLine + "Object " + i + ": ";
-                ModConInfo += System.Environment.NewLine + "Short Value: " + modcon.data.visualData.colorIndex[i].ToString() + ", ID: " + modcon.data.visualData.worldInstance[i].id.ToString();
+                ModConInfo += System.Environment.NewLine + "Short Value: " + modcon.data.visualData.colorIndex[i].ToString() + ", ID: " + modcon.data.visualData.waterInstance[i].id.ToString();
                 ModConInfo += (System.Environment.NewLine + "Position: " + position.X.ToString() + ", " + (-position.Z).ToString() + ", " + position.Y.ToString());
                 ModConInfo += (System.Environment.NewLine + "Rotation: W: " + rotation.W.ToString() + ", X: " + rotation.X.ToString() + ", Y: " + (-rotation.Z).ToString() + ", Z: " + rotation.Y.ToString());
                 ModConInfo += (System.Environment.NewLine + "Scale: " + scale.X.ToString() + ", " + (scale.Z).ToString() + ", " + scale.Y.ToString());
