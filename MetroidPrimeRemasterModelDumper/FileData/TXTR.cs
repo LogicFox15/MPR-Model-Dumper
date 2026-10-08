@@ -331,7 +331,6 @@ namespace DKCTF
             public byte[] Components;
 
             public uint MipCount;
-            public Vector3f MipSizes;
         }
 
         // NEW: Replaces TextureSize and Unknown
