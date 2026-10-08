@@ -23,10 +23,6 @@ namespace MetroidPrimeRemasterModelDumper
 {
     public class BatchPakExtractor
     {
-        // Prime 4's Switch 2 texture swizzle uses the Orin GOB byte layout.
-        // Set this to false when processing the Switch (non-Switch-2) build.
-        private const bool UseOrinTextureSwizzle = true;
-
         public static PAK currentPak;
         public static string savedMode = "Empty";
         public static bool saveLODs = false;
@@ -293,7 +289,6 @@ namespace MetroidPrimeRemasterModelDumper
             genericTexture.MipCount = (uint)txtr.MipSizes.Length;
             genericTexture.ImageFormat = new ImageFormat(TXTR.FormatList[txtr.TextureHeader.Format]);
             genericTexture.PlatformSwizzle = new PlatformSwizzleSwitch();
-            genericTexture.PlatformSwizzle.IsOrin = UseOrinTextureSwizzle;
             genericTexture.Data = txtr.BufferData;
 
             if (txtr.TextureHeader.Type == 3)
