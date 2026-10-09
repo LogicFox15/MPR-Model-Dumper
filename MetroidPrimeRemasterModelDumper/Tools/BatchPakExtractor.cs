@@ -253,16 +253,9 @@ namespace MetroidPrimeRemasterModelDumper
             }
             catch (Exception ex)
             {
-                string errorText =
-                    $"{textureName}     " +
-                    $"Format: {txtr.TextureHeader.Format}     " +
-                    $"Type: {txtr.TextureHeader.Type}     " +
-                    $"Depth/Layers: {txtr.TextureHeader.Depth}{Environment.NewLine}" +
-                    ex + Environment.NewLine;
+                string errorText = $"{textureName}     " + $"Format: {txtr.TextureHeader.Format}     " + $"Type: {txtr.TextureHeader.Type}     " + $"Depth/Layers: {txtr.TextureHeader.Depth}{Environment.NewLine}" + ex + Environment.NewLine;
 
-                File.AppendAllText(
-                    Path.Combine(folder, "ErroredTextures.txt"),
-                    errorText);
+                File.AppendAllText(AppContext.BaseDirectory + "/ErroredTextures.txt", errorText);
 
                 Console.WriteLine();
                 Console.WriteLine($"Texture export FAILED for {textureName}");
