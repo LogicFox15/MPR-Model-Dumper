@@ -205,24 +205,9 @@ namespace DKCTF
             if ((ulong)linearData.Length != logicalSize)
                 Array.Resize(ref linearData, checked((int)logicalSize));
 
-            // The MPR/Tegra deswizzler returns non-3D arrays in mip-major order:
-            //
-            //   Mip0: Layer0 Layer1 Layer2 ...
-            //   Mip1: Layer0 Layer1 Layer2 ...
-            //
-            // DDS stores array textures in layer-major order:
-            //
-            //   Layer0: Mip0 Mip1 Mip2 ...
-            //   Layer1: Mip0 Mip1 Mip2 ...
-            //
-            // Reorder only non-3D arrays before writing DDS.
-            if (!shape.Is3D && shape.PhysicalLayerCount > 1)
-            {
-                linearData = ReorderMipMajorToLayerMajor(
-                    linearData,
-                    texture.MipSizes,
-                    shape.PhysicalLayerCount);
-            }
+            // TextureConverter.Deswizzle() already returns the surface/layer
+            // order expected by the DDS writer. Reordering the mip/layer
+            // payload here scrambles cubemap faces and their mip chains.
 
             uint firstMipPitchOrLinearSize = CalculateDdsPitchOrLinearSize(
                 texture.TextureHeader.Width,
@@ -334,8 +319,6 @@ namespace DKCTF
                     depth: depth);
             }
 
-            uint physicalLayers = Math.Max(header.Depth, 1);
-
             bool isCube =
                 type == MprTextureType.Cube ||
                 type == MprTextureType.CubeArray;
@@ -344,21 +327,31 @@ namespace DKCTF
                 type == MprTextureType.D1 ||
                 type == MprTextureType.D1Array;
 
-            uint ddsArrayCount = physicalLayers;
+            // A plain cubemap always contains six physical faces. In this
+            // format, Depth is not a reliable face count for Type == Cube.
+            uint physicalLayers;
 
-            if (isCube)
+            if (type == MprTextureType.Cube)
             {
-                if (physicalLayers == 0 || physicalLayers % 6 != 0)
+                physicalLayers = 6;
+            }
+            else
+            {
+                physicalLayers = Math.Max(header.Depth, 1);
+
+                if (type == MprTextureType.CubeArray && physicalLayers % 6 != 0)
                 {
                     throw new InvalidDataException(
-                        $"Cubemap TXTR reports {physicalLayers} layers; " +
+                        $"Cubemap-array TXTR reports {physicalLayers} physical layers; " +
                         "the layer count must be divisible by 6.");
                 }
-
-                // DDS/DX10 arraySize is the number of cubes, not the number
-                // of individual cube faces.
-                ddsArrayCount = physicalLayers / 6;
             }
+
+            // DDS/DX10 arraySize is the number of cubes for cubemaps and
+            // the number of physical layers for ordinary array textures.
+            uint ddsArrayCount = isCube
+                ? physicalLayers / 6
+                : physicalLayers;
 
             return new TextureShape(
                 is3D: false,
@@ -608,79 +601,6 @@ namespace DKCTF
         }
 
         /// <summary>
-        /// Converts the MPR/Tegra non-3D texture layout from mip-major to
-        /// the layer-major layout required by DDS.
-        ///
-        /// Source:
-        ///   Mip0: L0 L1 L2 ...
-        ///   Mip1: L0 L1 L2 ...
-        ///
-        /// Destination:
-        ///   L0: Mip0 Mip1 ...
-        ///   L1: Mip0 Mip1 ...
-        /// </summary>
-        private static byte[] ReorderMipMajorToLayerMajor(
-            byte[] mipMajorData,
-            uint[] mipSizes,
-            uint physicalLayerCount)
-        {
-            if (physicalLayerCount <= 1)
-                return mipMajorData;
-
-            ulong totalSize = 0;
-
-            foreach (uint mipSize in mipSizes)
-            {
-                if (mipSize % physicalLayerCount != 0)
-                {
-                    throw new InvalidDataException(
-                        $"Mip size {mipSize} is not divisible by the layer count " +
-                        $"{physicalLayerCount}.");
-                }
-
-                totalSize += mipSize;
-            }
-
-            byte[] output = new byte[checked((int)totalSize)];
-
-            // Destination is layer-major. Every layer has the complete mip
-            // chain, so calculate its stride once.
-            ulong layerStride = 0;
-            foreach (uint mipSize in mipSizes)
-                layerStride += mipSize / physicalLayerCount;
-
-            ulong sourceOffset = 0;
-
-            for (uint mip = 0; mip < mipSizes.Length; mip++)
-            {
-                uint mipSize = mipSizes[mip];
-                uint perLayerSize = mipSize / physicalLayerCount;
-
-                for (uint layer = 0; layer < physicalLayerCount; layer++)
-                {
-                    ulong source = sourceOffset + (ulong)layer * perLayerSize;
-                    ulong destination =
-                        (ulong)layer * layerStride +
-                        GetMipOffsetWithinLayer(
-                            mipSizes,
-                            physicalLayerCount,
-                            mip);
-
-                    Buffer.BlockCopy(
-                        mipMajorData,
-                        checked((int)source),
-                        output,
-                        checked((int)destination),
-                        checked((int)perLayerSize));
-                }
-
-                sourceOffset += mipSize;
-            }
-
-            return output;
-        }
-
-        /// <summary>
         /// Returns one physical layer's complete mip chain from layer-major
         /// DDS data.
         /// </summary>
@@ -727,27 +647,6 @@ namespace DKCTF
                 result.Length);
 
             return result;
-        }
-
-        private static uint GetMipOffsetWithinLayer(
-            uint[] mipSizes,
-            uint layerCount,
-            uint mipIndex)
-        {
-            uint offset = 0;
-
-            for (uint i = 0; i < mipIndex; i++)
-            {
-                if (mipSizes[i] % layerCount != 0)
-                {
-                    throw new InvalidDataException(
-                        $"Mip size {mipSizes[i]} is not divisible by the layer count {layerCount}.");
-                }
-
-                offset = checked(offset + mipSizes[i] / layerCount);
-            }
-
-            return offset;
         }
 
         private static uint CalculateDdsPitchOrLinearSize(
