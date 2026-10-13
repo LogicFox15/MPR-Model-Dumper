@@ -371,10 +371,26 @@ namespace EvilWithin2Tool
                     Console.WriteLine("  Animation export: " + diagnostic);
             }
 
-            IOManager.ExportScene(ioscene, path + ".gltf", new ExportSettings()
+            string gltfPath = path + ".gltf";
+            IOManager.ExportScene(ioscene, gltfPath, new ExportSettings()
             {
                 Optimize = true,
             });
+
+            // The bundled IONET build may leave its scalar animation tracks out of glTF,
+            // or may serialize quaternion components as separate scalar channels. Rewrite
+            // the final animation section with standard glTF VEC3/VEC4 accessors.
+            if (ioscene.Animations.Count > 0)
+            {
+                GltfAnimationWriter.WriteReport gltfAnimationReport =
+                    GltfAnimationWriter.WriteAnimations(gltfPath, ioscene.Animations);
+                Console.WriteLine(
+                    $"glTF animation serialization '{System.IO.Path.GetFileName(path)}': " +
+                    $"{gltfAnimationReport.ClipsWritten} clips, {gltfAnimationReport.ChannelsWritten} channels, " +
+                    $"{gltfAnimationReport.GroupsWritten} bone groups, {gltfAnimationReport.UnmatchedGroups} unmatched groups.");
+                if (!string.IsNullOrWhiteSpace(gltfAnimationReport.Warning))
+                    Console.WriteLine("  glTF animation serialization: " + gltfAnimationReport.Warning);
+            }
 
             // Temporary kill switch
             //throw new Exception("Exported a rig, hopefully");
