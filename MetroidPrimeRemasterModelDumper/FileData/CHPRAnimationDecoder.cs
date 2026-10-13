@@ -956,7 +956,7 @@ public sealed class CHPRAnimationDecoder
         values[offset + 3] = (byte)(field >> 16);
     }
 
-    private static int SignExtend(long value, int shift)
+    private static int SignExtend(ulong value, int shift)
     {
         shift &= 31;
         return (unchecked((int)value) << shift) >> shift;
