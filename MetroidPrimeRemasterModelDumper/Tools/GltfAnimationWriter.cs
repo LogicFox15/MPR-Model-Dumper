@@ -100,6 +100,13 @@ public static class GltfAnimationWriter
                         continue;
 
                     Trs defaults = EnsureTrs(targetNode);
+                    // glTF forbids targeting TRS properties while the node still uses a
+                    // matrix, so skip a node if its matrix could not be decomposed.
+                    if (targetNode.ContainsKey("matrix"))
+                    {
+                        unmatchedGroups++;
+                        continue;
+                    }
                     int before = channels.Count;
 
                     AddVectorChannel(group, targetNode, nodeIndex, "rotation",
