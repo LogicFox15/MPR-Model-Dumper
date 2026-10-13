@@ -422,7 +422,11 @@ namespace RetroStudioPlugin.Files.FileData
 
                                         // Ensure the quaternion is in the same hemisphere as the first one to avoid "flipping"
                                         if (rotations.Count > 0 && Quaternion.Dot(rotations[0], cRot) < 0)
-                                            cRot = Quaternion.Inverse(cRot); // Or -cRot depending on library version
+                                        {
+                                            // q and -q encode the same orientation. The inverse
+                                            // is a different rotation and corrupts the averaged bind pose.
+                                            cRot = new Quaternion(-cRot.X, -cRot.Y, -cRot.Z, -cRot.W);
+                                        }
 
                                         rotations.Add(cRot);
                                     }
