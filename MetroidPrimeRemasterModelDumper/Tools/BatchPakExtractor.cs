@@ -186,6 +186,7 @@ namespace MetroidPrimeRemasterModelDumper
             // Initial integration stage: discover the animation records and payload associations
             // without changing the existing model export behavior yet.
             CHPRAnimationInfo.Catalog animationCatalog = CHPRAnimationInfo.Read(chprBytes);
+            chpr.AnimationCatalog = animationCatalog;
             int mappedAnimationCount = animationCatalog.Clips.Count(clip => clip.HasPayload);
             Console.WriteLine(
                 $"Animation discovery: {animationCatalog.Clips.Count} named clips, " +
