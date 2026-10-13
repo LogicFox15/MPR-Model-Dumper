@@ -24,7 +24,12 @@ namespace EvilWithin2Tool
 {
     public class CMDLExporter
     {
-        public static void Export(CMDL cmdl, string path, CHPR charProject = null, bool saveLODs = false)
+        public static void Export(
+            CMDL cmdl,
+            string path,
+            CHPR charProject = null,
+            bool saveLODs = false,
+            string sharedAnimationBufferPath = null)
         {
             //string vertexContents = "";
             IOScene ioscene = new IOScene();
@@ -383,7 +388,10 @@ namespace EvilWithin2Tool
             if (ioscene.Animations.Count > 0)
             {
                 GltfAnimationWriter.WriteReport gltfAnimationReport =
-                    GltfAnimationWriter.WriteAnimations(gltfPath, ioscene.Animations);
+                    GltfAnimationWriter.WriteAnimations(
+                        gltfPath,
+                        ioscene.Animations,
+                        sharedAnimationBufferPath);
                 Console.WriteLine(
                     $"glTF animation serialization '{System.IO.Path.GetFileName(path)}': " +
                     $"{gltfAnimationReport.ClipsWritten} clips, {gltfAnimationReport.ChannelsWritten} channels, " +
