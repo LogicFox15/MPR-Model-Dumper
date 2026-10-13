@@ -507,8 +507,16 @@ public static class GltfAnimationWriter
         try { return node.GetValue<float>(); }
         catch
         {
-            try { return (float)node.GetValue<double>(); }
-            catch { return fallback; }
+            // JsonNode preserves an integer's original numeric type, so GetValue<float>()
+            // may fail for perfectly valid glTF values such as 2 or 0. Parse the raw
+            // JSON number as a fallback instead of silently replacing it with a default.
+            return float.TryParse(
+                node.ToJsonString(),
+                NumberStyles.Float,
+                CultureInfo.InvariantCulture,
+                out float parsed)
+                ? parsed
+                : fallback;
         }
     }
 }
