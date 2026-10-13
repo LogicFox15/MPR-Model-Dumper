@@ -205,6 +205,27 @@ public static class GltfAnimationWriter
                 }
             }
 
+            // Remove stale per-model sidecars left by earlier versions of the exporter once
+            // this glTF successfully points at the shared CHPR buffer.
+            if (!string.IsNullOrWhiteSpace(sharedAnimationBufferPath) &&
+                !string.Equals(
+                    Path.GetFullPath(sidecarPath),
+                    Path.GetFullPath(localSidecarPath),
+                    StringComparison.Ordinal) &&
+                File.Exists(localSidecarPath))
+            {
+                try
+                {
+                    File.Delete(localSidecarPath);
+                }
+                catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+                {
+                    sharingWarning = string.IsNullOrEmpty(sharingWarning)
+                        ? $"Could not remove stale per-model sidecar '{localSidecarPath}': {ex.Message}"
+                        : sharingWarning + $" Could not remove stale sidecar '{localSidecarPath}': {ex.Message}";
+                }
+            }
+
             string relativeBufferUri = Path.GetRelativePath(directory, sidecarPath).Replace('\\', '/');
             string bufferUri = EncodeRelativeUriPath(relativeBufferUri);
 
