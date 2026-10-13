@@ -16,6 +16,7 @@ using System.Numerics;
 using System.Text;
 using System.Threading.Tasks;
 using MetroidPrimeRemasterModelDumper;
+using MetroidPrimeRemasterModelDumper.Tools;
 
 #nullable disable
 
@@ -344,6 +345,31 @@ namespace EvilWithin2Tool
             //****************************//
             //  MATERIAL INFO LOGGER END  //
             //****************************//
+
+            // Export sampled CHPR clips through IONET's scene animation collections. The
+            // existing mesh/skeleton export above remains the source of geometry and skinning.
+            if (charProject != null &&
+                charProject.CharacterInfos.Count > 0 &&
+                charProject.AnimationCatalog != null &&
+                charProject.AnimationSkeleton != null)
+            {
+                CHPRAnimationExporter.ExportReport animationReport =
+                    CHPRAnimationExporter.AddAnimations(
+                        ioscene,
+                        charProject,
+                        charProject.CharacterInfos[0],
+                        charProject.AnimationCatalog,
+                        charProject.AnimationSkeleton);
+
+                Console.WriteLine(
+                    $"Animation export '{System.IO.Path.GetFileName(path)}': " +
+                    $"{animationReport.ClipsExported}/{animationReport.ClipsConsidered} clips, " +
+                    $"{animationReport.TracksExported} tracks, {animationReport.SamplesDecoded} frame samples, " +
+                    $"{animationReport.FailedClips} clip failures.");
+
+                foreach (string diagnostic in animationReport.Diagnostics)
+                    Console.WriteLine("  Animation export: " + diagnostic);
+            }
 
             IOManager.ExportScene(ioscene, path + ".gltf", new ExportSettings()
             {
