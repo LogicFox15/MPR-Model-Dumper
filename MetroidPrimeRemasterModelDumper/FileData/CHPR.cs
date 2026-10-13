@@ -21,6 +21,12 @@ namespace RetroStudioPlugin.Files.FileData
         /// Populated by the character extraction pipeline; existing CHPR parsing remains independent.
         /// </summary>
         public CHPRAnimationInfo.Catalog AnimationCatalog { get; set; } = null;
+
+        /// <summary>
+        /// Skeleton joint names, parent references, and packed pose addresses discovered from
+        /// the raw CHPR bytes for the compressed animation system.
+        /// </summary>
+        public CHPRAnimationSkeleton AnimationSkeleton { get; set; } = null;
         private List<Partition1> Partition1s = new List<Partition1>();
         private List<Partition2> Partition2s = new List<Partition2>();
 
