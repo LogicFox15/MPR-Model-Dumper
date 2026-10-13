@@ -107,15 +107,11 @@ public sealed class CHPRAnimationSkeleton
                 transformToBone.TryAdd(joint.PoseAddress, boneIndex);
         }
 
-        var mapped = new Dictionary<int, int>();
-        foreach (var pair in transformToBone)
-        {
-            int jointIndex = _joints.First(j => j.PoseAddress == pair.Key && j.Name == bones[pair.Value].Name).Index;
-            mapped[pair.Value] = jointIndex;
-        }
-
+        // Return a direct bone-index -> animation-joint-index map. The map includes matched
+        // skeleton joints even when a particular sample omits their transform (held values may
+        // be implicit); MappedTransforms counts only addresses present in this sampled pose.
         return new PoseMapping(
-            mapped,
+            jointByBone,
             pose.Transforms.Count,
             transformToBone.Count,
             pose.Transforms.Count - transformToBone.Count,
