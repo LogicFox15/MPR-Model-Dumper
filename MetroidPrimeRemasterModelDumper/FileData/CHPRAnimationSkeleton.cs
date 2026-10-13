@@ -190,13 +190,6 @@ public sealed class CHPRAnimationSkeleton
                 knownWorld[joint.Index] = ToColumnMatrix(bone.WorldTransform);
         }
 
-        int[] rowsPerSlot = new int[64];
-        foreach (Joint joint in _joints)
-        {
-            if (joint.TransformSlot >= 0 && joint.TransformSlot < rowsPerSlot.Length && joint.TransformRow >= 0)
-                rowsPerSlot[joint.TransformSlot] = Math.Max(rowsPerSlot[joint.TransformSlot], joint.TransformRow + 1);
-        }
-
         var votes = new Dictionary<int, int>[64];
         for (int i = 0; i < votes.Length; i++)
             votes[i] = new Dictionary<int, int>();
