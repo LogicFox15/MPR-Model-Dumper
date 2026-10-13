@@ -412,34 +412,43 @@ public static class CHPRAnimationExporter
         float tolerance,
         bool[] keep)
     {
-        if (end <= start + 1)
-            return;
+        // Use an explicit stack instead of recursion: animation frame counts are 16-bit and
+        // a noisy track can require splitting at almost every frame.
+        var pending = new Stack<(int Start, int End)>();
+        pending.Push((start, end));
 
-        float a = values[start];
-        float b = values[end];
-        float maxError = -1;
-        int maxIndex = -1;
-
-        for (int i = start + 1; i < end; i++)
+        while (pending.Count > 0)
         {
-            float t = (float)(i - start) / (end - start);
-            float expected = a + (b - a) * t;
-            float error = Math.Abs(values[i] - expected);
-            if (!float.IsFinite(error))
-                error = float.PositiveInfinity;
+            (int segmentStart, int segmentEnd) = pending.Pop();
+            if (segmentEnd <= segmentStart + 1)
+                continue;
 
-            if (error > maxError)
+            float a = values[segmentStart];
+            float b = values[segmentEnd];
+            float maxError = -1;
+            int maxIndex = -1;
+
+            for (int i = segmentStart + 1; i < segmentEnd; i++)
             {
-                maxError = error;
-                maxIndex = i;
-            }
-        }
+                float t = (float)(i - segmentStart) / (segmentEnd - segmentStart);
+                float expected = a + (b - a) * t;
+                float error = Math.Abs(values[i] - expected);
+                if (!float.IsFinite(error))
+                    error = float.PositiveInfinity;
 
-        if (maxError > tolerance && maxIndex > start)
-        {
-            keep[maxIndex] = true;
-            SimplifyScalarSegment(values, start, maxIndex, tolerance, keep);
-            SimplifyScalarSegment(values, maxIndex, end, tolerance, keep);
+                if (error > maxError)
+                {
+                    maxError = error;
+                    maxIndex = i;
+                }
+            }
+
+            if (maxError > tolerance && maxIndex > segmentStart)
+            {
+                keep[maxIndex] = true;
+                pending.Push((segmentStart, maxIndex));
+                pending.Push((maxIndex, segmentEnd));
+            }
         }
     }
 
@@ -461,36 +470,43 @@ public static class CHPRAnimationExporter
         float tolerance,
         bool[] keep)
     {
-        if (end <= start + 1)
-            return;
+        var pending = new Stack<(int Start, int End)>();
+        pending.Push((start, end));
 
-        Quaternion a = Normalize(values[start]);
-        Quaternion b = Normalize(values[end]);
-        if (Quaternion.Dot(a, b) < 0)
-            b = Negate(b);
-
-        float maxError = -1;
-        int maxIndex = -1;
-        for (int i = start + 1; i < end; i++)
+        while (pending.Count > 0)
         {
-            float t = (float)(i - start) / (end - start);
-            Quaternion expected = Normalize(Quaternion.Slerp(a, b, t));
-            Quaternion actual = Normalize(values[i]);
-            float dot = Math.Abs(Quaternion.Dot(expected, actual));
-            float error = !float.IsFinite(dot) ? float.PositiveInfinity : 1 - Math.Min(1, dot);
+            (int segmentStart, int segmentEnd) = pending.Pop();
+            if (segmentEnd <= segmentStart + 1)
+                continue;
 
-            if (error > maxError)
+            Quaternion a = Normalize(values[segmentStart]);
+            Quaternion b = Normalize(values[segmentEnd]);
+            if (Quaternion.Dot(a, b) < 0)
+                b = Negate(b);
+
+            float maxError = -1;
+            int maxIndex = -1;
+            for (int i = segmentStart + 1; i < segmentEnd; i++)
             {
-                maxError = error;
-                maxIndex = i;
-            }
-        }
+                float t = (float)(i - segmentStart) / (segmentEnd - segmentStart);
+                Quaternion expected = Normalize(Quaternion.Slerp(a, b, t));
+                Quaternion actual = Normalize(values[i]);
+                float dot = Math.Abs(Quaternion.Dot(expected, actual));
+                float error = !float.IsFinite(dot) ? float.PositiveInfinity : 1 - Math.Min(1, dot);
 
-        if (maxError > tolerance && maxIndex > start)
-        {
-            keep[maxIndex] = true;
-            SimplifyRotationSegment(values, start, maxIndex, tolerance, keep);
-            SimplifyRotationSegment(values, maxIndex, end, tolerance, keep);
+                if (error > maxError)
+                {
+                    maxError = error;
+                    maxIndex = i;
+                }
+            }
+
+            if (maxError > tolerance && maxIndex > segmentStart)
+            {
+                keep[maxIndex] = true;
+                pending.Push((segmentStart, maxIndex));
+                pending.Push((maxIndex, segmentEnd));
+            }
         }
     }
 
