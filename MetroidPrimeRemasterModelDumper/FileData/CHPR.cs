@@ -15,6 +15,12 @@ namespace RetroStudioPlugin.Files.FileData
     public class CHPR : FileForm
     {
         public List<CharacterInfo> CharacterInfos = new List<CharacterInfo>();
+
+        /// <summary>
+        /// Animation metadata discovered from this decompressed CHPR resource.
+        /// Populated by the character extraction pipeline; existing CHPR parsing remains independent.
+        /// </summary>
+        public CHPRAnimationInfo.Catalog AnimationCatalog { get; set; } = null;
         private List<Partition1> Partition1s = new List<Partition1>();
         private List<Partition2> Partition2s = new List<Partition2>();
 
