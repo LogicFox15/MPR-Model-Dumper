@@ -124,7 +124,16 @@ public static class CHPRAnimationExporter
                         BoneSamples target = samples[i];
                         PoseAtFrame value = SampleBone(target.Joint, target.Bind, pose);
                         target.Translations.Add(value.Translation);
-                        target.Rotations.Add(value.Rotation);
+
+                        // q and -q encode the same rotation, but a sign flip between consecutive
+                        // samples produces avoidable component-track discontinuities.
+                        Quaternion rotation = value.Rotation;
+                        if (target.Rotations.Count > 0 &&
+                            Quaternion.Dot(target.Rotations[^1], rotation) < 0)
+                        {
+                            rotation = Negate(rotation);
+                        }
+                        target.Rotations.Add(rotation);
                         target.Scales.Add(value.Scale);
                     }
                 }
