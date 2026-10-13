@@ -277,12 +277,13 @@ namespace MetroidPrimeRemasterModelDumper
 
                     //Console.WriteLine("Located File " + model.ModelFileGuid.ToString());
 
-                    // sub name
-                    string folder = charInfo.NamePool.GetString(chpr.CharacterInfos[0].SubCharData.SubChars[0].Name);
-                    //string folder = "Models";
-
-                    // Add pak folder name onto it
-                    folder = Path.Combine(Path.GetFileNameWithoutExtension(pak.FileInfo.FilePath), folder,
+                    // Partition exports by the CHPR asset ID instead of the pooled sub-character
+                    // name. Many CHPRs share the same string, which otherwise mixes their models.
+                    // Keep each CMDL in its own nested folder so repeated model references remain
+                    // isolated per CHPR and the glTF animation sidecar stays alongside its model.
+                    string folder = Path.Combine(
+                        Path.GetFileNameWithoutExtension(pak.FileInfo.FilePath),
+                        "CHPR_" + Entry.AssetEntry.FileID,
                         file.AssetEntry.FileID.ToString());
 
                     //Console.WriteLine(model.ModelFileGuid.ToString());
