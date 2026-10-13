@@ -188,6 +188,18 @@ namespace MetroidPrimeRemasterModelDumper
             CHPRAnimationInfo.Catalog animationCatalog = CHPRAnimationInfo.Read(chprBytes);
             chpr.AnimationCatalog = animationCatalog;
             chpr.AnimationSkeleton = CHPRAnimationSkeleton.Read(chprBytes);
+
+            if (chpr.CharacterInfos.Count > 0)
+            {
+                CHPRAnimationSkeleton.BindPoseReport bindReport =
+                    chpr.AnimationSkeleton.ReconstructBindTransforms(chpr.CharacterInfos[0]);
+                Console.WriteLine(
+                    $"Animation bind reconstruction: {bindReport.ResolvedJointTransforms}/" +
+                    $"{chpr.AnimationSkeleton.Joints.Count} joint locals resolved from " +
+                    $"{bindReport.TransformRows} transform rows; {bindReport.CalibratedSlots} slots calibrated; " +
+                    $"{bindReport.UpdatedCharacterBones} existing bone transforms updated.");
+            }
+
             int mappedAnimationCount = animationCatalog.Clips.Count(clip => clip.HasPayload);
 
             Console.WriteLine(
