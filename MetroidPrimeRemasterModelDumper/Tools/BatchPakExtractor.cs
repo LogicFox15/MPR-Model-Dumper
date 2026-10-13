@@ -187,7 +187,12 @@ namespace MetroidPrimeRemasterModelDumper
             // without changing the existing model export behavior yet.
             CHPRAnimationInfo.Catalog animationCatalog = CHPRAnimationInfo.Read(chprBytes);
             chpr.AnimationCatalog = animationCatalog;
+            chpr.AnimationSkeleton = CHPRAnimationSkeleton.Read(chprBytes);
             int mappedAnimationCount = animationCatalog.Clips.Count(clip => clip.HasPayload);
+
+            Console.WriteLine(
+                $"Animation skeleton: {chpr.AnimationSkeleton.Joints.Count} joints parsed, " +
+                $"{chpr.AnimationSkeleton.Joints.Count(joint => joint.PoseAddress >= 0)} pose addresses.");
             Console.WriteLine(
                 $"Animation discovery: {animationCatalog.Clips.Count} named clips, " +
                 $"{animationCatalog.Payloads.Count} payloads, {mappedAnimationCount} clip payloads mapped" +
@@ -218,6 +223,18 @@ namespace MetroidPrimeRemasterModelDumper
                             $"{decoder.Frames} frames, {decoder.Streams.Count} streams, " +
                             $"{sample.Transforms.Count} transforms at frame 0, " +
                             $"{animationCatalog.ConstantPools.Count} constant pools.");
+
+                        // Diagnostic only: compare the decoded pose addresses with the existing
+                        // legacy CHPR bone list by name. This does not apply the pose to transforms.
+                        if (chpr.CharacterInfos.Count > 0)
+                        {
+                            var mapping = chpr.AnimationSkeleton.MapPoseToBones(
+                                sample, chpr.CharacterInfos[0].Bones);
+                            Console.WriteLine(
+                                $"Animation pose mapping: {mapping.MatchedJoints} named joints matched; " +
+                                $"{mapping.MappedTransforms}/{mapping.TransformCount} transforms map to bones, " +
+                                $"{mapping.UnmappedTransforms} unmatched.");
+                        }
                     }
                 }
                 catch (Exception ex)
