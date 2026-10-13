@@ -2,6 +2,7 @@ using System;
 using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Linq;
+using System.Numerics;
 using System.Text;
 
 namespace RetroStudioPlugin.Files.FileData;
@@ -33,6 +34,12 @@ public sealed class CHPRAnimationSkeleton
         /// <summary>Slot and row encoded by a type-04 record; row must be resolved against slot sizes.</summary>
         public int TransformSlot { get; internal set; } = -1;
         public int TransformRow { get; internal set; } = -1;
+        public int ResolvedTransformIndex { get; internal set; } = -1;
+
+        public bool HasBindTransform { get; internal set; }
+        public Vector3 BindTranslation { get; internal set; }
+        public Quaternion BindRotation { get; internal set; } = Quaternion.Identity;
+        public Vector3 BindScale { get; internal set; } = Vector3.One;
     }
 
     public sealed record PoseMapping(
@@ -42,9 +49,18 @@ public sealed class CHPRAnimationSkeleton
         int UnmappedTransforms,
         int MatchedJoints);
 
+    public sealed record BindPoseReport(
+        int TransformRows,
+        int ResolvedJointTransforms,
+        int CalibratedSlots,
+        int UpdatedCharacterBones);
+
     private readonly List<Joint> _joints = new();
     private readonly Dictionary<int, int> _jointByPoseAddress = new();
     private readonly List<string> _diagnostics = new();
+    private byte[] _data = Array.Empty<byte>();
+    private float[] _transforms = Array.Empty<float>();
+    private int _stringTableEnd;
 
     public IReadOnlyList<Joint> Joints => _joints;
     public IReadOnlyDictionary<int, int> JointByPoseAddress => _jointByPoseAddress;
@@ -57,6 +73,7 @@ public sealed class CHPRAnimationSkeleton
         ArgumentNullException.ThrowIfNull(decompressedChpr);
 
         var result = new CHPRAnimationSkeleton();
+        result._data = decompressedChpr;
         List<string> strings = CHPRAnimationInfo.ReadStrings(decompressedChpr);
         if (strings.Count == 0)
         {
@@ -85,11 +102,14 @@ public sealed class CHPRAnimationSkeleton
 
         result._diagnostics.Add($"Node-name array: {nodes.Count} names, first='{nodes[0]}'.");
 
+        result._stringTableEnd = stringTableEnd;
         result.CreateJointList(decompressedChpr, stringTableEnd, nodes);
         if (result._joints.Count == 0)
             result._diagnostics.Add("The node-name array was found, but no joint entries were found in the node table.");
 
         result.ReadHierarchy(decompressedChpr, stringTableEnd);
+        result._transforms = ReadTransforms(decompressedChpr, stringTableEnd);
+        result._diagnostics.Add($"Local-transform table: {result._transforms.Length / 7} validated rows.");
         int addressed = result._joints.Count(joint => joint.PoseAddress >= 0);
         result._diagnostics.Add($"Hierarchy result: {result._joints.Count} joints, {addressed} pose addresses.");
 
@@ -141,6 +161,337 @@ public sealed class CHPRAnimationSkeleton
             pose.Transforms.Count - transformToBone.Count,
             matchedJoints);
     }
+
+    /// <summary>
+    /// Resolves the raw seven-float local transform table to joints. Type-04 records store their
+    /// transform as a slot/row pair; slot offsets are calibrated against known skinned-bone world
+    /// matrices, matching Mocktroid's assignLocalIndices strategy. Joints without a resolved
+    /// table row retain the current CHPR bind transform as a fallback.
+    /// </summary>
+    public BindPoseReport ReconstructBindTransforms(CHPR.CharacterInfo character)
+    {
+        ArgumentNullException.ThrowIfNull(character);
+
+        var boneByName = new Dictionary<string, CHPR.BoneData>(StringComparer.Ordinal);
+        foreach (CHPR.BoneData bone in character.Bones)
+        {
+            if (!string.IsNullOrWhiteSpace(bone.Name))
+                boneByName.TryAdd(bone.Name, bone);
+        }
+
+        var skinnedNames = new HashSet<string>(
+            character.SkinnedBones
+                .Where(bone => !string.IsNullOrWhiteSpace(bone.Name))
+                .Select(bone => bone.Name),
+            StringComparer.Ordinal);
+
+        // Only skinned joints have exact world transforms here. Other BoneData.WorldTransform
+        // values may have been estimated by the legacy parser and should not calibrate this table.
+        var knownWorld = new Dictionary<int, double[]>();
+        foreach (Joint joint in _joints)
+        {
+            if (skinnedNames.Contains(joint.Name) && boneByName.TryGetValue(joint.Name, out CHPR.BoneData? bone))
+                knownWorld[joint.Index] = ToColumnMatrix(bone.WorldTransform);
+        }
+
+        int[] rowsPerSlot = new int[64];
+        foreach (Joint joint in _joints)
+        {
+            if (joint.TransformSlot >= 0 && joint.TransformSlot < rowsPerSlot.Length && joint.TransformRow >= 0)
+                rowsPerSlot[joint.TransformSlot] = Math.Max(rowsPerSlot[joint.TransformSlot], joint.TransformRow + 1);
+        }
+
+        var votes = new Dictionary<int, int>[64];
+        for (int i = 0; i < votes.Length; i++)
+            votes[i] = new Dictionary<int, int>();
+
+        int transformCount = _transforms.Length / 7;
+        foreach (Joint joint in _joints)
+        {
+            if (joint.TransformSlot < 0 || joint.TransformRow < 0 ||
+                !knownWorld.TryGetValue(joint.Index, out double[]? jointWorld) ||
+                !knownWorld.TryGetValue(joint.ParentIndex, out double[]? parentWorld))
+                continue;
+
+            double[] local = Multiply(InvertAffine(parentWorld), jointWorld);
+            int match = -1;
+            for (int row = 0; row < transformCount; row++)
+            {
+                int offset = row * 7;
+                double[] candidate = QuaternionMatrix(
+                    _transforms[offset], _transforms[offset + 1], _transforms[offset + 2], _transforms[offset + 3],
+                    _transforms[offset + 4], _transforms[offset + 5], _transforms[offset + 6]);
+
+                if (MaxDifference(candidate, local) < 1e-3)
+                {
+                    if (match >= 0)
+                    {
+                        match = -2; // Duplicate / identity rows cannot establish a unique slot base.
+                        break;
+                    }
+                    match = row;
+                }
+            }
+
+            if (match >= 0)
+            {
+                int baseIndex = match - joint.TransformRow;
+                votes[joint.TransformSlot].TryGetValue(baseIndex, out int count);
+                votes[joint.TransformSlot][baseIndex] = count + 1;
+            }
+        }
+
+        int[] slotBase = new int[64];
+        bool[] calibrated = new bool[64];
+        int nextBase = 0;
+        for (int slot = 0; slot < 64; slot++)
+        {
+            int bestValue = 0;
+            int bestVotes = 0;
+            bool tied = false;
+            foreach (var vote in votes[slot])
+            {
+                if (vote.Value > bestVotes)
+                {
+                    bestValue = vote.Key;
+                    bestVotes = vote.Value;
+                    tied = false;
+                }
+                else if (vote.Value == bestVotes && vote.Value > 0)
+                {
+                    tied = true;
+                }
+            }
+
+            bool hasWinner = bestVotes > 0 && !tied && bestValue >= 0 && bestValue < transformCount;
+            slotBase[slot] = hasWinner ? bestValue : nextBase;
+            calibrated[slot] = hasWinner;
+            nextBase = slotBase[slot] + rowsPerSlot[slot];
+        }
+
+        int calibratedSlots = calibrated.Count(value => value);
+        foreach (Joint joint in _joints)
+        {
+            if (joint.TransformSlot >= 0 && joint.TransformSlot < 64 && joint.TransformRow >= 0)
+                joint.ResolvedTransformIndex = slotBase[joint.TransformSlot] + joint.TransformRow;
+            else if (joint.LocalTransformIndex >= 0)
+                joint.ResolvedTransformIndex = joint.LocalTransformIndex;
+            else
+                joint.ResolvedTransformIndex = -1;
+        }
+
+        int resolved = 0;
+        int updatedBones = 0;
+        foreach (Joint joint in _joints)
+        {
+            int index = joint.ResolvedTransformIndex;
+            if (index < 0 || index >= transformCount)
+                continue;
+
+            int offset = index * 7;
+            float qw = _transforms[offset];
+            float qx = _transforms[offset + 1];
+            float qy = _transforms[offset + 2];
+            float qz = _transforms[offset + 3];
+            float length = MathF.Sqrt(qw * qw + qx * qx + qy * qy + qz * qz);
+            if (!float.IsFinite(length) || length < 1e-6f)
+                continue;
+
+            joint.BindRotation = Quaternion.Normalize(new Quaternion(qx / length, qy / length, qz / length, qw / length));
+            joint.BindTranslation = new Vector3(
+                _transforms[offset + 4],
+                _transforms[offset + 5],
+                _transforms[offset + 6]);
+            joint.BindScale = Vector3.One;
+            joint.HasBindTransform = true;
+            resolved++;
+
+            if (boneByName.TryGetValue(joint.Name, out CHPR.BoneData? bone))
+            {
+                bone.LocalTransform =
+                    Matrix4x4.CreateScale(joint.BindScale) *
+                    Matrix4x4.CreateFromQuaternion(joint.BindRotation) *
+                    Matrix4x4.CreateTranslation(joint.BindTranslation);
+                updatedBones++;
+            }
+        }
+
+        _diagnostics.Add(
+            $"Bind reconstruction: {transformCount} transform rows, {resolved} joint locals resolved, " +
+            $"{calibratedSlots} transform slots calibrated, {updatedBones} existing bones updated.");
+
+        return new BindPoseReport(transformCount, resolved, calibratedSlots, updatedBones);
+    }
+
+    private static float[] ReadTransforms(byte[] data, int stringTableEnd)
+    {
+        int bestCount = 0;
+        int bestOffset = 0;
+        int offset = stringTableEnd;
+
+        while (offset < data.Length - 28 * 8)
+        {
+            int count = 0;
+            while (offset + 28L * (count + 1) <= data.Length && IsValidTransform(data, offset + 28 * count))
+                count++;
+
+            if (count > bestCount)
+            {
+                bestCount = count;
+                bestOffset = offset;
+            }
+
+            offset += count >= 8 ? 28 * count : 1;
+        }
+
+        if (bestCount == 0)
+            return Array.Empty<float>();
+
+        var rows = new List<float[]>(bestCount);
+        for (int i = 0; i < bestCount; i++)
+            rows.Add(ReadTransformRow(data, bestOffset + 28 * i));
+
+        int end = bestOffset + 28 * bestCount;
+        // Larger rigs sometimes continue after a short run of non-transform bytes.
+        while (true)
+        {
+            int next = -1;
+            int scanEnd = (int)Math.Min(data.Length - 28L * 8, end + 28L);
+            for (int candidate = end; candidate < scanEnd; candidate++)
+            {
+                int run = 0;
+                while (run < 8 && candidate + 28L * run <= data.Length - 28 &&
+                       IsValidTransform(data, candidate + 28 * run))
+                    run++;
+
+                if (run == 8)
+                {
+                    next = candidate;
+                    break;
+                }
+            }
+
+            if (next < 0)
+                break;
+
+            int appended = 0;
+            while (next + 28L * (appended + 1) <= data.Length &&
+                   IsValidTransform(data, next + 28 * appended))
+            {
+                rows.Add(ReadTransformRow(data, next + 28 * appended));
+                appended++;
+            }
+
+            if (appended == 0)
+                break;
+            end = next + 28 * appended;
+        }
+
+        return rows.SelectMany(row => row).ToArray();
+    }
+
+    private static bool IsValidTransform(byte[] data, int offset)
+    {
+        if (offset < 0 || offset > data.Length - 28)
+            return false;
+
+        double quaternionLength = 0;
+        double translationMax = 0;
+        for (int i = 0; i < 7; i++)
+        {
+            float value = F32(data, offset + i * 4);
+            if (!float.IsFinite(value))
+                return false;
+
+            if (i < 4)
+                quaternionLength += value * value;
+            else
+                translationMax = Math.Max(translationMax, Math.Abs(value));
+        }
+
+        return Math.Abs(quaternionLength - 1) <= 2e-3 && translationMax <= 1e3;
+    }
+
+    private static float[] ReadTransformRow(byte[] data, int offset)
+    {
+        var row = new float[7];
+        for (int i = 0; i < row.Length; i++)
+            row[i] = F32(data, offset + i * 4);
+        return row;
+    }
+
+    private static double[] ToColumnMatrix(Matrix4x4 rowVectorMatrix) => new[]
+    {
+        (double)rowVectorMatrix.M11, rowVectorMatrix.M21, rowVectorMatrix.M31, rowVectorMatrix.M41,
+        (double)rowVectorMatrix.M12, rowVectorMatrix.M22, rowVectorMatrix.M32, rowVectorMatrix.M42,
+        (double)rowVectorMatrix.M13, rowVectorMatrix.M23, rowVectorMatrix.M33, rowVectorMatrix.M43,
+        (double)rowVectorMatrix.M14, rowVectorMatrix.M24, rowVectorMatrix.M34, rowVectorMatrix.M44
+    };
+
+    private static double[] QuaternionMatrix(double w, double x, double y, double z, double tx, double ty, double tz) =>
+        new[]
+        {
+            1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w), tx,
+            2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w), ty,
+            2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y), tz,
+            0, 0, 0, 1
+        };
+
+    private static double[] Multiply(double[] a, double[] b)
+    {
+        var result = new double[16];
+        for (int row = 0; row < 4; row++)
+            for (int column = 0; column < 4; column++)
+                for (int k = 0; k < 4; k++)
+                    result[row * 4 + column] += a[row * 4 + k] * b[k * 4 + column];
+        return result;
+    }
+
+    private static double[] InvertAffine(double[] m)
+    {
+        double a = m[0], b = m[1], c = m[2];
+        double d = m[4], e = m[5], f = m[6];
+        double g = m[8], h = m[9], i = m[10];
+        double determinant =
+            a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g);
+
+        if (Math.Abs(determinant) < 1e-12)
+            return IdentityMatrix();
+
+        var result = new double[16];
+        result[0] = (e * i - f * h) / determinant;
+        result[1] = (c * h - b * i) / determinant;
+        result[2] = (b * f - c * e) / determinant;
+        result[4] = (f * g - d * i) / determinant;
+        result[5] = (a * i - c * g) / determinant;
+        result[6] = (c * d - a * f) / determinant;
+        result[8] = (d * h - e * g) / determinant;
+        result[9] = (b * g - a * h) / determinant;
+        result[10] = (a * e - b * d) / determinant;
+
+        for (int row = 0; row < 3; row++)
+            result[row * 4 + 3] = -(
+                result[row * 4] * m[3] +
+                result[row * 4 + 1] * m[7] +
+                result[row * 4 + 2] * m[11]);
+
+        result[15] = 1;
+        return result;
+    }
+
+    private static double[] IdentityMatrix() =>
+        new[] { 1d, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1 };
+
+    private static double MaxDifference(double[] a, double[] b)
+    {
+        double max = 0;
+        for (int i = 0; i < 16; i++)
+            max = Math.Max(max, Math.Abs(a[i] - b[i]));
+        return max;
+    }
+
+    private static float F32(byte[] data, int offset) =>
+        BitConverter.Int32BitsToSingle(I32(data, offset));
 
     private void CreateJointList(byte[] data, int stringTableEnd, IReadOnlyList<string> nodes)
     {
