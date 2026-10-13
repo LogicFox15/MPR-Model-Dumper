@@ -36,12 +36,30 @@ public static class CHPRAnimationInfo
     }
 
     public sealed record Catalog(
+        byte[] Data,
         IReadOnlyList<string> Strings,
         IReadOnlyList<ClipInfo> Clips,
         IReadOnlyList<ClipPayload> Payloads,
+        IReadOnlyList<float[]> ConstantPools,
         int? PayloadIdDelta,
         bool PayloadMappingIsAmbiguous,
-        IReadOnlyList<string> Diagnostics);
+        IReadOnlyList<string> Diagnostics)
+    {
+        /// <summary>
+        /// Creates the compressed decoder for a clip whose metadata-to-payload binding was
+        /// validated by this catalog. Returns null when the clip has no safe payload binding.
+        /// </summary>
+        public CHPRAnimationDecoder? Decode(ClipInfo clip)
+        {
+            ArgumentNullException.ThrowIfNull(clip);
+            if (clip.Payload is null)
+                return null;
+
+            var decoder = CHPRAnimationDecoder.Read(Data, clip.Payload.Offset);
+            decoder.SetConstantPools(ConstantPools);
+            return decoder;
+        }
+    }
 
     /// <summary>
     /// Parses clip names / metadata, locates compressed payloads, and maps payload IDs to clip
@@ -94,7 +112,8 @@ public static class CHPRAnimationInfo
             clips.Add(new ClipInfo(clip.Index, clip.Name, clip.FrameCount, clip.MetadataOffset, payload));
         }
 
-        return new Catalog(strings, clips, payloads, delta, ambiguous, diagnostics);
+        var constantPools = CHPRAnimationDecoder.FindConstantPools(data);
+        return new Catalog(data, strings, clips, payloads, constantPools, delta, ambiguous, diagnostics);
     }
 
     /// <summary>
