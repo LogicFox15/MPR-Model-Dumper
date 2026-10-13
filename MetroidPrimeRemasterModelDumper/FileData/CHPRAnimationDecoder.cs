@@ -374,7 +374,12 @@ public sealed class CHPRAnimationDecoder
                             }
 
                             int field = ReadField(values, offset);
-                            field = (field & (op == 2 ? 0xFFC00080 : 0xFFC00000)) | precision;
+                            // The masks exceed Int32.MaxValue. Cast their bit patterns back
+                            // to int explicitly to prevent C# promoting the expression to long.
+                            int mask = op == 2
+                                ? unchecked((int)0xFFC00080u)
+                                : unchecked((int)0xFFC00000u);
+                            field = (field & mask) | precision;
                             field |= present << 8 | (((sign - bits - 1) & 31) << 11) | (componentList << 16);
                             values[offset] = (byte)bits;
                             WriteField(values, offset, field);
