@@ -202,44 +202,65 @@ public sealed class CHPRAnimationSkeleton
             votes[i] = new Dictionary<int, int>();
 
         int transformCount = _transforms.Length / 7;
+        int calibrationPairs = 0;
+        double bestCalibrationError = double.PositiveInfinity;
+        string bestCalibrationPair = "none";
+
         foreach (Joint joint in _joints)
         {
-            if (joint.TransformSlot < 0 || joint.TransformRow < 0 ||
+            if (joint.TransformSlot < 0 || joint.TransformSlot >= votes.Length || joint.TransformRow < 0 ||
                 !knownWorld.TryGetValue(joint.Index, out double[]? jointWorld) ||
                 !knownWorld.TryGetValue(joint.ParentIndex, out double[]? parentWorld))
                 continue;
 
+            calibrationPairs++;
             double[] local = Multiply(InvertAffine(parentWorld), jointWorld);
-            int match = -1;
+            int bestRow = -1;
+            double pairBestError = double.PositiveInfinity;
+            double secondBestError = double.PositiveInfinity;
+
             for (int row = 0; row < transformCount; row++)
             {
                 int offset = row * 7;
                 double[] candidate = QuaternionMatrix(
                     _transforms[offset], _transforms[offset + 1], _transforms[offset + 2], _transforms[offset + 3],
                     _transforms[offset + 4], _transforms[offset + 5], _transforms[offset + 6]);
+                double error = MaxDifference(candidate, local);
 
-                if (MaxDifference(candidate, local) < 1e-3)
+                if (error < pairBestError)
                 {
-                    if (match >= 0)
-                    {
-                        match = -2; // Duplicate / identity rows cannot establish a unique slot base.
-                        break;
-                    }
-                    match = row;
+                    secondBestError = pairBestError;
+                    pairBestError = error;
+                    bestRow = row;
+                }
+                else if (error < secondBestError)
+                {
+                    secondBestError = error;
                 }
             }
 
-            if (match >= 0)
+            if (pairBestError < bestCalibrationError)
             {
-                int baseIndex = match - joint.TransformRow;
+                bestCalibrationError = pairBestError;
+                bestCalibrationPair = joint.Name;
+            }
+
+            // Do not let duplicate/identity rows establish a slot base. The best row must be
+            // both close to the observed local matrix and meaningfully better than the runner-up.
+            bool uniqueMatch =
+                pairBestError < 1e-3 &&
+                (double.IsPositiveInfinity(secondBestError) || secondBestError - pairBestError > 1e-5);
+
+            if (uniqueMatch && bestRow >= 0)
+            {
+                int baseIndex = bestRow - joint.TransformRow;
                 votes[joint.TransformSlot].TryGetValue(baseIndex, out int count);
                 votes[joint.TransformSlot][baseIndex] = count + 1;
             }
         }
 
-        int[] slotBase = new int[64];
+        int[] slotBase = Enumerable.Repeat(-1, 64).ToArray();
         bool[] calibrated = new bool[64];
-        int nextBase = 0;
         for (int slot = 0; slot < 64; slot++)
         {
             int bestValue = 0;
@@ -260,21 +281,28 @@ public sealed class CHPRAnimationSkeleton
             }
 
             bool hasWinner = bestVotes > 0 && !tied && bestValue >= 0 && bestValue < transformCount;
-            slotBase[slot] = hasWinner ? bestValue : nextBase;
+            // Critical: never fall back to sequential row offsets. A slot with no calibration
+            // evidence is unknown, not the next contiguous run of transform rows.
+            slotBase[slot] = hasWinner ? bestValue : -1;
             calibrated[slot] = hasWinner;
-            nextBase = slotBase[slot] + rowsPerSlot[slot];
         }
 
         int calibratedSlots = calibrated.Count(value => value);
         foreach (Joint joint in _joints)
         {
-            if (joint.TransformSlot >= 0 && joint.TransformSlot < 64 && joint.TransformRow >= 0)
+            if (joint.TransformSlot >= 0 && joint.TransformSlot < 64 &&
+                joint.TransformRow >= 0 && calibrated[joint.TransformSlot])
                 joint.ResolvedTransformIndex = slotBase[joint.TransformSlot] + joint.TransformRow;
             else if (joint.LocalTransformIndex >= 0)
                 joint.ResolvedTransformIndex = joint.LocalTransformIndex;
             else
                 joint.ResolvedTransformIndex = -1;
         }
+
+        _diagnostics.Add(
+            $"Transform-slot calibration evidence: {calibrationPairs} skinned parent-child pairs tested; " +
+            $"best matrix error {(double.IsFinite(bestCalibrationError) ? bestCalibrationError.ToString("G5") : "n/a")} " +
+            $"at joint '{bestCalibrationPair}'.");
 
         int resolved = 0;
         int updatedBones = 0;
