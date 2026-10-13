@@ -147,12 +147,58 @@ namespace MetroidPrimeRemasterModelDumper
             }
         }
 
+        /// <summary>
+        /// Copies a seekable resource stream from its beginning and restores the caller's position.
+        /// CHPR parsing and signature scanning both operate on the complete decompressed resource.
+        /// </summary>
+        static byte[] CopyStreamFromStart(Stream stream)
+        {
+            if (stream == null)
+                throw new ArgumentNullException(nameof(stream));
+            if (!stream.CanSeek)
+                throw new NotSupportedException("CHPR animation discovery requires a seekable decompressed stream.");
+
+            long originalPosition = stream.Position;
+            try
+            {
+                stream.Position = 0;
+                using MemoryStream copy = new MemoryStream();
+                stream.CopyTo(copy);
+                return copy.ToArray();
+            }
+            finally
+            {
+                stream.Position = originalPosition;
+            }
+        }
+
         #region Model Making
         static void ExtractCharacterProject(Stream stream, FileEntry Entry, PAK pak)
         {
             Console.WriteLine("Beginning Character Project extract on file: " + Entry.AssetEntry.FileID.ToString());
             Console.WriteLine("Character Project size: " + Entry.AssetEntry.Size.ToString("X8"));
-            CHPR chpr = new CHPR(stream);
+            // Keep the original decompressed bytes available for the new animation scanner.
+            // Parse from a copy so signature scanning cannot disturb the FileReader's stream position.
+            byte[] chprBytes = CopyStreamFromStart(stream);
+            using MemoryStream chprStream = new MemoryStream(chprBytes, writable: false);
+            CHPR chpr = new CHPR(chprStream);
+
+            // Initial integration stage: discover the animation records and payload associations
+            // without changing the existing model export behavior yet.
+            CHPRAnimationInfo.Catalog animationCatalog = CHPRAnimationInfo.Read(chprBytes);
+            int mappedAnimationCount = animationCatalog.Clips.Count(clip => clip.HasPayload);
+            Console.WriteLine(
+                $"Animation discovery: {animationCatalog.Clips.Count} named clips, " +
+                $"{animationCatalog.Payloads.Count} payloads, {mappedAnimationCount} clip payloads mapped" +
+                (animationCatalog.PayloadIdDelta.HasValue
+                    ? $", payload ID delta {animationCatalog.PayloadIdDelta.Value}"
+                    : "") +
+                (animationCatalog.PayloadMappingIsAmbiguous ? " (ambiguous mapping)" : "") + ".");
+
+            foreach (string diagnostic in animationCatalog.Diagnostics.Take(8))
+                Console.WriteLine("  Animation: " + diagnostic);
+            if (animationCatalog.Diagnostics.Count > 8)
+                Console.WriteLine($"  Animation: ... {animationCatalog.Diagnostics.Count - 8} more diagnostics.");
 
             foreach (var charInfo in chpr.CharacterInfos)
             {
