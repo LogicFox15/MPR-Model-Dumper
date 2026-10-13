@@ -205,18 +205,20 @@ namespace MetroidPrimeRemasterModelDumper
             // a failure is reported, but does not prevent the existing model export from running.
             var firstMappedClip = animationCatalog.Clips.FirstOrDefault(
                 clip => clip.Payload != null && clip.FrameCount > 0);
-            if (firstMappedClip?.Payload is CHPRAnimationInfo.ClipPayload firstPayload)
+            if (firstMappedClip?.Payload != null)
             {
                 try
                 {
-                    var pools = CHPRAnimationDecoder.FindConstantPools(chprBytes);
-                    var decoder = CHPRAnimationDecoder.Read(chprBytes, firstPayload.Offset);
-                    decoder.SetConstantPools(pools);
-                    var sample = decoder.CreatePlayer().Sample(0);
-                    Console.WriteLine(
-                        $"Animation decoder smoke test '{firstMappedClip.Name}': " +
-                        $"{decoder.Frames} frames, {decoder.Streams.Count} streams, " +
-                        $"{sample.Transforms.Count} transforms at frame 0, {pools.Count} constant pools.");
+                    var decoder = animationCatalog.Decode(firstMappedClip);
+                    if (decoder != null)
+                    {
+                        var sample = decoder.CreatePlayer().Sample(0);
+                        Console.WriteLine(
+                            $"Animation decoder smoke test '{firstMappedClip.Name}': " +
+                            $"{decoder.Frames} frames, {decoder.Streams.Count} streams, " +
+                            $"{sample.Transforms.Count} transforms at frame 0, " +
+                            $"{animationCatalog.ConstantPools.Count} constant pools.");
+                    }
                 }
                 catch (Exception ex)
                 {
