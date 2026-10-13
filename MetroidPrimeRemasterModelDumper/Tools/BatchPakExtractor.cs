@@ -193,6 +193,12 @@ namespace MetroidPrimeRemasterModelDumper
             Console.WriteLine(
                 $"Animation skeleton: {chpr.AnimationSkeleton.Joints.Count} joints parsed, " +
                 $"{chpr.AnimationSkeleton.Joints.Count(joint => joint.PoseAddress >= 0)} pose addresses.");
+
+            foreach (string diagnostic in chpr.AnimationSkeleton.Diagnostics.Take(8))
+                Console.WriteLine("  Animation skeleton: " + diagnostic);
+            if (chpr.AnimationSkeleton.Diagnostics.Count > 8)
+                Console.WriteLine(
+                    $"  Animation skeleton: ... {chpr.AnimationSkeleton.Diagnostics.Count - 8} more diagnostics.");
             Console.WriteLine(
                 $"Animation discovery: {animationCatalog.Clips.Count} named clips, " +
                 $"{animationCatalog.Payloads.Count} payloads, {mappedAnimationCount} clip payloads mapped" +
