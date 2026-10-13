@@ -44,9 +44,11 @@ public sealed class CHPRAnimationSkeleton
 
     private readonly List<Joint> _joints = new();
     private readonly Dictionary<int, int> _jointByPoseAddress = new();
+    private readonly List<string> _diagnostics = new();
 
     public IReadOnlyList<Joint> Joints => _joints;
     public IReadOnlyDictionary<int, int> JointByPoseAddress => _jointByPoseAddress;
+    public IReadOnlyList<string> Diagnostics => _diagnostics;
 
     private CHPRAnimationSkeleton() { }
 
@@ -57,18 +59,40 @@ public sealed class CHPRAnimationSkeleton
         var result = new CHPRAnimationSkeleton();
         List<string> strings = CHPRAnimationInfo.ReadStrings(decompressedChpr);
         if (strings.Count == 0)
+        {
+            result._diagnostics.Add("The CHPR animation string table was not found.");
             return result;
+        }
 
         int stringTableEnd = FindStringTableEnd(decompressedChpr);
         if (stringTableEnd < 0 || stringTableEnd > decompressedChpr.Length)
+        {
+            result._diagnostics.Add(
+                $"The animation string table was read ({strings.Count} strings), but its end offset could not be validated.");
             return result;
+        }
+
+        result._diagnostics.Add(
+            $"String table: {strings.Count} strings, end offset 0x{stringTableEnd:X}.");
 
         List<string> nodes = ReadNodeNames(decompressedChpr, stringTableEnd, strings);
         if (nodes.Count == 0)
+        {
+            result._diagnostics.Add(
+                "No node-name hash/index array beginning with 'root.anchorBlend' was found after the string table.");
             return result;
+        }
+
+        result._diagnostics.Add($"Node-name array: {nodes.Count} names, first='{nodes[0]}'.");
 
         result.CreateJointList(decompressedChpr, stringTableEnd, nodes);
+        if (result._joints.Count == 0)
+            result._diagnostics.Add("The node-name array was found, but no joint entries were found in the node table.");
+
         result.ReadHierarchy(decompressedChpr, stringTableEnd);
+        int addressed = result._joints.Count(joint => joint.PoseAddress >= 0);
+        result._diagnostics.Add($"Hierarchy result: {result._joints.Count} joints, {addressed} pose addresses.");
+
         return result;
     }
 
@@ -391,6 +415,9 @@ public sealed class CHPRAnimationSkeleton
 
     private static int FindStringTableEnd(byte[] data)
     {
+        // Match CHPRAnimationInfo.ReadStrings: accept the common header only if the candidate
+        // table actually begins with "Primary". A plausible but false length can otherwise
+        // send the node-table scanner to the wrong offset.
         int header = 0x2C;
         while (header >= 0 && header <= data.Length - 12)
         {
@@ -414,19 +441,38 @@ public sealed class CHPRAnimationSkeleton
             uint stringSize = U32(data, header);
             if (stringSize > 0 && stringSize <= int.MaxValue &&
                 (ulong)header + 4 + stringSize <= (ulong)data.Length)
-                return header + 4 + (int)stringSize;
+            {
+                List<string> strings = ReadStringTable(data, header + 4, (int)stringSize);
+                if (strings.Count > 0 && strings[0] == "Primary")
+                    return header + 4 + (int)stringSize;
+            }
         }
 
+        // Large/multi-segment CHPRs can require a content-based fallback. Reject occurrences of
+        // "Primary" that don't have a valid length-prefixed string table behind them.
         byte[] needle = Encoding.ASCII.GetBytes("Primary\0");
         for (int at = IndexOf(data, needle, 4); at >= 4; at = IndexOf(data, needle, at + 1))
         {
             uint stringSize = U32(data, at - 4);
             if (stringSize > 0 && stringSize <= int.MaxValue &&
                 (ulong)at + stringSize <= (ulong)data.Length)
-                return at + (int)stringSize;
+            {
+                List<string> strings = ReadStringTable(data, at, (int)stringSize);
+                if (strings.Count > 0 && strings[0] == "Primary")
+                    return at + (int)stringSize;
+            }
         }
 
         return -1;
+    }
+
+    private static List<string> ReadStringTable(byte[] data, int offset, int size)
+    {
+        if (offset < 0 || size <= 0 || offset > data.Length - size ||
+            data[offset + size - 1] != 0)
+            return new List<string>();
+
+        return Encoding.Latin1.GetString(data, offset, size - 1).Split('\0').ToList();
     }
 
     private static int Fnv1A(string value)
