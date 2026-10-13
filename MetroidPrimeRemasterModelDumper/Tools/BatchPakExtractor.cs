@@ -278,12 +278,17 @@ namespace MetroidPrimeRemasterModelDumper
                     //Console.WriteLine("Located File " + model.ModelFileGuid.ToString());
 
                     // Partition exports by the CHPR asset ID instead of the pooled sub-character
-                    // name. Many CHPRs share the same string, which otherwise mixes their models.
-                    // Keep each CMDL in its own nested folder so repeated model references remain
-                    // isolated per CHPR and the glTF animation sidecar stays alongside its model.
+                    // name. Each model retains its own folder, while all glTFs under this CHPR
+                    // reference the same animation binary stored at the CHPR folder level.
+                    string pakOutputFolder = Path.GetFileNameWithoutExtension(pak.FileInfo.FilePath);
+                    string chprFolder = Path.Combine(
+                        pakOutputFolder,
+                        "CHPR_" + Entry.AssetEntry.FileID);
+                    string sharedAnimationBufferPath = Path.Combine(
+                        chprFolder,
+                        "CHPR_" + Entry.AssetEntry.FileID + ".animations.bin");
                     string folder = Path.Combine(
-                        Path.GetFileNameWithoutExtension(pak.FileInfo.FilePath),
-                        "CHPR_" + Entry.AssetEntry.FileID,
+                        chprFolder,
                         file.AssetEntry.FileID.ToString());
 
                     //Console.WriteLine(model.ModelFileGuid.ToString());
@@ -295,7 +300,7 @@ namespace MetroidPrimeRemasterModelDumper
                     string modelName = charInfo.NamePool.GetString(model.Name);
 
                     string path = Path.Combine(folder, modelName);
-                    CMDLExporter.Export(cmdl, path, chpr, saveLODs);
+                    CMDLExporter.Export(cmdl, path, chpr, saveLODs, sharedAnimationBufferPath);
                     Console.WriteLine("Exported file " + file.AssetEntry.FileID.ToString());
                     Console.WriteLine("");
                     //throw new Exception("Kill application.");
