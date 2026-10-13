@@ -109,7 +109,7 @@ public static class CHPRAnimationInfo
             if (payload is null)
                 diagnostics.Add($"Clip {clip.Index} ('{clip.Name}') has metadata but no validated payload binding.");
 
-            clips.Add(new ClipInfo(clip.Index, clip.Name, clip.FrameCount, clip.MetadataOffset, payload));
+            clips.Add(new ClipInfo(clip.Index, clip.Name, clip.FrameCount, clip.Offset, payload));
         }
 
         var constantPools = CHPRAnimationDecoder.FindConstantPools(data);
