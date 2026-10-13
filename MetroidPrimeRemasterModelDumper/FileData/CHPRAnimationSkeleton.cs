@@ -8,9 +8,9 @@ using System.Text;
 namespace RetroStudioPlugin.Files.FileData;
 
 /// <summary>
-/// Reads the CHPR animation node table and hierarchy records needed to connect decoded pose
-/// addresses to the character's named joints. This first-stage skeleton reader deliberately
-/// leaves bind-transform reconstruction to a separate pass.
+/// Reads the CHPR animation node table, hierarchy, pose addresses, and local bind-transform table.
+/// Slot-major transform rows are calibrated against known skinned-bone world transforms when
+/// available, then exposed for animation sampling and export.
 /// 
 /// Reverse-engineered layout follows Infinite00857/Mocktroid (MIT):
 /// https://github.com/Infinite00857/Mocktroid
@@ -58,9 +58,7 @@ public sealed class CHPRAnimationSkeleton
     private readonly List<Joint> _joints = new();
     private readonly Dictionary<int, int> _jointByPoseAddress = new();
     private readonly List<string> _diagnostics = new();
-    private byte[] _data = Array.Empty<byte>();
     private float[] _transforms = Array.Empty<float>();
-    private int _stringTableEnd;
 
     public IReadOnlyList<Joint> Joints => _joints;
     public IReadOnlyDictionary<int, int> JointByPoseAddress => _jointByPoseAddress;
@@ -73,7 +71,6 @@ public sealed class CHPRAnimationSkeleton
         ArgumentNullException.ThrowIfNull(decompressedChpr);
 
         var result = new CHPRAnimationSkeleton();
-        result._data = decompressedChpr;
         List<string> strings = CHPRAnimationInfo.ReadStrings(decompressedChpr);
         if (strings.Count == 0)
         {
@@ -102,7 +99,6 @@ public sealed class CHPRAnimationSkeleton
 
         result._diagnostics.Add($"Node-name array: {nodes.Count} names, first='{nodes[0]}'.");
 
-        result._stringTableEnd = stringTableEnd;
         result.CreateJointList(decompressedChpr, stringTableEnd, nodes);
         if (result._joints.Count == 0)
             result._diagnostics.Add("The node-name array was found, but no joint entries were found in the node table.");
