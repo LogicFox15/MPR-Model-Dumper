@@ -200,6 +200,30 @@ namespace MetroidPrimeRemasterModelDumper
             if (animationCatalog.Diagnostics.Count > 8)
                 Console.WriteLine($"  Animation: ... {animationCatalog.Diagnostics.Count - 8} more diagnostics.");
 
+            // Smoke-test the low-level decoder on one mapped clip only. This is diagnostic:
+            // a failure is reported, but does not prevent the existing model export from running.
+            var firstMappedClip = animationCatalog.Clips.FirstOrDefault(
+                clip => clip.Payload != null && clip.FrameCount > 0);
+            if (firstMappedClip?.Payload is CHPRAnimationInfo.ClipPayload firstPayload)
+            {
+                try
+                {
+                    var pools = CHPRAnimationDecoder.FindConstantPools(chprBytes);
+                    var decoder = CHPRAnimationDecoder.Read(chprBytes, firstPayload.Offset);
+                    decoder.SetConstantPools(pools);
+                    var sample = decoder.CreatePlayer().Sample(0);
+                    Console.WriteLine(
+                        $"Animation decoder smoke test '{firstMappedClip.Name}': " +
+                        $"{decoder.Frames} frames, {decoder.Streams.Count} streams, " +
+                        $"{sample.Transforms.Count} transforms at frame 0, {pools.Count} constant pools.");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine(
+                        $"Animation decoder smoke test failed for '{firstMappedClip.Name}': {ex.Message}");
+                }
+            }
+
             foreach (var charInfo in chpr.CharacterInfos)
             {
                 foreach (var model in charInfo.ModelNodes)
