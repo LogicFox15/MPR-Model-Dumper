@@ -939,9 +939,9 @@ public sealed class CHPRAnimationDecoder
         return middle;
     }
 
-    private static int CheckedOffset(long value, int length, string label)
+    private static int CheckedOffset(ulong value, int length, string label)
     {
-        if (value < 0 || value >= length)
+        if (value >= (ulong)length)
             throw new InvalidDataException($"Animation {label} offset 0x{value:X} is outside its payload.");
         return (int)value;
     }
