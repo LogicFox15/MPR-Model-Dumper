@@ -27,7 +27,10 @@ public static class GltfAnimationWriter
     private sealed record TrackKey(float Time, float Value);
     private sealed record Trs(Vector3 Translation, Quaternion Rotation, Vector3 Scale);
 
-    public static WriteReport WriteAnimations(string gltfPath, IReadOnlyList<IOAnimation> sourceAnimations)
+    public static WriteReport WriteAnimations(
+        string gltfPath,
+        IReadOnlyList<IOAnimation> sourceAnimations,
+        string? sharedAnimationBufferPath = null)
     {
         if (string.IsNullOrWhiteSpace(gltfPath))
             return new WriteReport(0, 0, 0, 0, "The glTF output path is empty.");
@@ -160,14 +163,55 @@ public static class GltfAnimationWriter
             }
 
             string directory = Path.GetDirectoryName(Path.GetFullPath(gltfPath)) ?? Directory.GetCurrentDirectory();
-            string sidecarName = Path.GetFileNameWithoutExtension(gltfPath) + ".animations.bin";
-            string sidecarPath = Path.Combine(directory, sidecarName);
-            File.WriteAllBytes(sidecarPath, binary.ToArray());
+            byte[] animationBytes = binary.ToArray();
+            string localSidecarName = Path.GetFileNameWithoutExtension(gltfPath) + ".animations.bin";
+            string localSidecarPath = Path.Combine(directory, localSidecarName);
+            string sidecarPath;
+            string? sharingWarning = null;
+
+            if (string.IsNullOrWhiteSpace(sharedAnimationBufferPath))
+            {
+                // Preserve the original behavior for exporters that don't request CHPR-level sharing.
+                sidecarPath = localSidecarPath;
+                File.WriteAllBytes(sidecarPath, animationBytes);
+            }
+            else
+            {
+                string sharedPath = Path.GetFullPath(sharedAnimationBufferPath);
+                string? sharedDirectory = Path.GetDirectoryName(sharedPath);
+                if (!string.IsNullOrEmpty(sharedDirectory))
+                    Directory.CreateDirectory(sharedDirectory);
+
+                if (!File.Exists(sharedPath))
+                {
+                    File.WriteAllBytes(sharedPath, animationBytes);
+                    sidecarPath = sharedPath;
+                }
+                else if (File.ReadAllBytes(sharedPath).SequenceEqual(animationBytes))
+                {
+                    // The binary data is identical, so all model glTFs can use this one file.
+                    sidecarPath = sharedPath;
+                }
+                else
+                {
+                    // Different node matches can cause a particular glTF to produce a different
+                    // set/order of animation accessors. Never overwrite a shared buffer that
+                    // earlier files already reference; fall back to a model-specific sidecar.
+                    sidecarPath = localSidecarPath;
+                    File.WriteAllBytes(sidecarPath, animationBytes);
+                    sharingWarning =
+                        $"Generated animation bytes differ from the CHPR shared buffer '{sharedPath}'. " +
+                        $"This model uses its own sidecar '{localSidecarName}' to avoid breaking earlier exports.";
+                }
+            }
+
+            string relativeBufferUri = Path.GetRelativePath(directory, sidecarPath).Replace('\\', '/');
+            string bufferUri = EncodeRelativeUriPath(relativeBufferUri);
 
             buffers.Add(new JsonObject
             {
-                ["uri"] = Uri.EscapeDataString(sidecarName),
-                ["byteLength"] = binary.Count
+                ["uri"] = bufferUri,
+                ["byteLength"] = animationBytes.Length
             });
 
             // Replace any animations emitted by the bundled exporter. These channels use valid
@@ -177,12 +221,23 @@ public static class GltfAnimationWriter
             var options = new JsonSerializerOptions { WriteIndented = true };
             File.WriteAllText(gltfPath, root.ToJsonString(options));
 
-            return new WriteReport(gltfAnimations.Count, channelsWritten, groupsWritten, unmatchedGroups, null);
+            return new WriteReport(gltfAnimations.Count, channelsWritten, groupsWritten, unmatchedGroups, sharingWarning);
         }
         catch (Exception ex)
         {
             return new WriteReport(0, 0, 0, 0, $"{ex.GetType().Name}: {ex.Message}");
         }
+    }
+
+    private static string EncodeRelativeUriPath(string relativePath)
+    {
+        // Encode each path segment separately so directory separators and ../ are preserved.
+        return string.Join(
+            "/",
+            relativePath.Replace('\\', '/').Split('/')
+                .Select(segment => segment == "." || segment == ".."
+                    ? segment
+                    : Uri.EscapeDataString(segment)));
     }
 
     private static void AddVectorChannel(
