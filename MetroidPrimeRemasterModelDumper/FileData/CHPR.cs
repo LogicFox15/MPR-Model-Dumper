@@ -563,7 +563,8 @@ namespace RetroStudioPlugin.Files.FileData
                 {
                     Console.WriteLine(
                         $"CHPR skeleton warning: {conflictingContextMatrices} render-context matrices " +
-                        $"disagreed for already-resolved joints (maximum element difference " +
+                        $"disagreed across {inconsistentContextNodeIndices.Count} joints " +
+                        $"(maximum element difference " +
                         $"{maximumContextMatrixDifference:G5}); first valid matrix retained.");
                 }
 
