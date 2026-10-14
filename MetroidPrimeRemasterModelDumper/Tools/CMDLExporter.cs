@@ -107,6 +107,9 @@ namespace EvilWithin2Tool
                 });
             }
 
+            int skippedPaletteIndices = 0;
+            int skippedUnmappedBones = 0;
+
             List<CMDL.CMesh> ExportMeshes;
 
             if (saveLODs)
@@ -186,12 +189,16 @@ namespace EvilWithin2Tool
                         {
                             // A render context's palette is independent of every other context.
                             // Never index into the flattened union when this model's palette is short.
+                            skippedPaletteIndices++;
                             continue;
                         }
 
                         var skinBone = skinBoneMap[boneIdx];
                         if (skinBone.NodeIDX < 0 || string.IsNullOrWhiteSpace(skinBone.Name))
+                        {
+                            skippedUnmappedBones++;
                             continue;
+                        }
 
                         iovertex.Envelope.Weights.Add(new IOBoneWeight()
                         {
@@ -403,6 +410,16 @@ namespace EvilWithin2Tool
 
                 foreach (string diagnostic in animationReport.Diagnostics)
                     Console.WriteLine("  Animation export: " + diagnostic);
+            }
+
+            if (charProject != null &&
+                (skippedPaletteIndices > 0 || skippedUnmappedBones > 0))
+            {
+                Console.WriteLine(
+                    $"Skin weight mapping '{System.IO.Path.GetFileName(path)}': " +
+                    $"{skippedPaletteIndices} palette indices out of range, " +
+                    $"{skippedUnmappedBones} entries have no matching CHPR node " +
+                    $"(render context {renderContextIndex}, palette size {skinBoneMap.Count}).");
             }
 
             string gltfPath = path + ".gltf";
