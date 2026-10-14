@@ -324,6 +324,19 @@ namespace MetroidPrimeRemasterModelDumper
                     var cmdl = new CMDL(file.FileData);
                     string modelName = charInfo.NamePool.GetString(model.Name);
 
+                    if (modelNodeIndex < charInfo.SkinnedBonesByRenderContext.Count)
+                    {
+                        Console.WriteLine(
+                            $"Skin palette: model node {modelNodeIndex} '{modelName}' uses render context " +
+                            $"{modelNodeIndex} ({charInfo.SkinnedBonesByRenderContext[modelNodeIndex].Count} entries).");
+                    }
+                    else
+                    {
+                        Console.WriteLine(
+                            $"Skin palette warning: model node {modelNodeIndex} '{modelName}' has no matching " +
+                            $"render context; fallback palette has {charInfo.SkinnedBones.Count} unique entries.");
+                    }
+
                     string path = Path.Combine(folder, modelName);
                     CMDLExporter.Export(
                         cmdl, path, chpr, saveLODs, sharedAnimationBufferPath, modelNodeIndex);
