@@ -531,14 +531,20 @@ namespace RetroStudioPlugin.Files.FileData
                     int parentIndex = Bones[i].ParentNodeIndex;
                     if (parentIndex >= 0 && parentIndex < Bones.Count)
                     {
-                        if (hasWorldTransform[i] &&
-                            hasWorldTransform[parentIndex] &&
+                        if (hasWorldTransform[i] && hasWorldTransform[parentIndex] &&
                             Matrix4x4.Invert(
                                 Bones[parentIndex].WorldTransform,
                                 out Matrix4x4 parentInverse))
                         {
                             Bones[i].LocalTransform =
                                 Bones[i].WorldTransform * parentInverse;
+                        }
+                        else if (hasWorldTransform[i] && !hasWorldTransform[parentIndex])
+                        {
+                            // If no parent world matrix could be recovered, retain the child
+                            // world matrix as its local fallback, as the previous parser did
+                            // when the parent's default matrix was identity.
+                            Bones[i].LocalTransform = Bones[i].WorldTransform;
                         }
                     }
                     else if (hasWorldTransform[i])
