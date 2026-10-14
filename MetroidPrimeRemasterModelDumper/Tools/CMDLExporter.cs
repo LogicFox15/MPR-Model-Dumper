@@ -50,10 +50,16 @@ namespace EvilWithin2Tool
             ioscene.Materials.AddRange(materials);
 
             IReadOnlyList<CHPR.SkinnedBoneData> skinBoneMap = Array.Empty<CHPR.SkinnedBoneData>();
+            string fallbackSkinBoneName = null;
 
             if (charProject != null && charProject.CharacterInfos.Count > 0)
             {
                 CHPR.CharacterInfo characterInfo = charProject.CharacterInfos[0];
+                var fallbackBone = characterInfo.Bones.FirstOrDefault(
+                    bone => bone.ParentNodeIndex < 0 && !string.IsNullOrWhiteSpace(bone.Name))
+                    ?? characterInfo.Bones.FirstOrDefault(
+                        bone => !string.IsNullOrWhiteSpace(bone.Name));
+                fallbackSkinBoneName = fallbackBone?.Name;
                 if (renderContextIndex >= 0 &&
                     renderContextIndex < characterInfo.SkinnedBonesByRenderContext.Count)
                 {
@@ -109,6 +115,8 @@ namespace EvilWithin2Tool
 
             int skippedPaletteIndices = 0;
             int skippedUnmappedBones = 0;
+            int renormalizedWeightVertices = 0;
+            int fallbackWeightVertices = 0;
 
             List<CMDL.CMesh> ExportMeshes;
 
@@ -181,7 +189,8 @@ namespace EvilWithin2Tool
                     {
                         //vertexContents += Environment.NewLine + "Mesh " + meshnum + " Vert " + vertnum + " Weight Value 0: " + vert.BoneWeights[0] + " Weight Value 1: " + vert.BoneWeights[1] + " Weight Value 2: " + vert.BoneWeights[2] + " Weight Value 3: " + vert.BoneWeights[3];
 
-                        if (vert.BoneWeights[j] == 0 || charProject == null)
+                        float sourceWeight = vert.BoneWeights[j];
+                        if (charProject == null || !float.IsFinite(sourceWeight) || sourceWeight <= 0)
                             continue;
 
                         var boneIdx = (int)vert.BoneIndices[j];
@@ -203,8 +212,38 @@ namespace EvilWithin2Tool
                         iovertex.Envelope.Weights.Add(new IOBoneWeight()
                         {
                             BoneName = skinBone.Name,
-                            Weight = vert.BoneWeights[j],
+                            Weight = sourceWeight,
                         });
+                    }
+
+                    if (charProject != null)
+                    {
+                        // The source skin weights are byte-scaled (their full sum is 255 before
+                        // NormalizeByteType converts them to glTF's normalized [0,1] values).
+                        // Dropping an influence with an invalid palette index leaves a partial
+                        // sum, so rescale the surviving influences before calling the converter.
+                        var weights = iovertex.Envelope.Weights;
+                        float totalWeight = weights.Sum(weight => weight.Weight);
+                        if (float.IsFinite(totalWeight) && totalWeight > 1e-8f)
+                        {
+                            if (MathF.Abs(totalWeight - 255f) > 1e-3f)
+                                renormalizedWeightVertices++;
+
+                            float scale = 255f / totalWeight;
+                            foreach (var weight in weights)
+                                weight.Weight *= scale;
+                        }
+                        else if (!string.IsNullOrWhiteSpace(fallbackSkinBoneName))
+                        {
+                            // A vertex with no usable influences must still have a valid glTF
+                            // weights0 sum. Attach it to the skeleton root as a last-resort fallback.
+                            weights.Add(new IOBoneWeight()
+                            {
+                                BoneName = fallbackSkinBoneName,
+                                Weight = 255f,
+                            });
+                            fallbackWeightVertices++;
+                        }
                     }
 
                     iovertex.Envelope.NormalizeByteType();
@@ -413,12 +452,15 @@ namespace EvilWithin2Tool
             }
 
             if (charProject != null &&
-                (skippedPaletteIndices > 0 || skippedUnmappedBones > 0))
+                (skippedPaletteIndices > 0 || skippedUnmappedBones > 0 ||
+                 renormalizedWeightVertices > 0 || fallbackWeightVertices > 0))
             {
                 Console.WriteLine(
                     $"Skin weight mapping '{System.IO.Path.GetFileName(path)}': " +
                     $"{skippedPaletteIndices} palette indices out of range, " +
-                    $"{skippedUnmappedBones} entries have no matching CHPR node " +
+                    $"{skippedUnmappedBones} entries have no matching CHPR node, " +
+                    $"{renormalizedWeightVertices} vertices renormalized, " +
+                    $"{fallbackWeightVertices} vertices attached to fallback bone " +
                     $"(render context {renderContextIndex}, palette size {skinBoneMap.Count}).");
             }
 
