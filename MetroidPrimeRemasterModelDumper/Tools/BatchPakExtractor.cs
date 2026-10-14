@@ -280,8 +280,17 @@ namespace MetroidPrimeRemasterModelDumper
 
             foreach (var charInfo in chpr.CharacterInfos)
             {
-                foreach (var model in charInfo.ModelNodes)
+                if (charInfo.RenderContexts.Count != charInfo.ModelNodes.Count)
                 {
+                    Console.WriteLine(
+                        $"CHPR warning: {charInfo.ModelNodes.Count} model nodes but " +
+                        $"{charInfo.RenderContexts.Count} render contexts. " +
+                        "Skin palettes will be matched by model-node order where available.");
+                }
+
+                for (int modelNodeIndex = 0; modelNodeIndex < charInfo.ModelNodes.Count; modelNodeIndex++)
+                {
+                    var model = charInfo.ModelNodes[modelNodeIndex];
                     FileEntry file = new FileEntry();
                     file = SearchForFile(model.ModelFileGuid.ToString());
 
@@ -316,7 +325,8 @@ namespace MetroidPrimeRemasterModelDumper
                     string modelName = charInfo.NamePool.GetString(model.Name);
 
                     string path = Path.Combine(folder, modelName);
-                    CMDLExporter.Export(cmdl, path, chpr, saveLODs, sharedAnimationBufferPath);
+                    CMDLExporter.Export(
+                        cmdl, path, chpr, saveLODs, sharedAnimationBufferPath, modelNodeIndex);
                     Console.WriteLine("Exported file " + file.AssetEntry.FileID.ToString());
                     Console.WriteLine("");
                     //throw new Exception("Kill application.");
