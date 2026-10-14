@@ -396,6 +396,15 @@ namespace EvilWithin2Tool
                     $"glTF animation serialization '{System.IO.Path.GetFileName(path)}': " +
                     $"{gltfAnimationReport.ClipsWritten} clips, {gltfAnimationReport.ChannelsWritten} channels, " +
                     $"{gltfAnimationReport.GroupsWritten} bone groups, {gltfAnimationReport.UnmatchedGroups} unmatched groups.");
+                if (!string.IsNullOrWhiteSpace(gltfAnimationReport.SharedBufferPath))
+                {
+                    string sharingMode = gltfAnimationReport.ReusedSharedBundle
+                        ? "reused canonical CHPR bundle"
+                        : "created canonical CHPR bundle";
+                    Console.WriteLine(
+                        $"  glTF animation buffer: {gltfAnimationReport.SharedBufferPath} ({sharingMode}).");
+                }
+
                 if (!string.IsNullOrWhiteSpace(gltfAnimationReport.Warning))
                     Console.WriteLine("  glTF animation serialization: " + gltfAnimationReport.Warning);
             }
