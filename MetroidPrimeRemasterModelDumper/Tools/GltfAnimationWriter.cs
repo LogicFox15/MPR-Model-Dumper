@@ -22,7 +22,9 @@ public static class GltfAnimationWriter
         int ChannelsWritten,
         int GroupsWritten,
         int UnmatchedGroups,
-        string? Warning);
+        string? Warning,
+        string? SharedBufferPath = null,
+        bool ReusedSharedBundle = false);
 
     private sealed record TrackKey(float Time, float Value);
     private sealed record Trs(Vector3 Translation, Quaternion Rotation, Vector3 Scale);
@@ -244,7 +246,14 @@ public static class GltfAnimationWriter
             var options = new JsonSerializerOptions { WriteIndented = true };
             File.WriteAllText(gltfPath, root.ToJsonString(options));
 
-            return new WriteReport(gltfAnimations.Count, channelsWritten, groupsWritten, unmatchedGroups, sharingWarning);
+            return new WriteReport(
+                gltfAnimations.Count,
+                channelsWritten,
+                groupsWritten,
+                unmatchedGroups,
+                sharingWarning,
+                string.IsNullOrWhiteSpace(sharedAnimationBufferPath) ? null : sidecarPath,
+                false);
         }
         catch (Exception ex)
         {
@@ -532,7 +541,9 @@ public static class GltfAnimationWriter
                 channelsWritten,
                 GetInt(manifest["groupsWritten"], 0),
                 unmatched,
-                null);
+                null,
+                sharedPath,
+                true);
         }
         catch
         {
