@@ -394,7 +394,7 @@ namespace RetroStudioPlugin.Files.FileData
 
                         Matrix4x4 inverseBind = context.SkinnedInverseMatrices[i];
                         if (!Matrix4x4.Invert(Matrix4x4.Transpose(inverseBind), out Matrix4x4 worldSpace) ||
-                            !IsFiniteMatrix(worldSpace))
+                            !CHPR.IsFiniteMatrix(worldSpace))
                             continue;
 
                         if (!hasWorldTransform[nodeIndex])
@@ -406,7 +406,7 @@ namespace RetroStudioPlugin.Files.FileData
                         }
                         else
                         {
-                            float difference = MatrixMaxAbsDifference(
+                            float difference = CHPR.MatrixMaxAbsDifference(
                                 Bones[nodeIndex].WorldTransform, worldSpace);
                             if (difference > 1e-3f)
                             {
@@ -493,16 +493,19 @@ namespace RetroStudioPlugin.Files.FileData
                                 aligned.X, aligned.Y, aligned.Z, aligned.W);
                         }
 
-                        Quaternion averageRotation = Quaternion.Normalize(
-                            new Quaternion(
-                                quaternionSum.X, quaternionSum.Y,
-                                quaternionSum.Z, quaternionSum.W));
+                        float quaternionLengthSquared = quaternionSum.LengthSquared();
+                        Quaternion averageRotation =
+                            float.IsFinite(quaternionLengthSquared) && quaternionLengthSquared > 1e-12f
+                                ? Quaternion.Normalize(new Quaternion(
+                                    quaternionSum.X, quaternionSum.Y,
+                                    quaternionSum.Z, quaternionSum.W))
+                                : reference;
 
                         Matrix4x4 estimatedWorld =
                             Matrix4x4.CreateFromQuaternion(averageRotation) *
                             Matrix4x4.CreateTranslation(averagePosition);
 
-                        float differenceFromPrevious = MatrixMaxAbsDifference(
+                        float differenceFromPrevious = CHPR.MatrixMaxAbsDifference(
                             Bones[i].WorldTransform, estimatedWorld);
                         if (!hasWorldTransform[i] || differenceFromPrevious > 1e-3f)
                         {
