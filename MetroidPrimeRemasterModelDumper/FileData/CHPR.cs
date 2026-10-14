@@ -156,6 +156,11 @@ namespace RetroStudioPlugin.Files.FileData
             public List<BoneData> Bones = new List<BoneData>();
             public List<SkinnedBoneData> SkinnedBones = new List<SkinnedBoneData>();
 
+            // Each render context has its own local bone-index to CHPR-node mapping. Mesh
+            // weights must use this mapping instead of a flattened list across all contexts.
+            public List<List<SkinnedBoneData>> SkinnedBonesByRenderContext =
+                new List<List<SkinnedBoneData>>();
+
             public List<SChannel> Channels = new List<SChannel>();
 
             public byte NumModels;
@@ -317,183 +322,233 @@ namespace RetroStudioPlugin.Files.FileData
                 }
                 */
 
+                // Construct the canonical hierarchy exactly once from AbsContext. Render
+                // contexts hold per-mesh skin palettes, not additional copies of the skeleton.
+                Bones.Clear();
+                SkinnedBones.Clear();
+                SkinnedBonesByRenderContext.Clear();
+
+                int nodeCount = AbsContext?.NodeSet?.NodeIDs?.Length ?? 0;
+                for (int i = 0; i < nodeCount; i++)
+                {
+                    string boneName = NamePool.GetString(AbsContext.NodeSet.NameSet, i);
+                    int parentIndex = i < AbsContext.Section5.Length
+                        ? AbsContext.NodeSet.FindIndex(AbsContext.Section5[i].Item1)
+                        : -1;
+
+                    string parentName = parentIndex >= 0
+                        ? NamePool.GetString(AbsContext.NodeSet.NameSet, parentIndex)
+                        : string.Empty;
+
+                    Bones.Add(new BoneData()
+                    {
+                        Name = boneName,
+                        Parent = parentName,
+                        ParentNodeIndex = parentIndex,
+                        InverseTransform = Matrix4x4.Identity,
+                        WorldTransform = Matrix4x4.Identity,
+                        LocalTransform = Matrix4x4.Identity
+                    });
+                }
+
+                bool[] hasWorldTransform = new bool[Bones.Count];
+                var exactSkinnedNodeIndices = new HashSet<int>();
+                var allSkinnedNodeIndices = new HashSet<int>();
+                int conflictingContextMatrices = 0;
+                float maximumContextMatrixDifference = 0;
+
+                // Preserve the exact weight-index order independently for each render context.
                 for (int r = 0; r < RenderContexts.Count; r++)
                 {
-                    // Bone building?
-                    for (int i = 0; i < RenderContexts[r].SkinnedMatrixBoneIDs.Length; i++)
-                    {
-                        var boneID = RenderContexts[r].SkinnedMatrixBoneIDs[i];
-                        // Find the index where the node ID is located at
-                        var nodeIndex = AbsContext.NodeSet.FindIndex(boneID);
+                    SRenderContext context = RenderContexts[r];
+                    var contextBoneMap = new List<SkinnedBoneData>(
+                        context.SkinnedMatrixBoneIDs?.Length ?? 0);
 
-                        string boneName = NamePool.GetString(AbsContext.NodeSet.NameSet, nodeIndex);
-                        this.SkinnedBones.Add(new SkinnedBoneData()
+                    for (int i = 0; i < (context.SkinnedMatrixBoneIDs?.Length ?? 0); i++)
+                    {
+                        ushort boneID = context.SkinnedMatrixBoneIDs[i];
+                        int nodeIndex = AbsContext.NodeSet.FindIndex(boneID);
+                        string boneName = nodeIndex >= 0
+                            ? NamePool.GetString(AbsContext.NodeSet.NameSet, nodeIndex)
+                            : $"unknownBone_{boneID:X4}";
+
+                        var skinBone = new SkinnedBoneData()
                         {
                             Name = boneName,
                             BoneID = boneID,
                             NodeIDX = nodeIndex
-                        });
-                    }
+                        };
+                        // Do not deduplicate the per-context list: its position is the mesh palette
+                        // index used by CMDL vertex weights.
+                        contextBoneMap.Add(skinBone);
 
-                    // 1. Build the COMPLETE skeleton from the Absolute Context
-                    for (int i = 0; i < AbsContext.NodeSet.NodeIDs.Length; i++)
-                    {
-                        uint nodeID = AbsContext.NodeSet.NodeIDs[i];
-                        string boneName = NamePool.GetString(AbsContext.NodeSet.NameSet, i);
+                        if (nodeIndex < 0 || nodeIndex >= Bones.Count)
+                            continue;
 
-                        // Section5 perfectly aligns with the global NodeSet for parenting info
-                        ushort parentID = AbsContext.Section5[i].Item1;
-                        int parentIndex = AbsContext.NodeSet.FindIndex(parentID);
+                        if (allSkinnedNodeIndices.Add(nodeIndex))
+                            SkinnedBones.Add(skinBone);
 
-                        string parentName = "";
-                        if (parentIndex >= 0)
+                        if (context.SkinnedInverseMatrices == null ||
+                            i >= context.SkinnedInverseMatrices.Length)
+                            continue;
+
+                        Matrix4x4 inverseBind = context.SkinnedInverseMatrices[i];
+                        if (!Matrix4x4.Invert(Matrix4x4.Transpose(inverseBind), out Matrix4x4 worldSpace) ||
+                            !IsFiniteMatrix(worldSpace))
+                            continue;
+
+                        if (!hasWorldTransform[nodeIndex])
                         {
-                            parentName = NamePool.GetString(AbsContext.NodeSet.NameSet, parentIndex);
-                        }
-
-                        Bones.Add(new BoneData()
-                        {
-                            Name = boneName,
-                            Parent = parentName,
-                            // Default matrices to Identity; we will overwrite the skinned ones below
-                            InverseTransform = Matrix4x4.Identity,
-                            WorldTransform = Matrix4x4.Identity,
-                            LocalTransform = Matrix4x4.Identity
-                        });
-                    }
-
-                    // 2. Assign Render Context matrices exclusively to the skinned subset
-                    HashSet<int> skinnedBoneIndices = new HashSet<int>(); // Track what we've solved
-                    for (int i = 0; i < RenderContexts[r].SkinnedMatrixBoneIDs.Length; i++)
-                    {
-                        var boneID = RenderContexts[r].SkinnedMatrixBoneIDs[i];
-                        var nodeIndex = AbsContext.NodeSet.FindIndex(boneID);
-
-                        if (nodeIndex >= 0 && nodeIndex < Bones.Count)
-                        {
-                            skinnedBoneIndices.Add(nodeIndex);
-                            Matrix4x4.Invert(Matrix4x4.Transpose(RenderContexts[r].SkinnedInverseMatrices[i]), out Matrix4x4 worldSpace);
-
-                            Bones[nodeIndex].InverseTransform = RenderContexts[r].SkinnedInverseMatrices[i];
+                            Bones[nodeIndex].InverseTransform = inverseBind;
                             Bones[nodeIndex].WorldTransform = worldSpace;
-                            // LocalTransform is handled in the next step
-                        }
-                    }
-
-
-                    // This is here because Retro did not include the transforms of unskinned bones. Because of this,
-                    // if one wants the rigs to not fall apart immediately, we must average the positions and rotations
-                    // of the skinned bones between the neighbors. This is a temporary solution while we try to figure
-                    // out how Retro is doing it.
-                    bool changed = true;
-                    int iterations = 0;
-                    while (changed && iterations < 3)
-                    {
-                        changed = false;
-                        iterations++;
-
-                        for (int i = 0; i < Bones.Count; i++)
-                        {
-                            if (skinnedBoneIndices.Contains(i)) continue;
-
-                            List<Vector3> translations = new List<Vector3>();
-                            List<Quaternion> rotations = new List<Quaternion>();
-
-                            // 1. Collect Neighbor Data (Parent)
-                            var parentBone = Bones.FirstOrDefault(b => b.Name == Bones[i].Parent);
-                            if (parentBone != null && parentBone.WorldTransform != Matrix4x4.Identity)
-                            {
-                                if (Matrix4x4.Decompose(parentBone.WorldTransform, out _, out Quaternion pRot, out Vector3 pTrans))
-                                {
-                                    translations.Add(pTrans);
-                                    rotations.Add(pRot);
-                                }
-                            }
-
-                            // 2. Collect Neighbor Data (Children)
-                            var children = Bones.Where(b => b.Parent == Bones[i].Name).ToList();
-                            foreach (var child in children)
-                            {
-                                if (child.WorldTransform != Matrix4x4.Identity)
-                                {
-                                    if (Matrix4x4.Decompose(child.WorldTransform, out _, out Quaternion cRot, out Vector3 cTrans))
-                                    {
-                                        translations.Add(cTrans);
-
-                                        // Ensure the quaternion is in the same hemisphere as the first one to avoid "flipping"
-                                        if (rotations.Count > 0 && Quaternion.Dot(rotations[0], cRot) < 0)
-                                        {
-                                            // q and -q encode the same orientation. The inverse
-                                            // is a different rotation and corrupts the averaged bind pose.
-                                            cRot = new Quaternion(-cRot.X, -cRot.Y, -cRot.Z, -cRot.W);
-                                        }
-
-                                        rotations.Add(cRot);
-                                    }
-                                }
-                            }
-
-                            // 3. Average and Apply
-                            if (translations.Count > 0)
-                            {
-                                // Average Position
-                                Vector3 avgPos = Vector3.Zero;
-                                foreach (var t in translations) avgPos += t;
-                                avgPos /= translations.Count;
-
-                                // Average Rotation (Normalized Linear Interpolation)
-                                Quaternion avgRot = rotations[0];
-                                if (rotations.Count > 1)
-                                {
-                                    Vector4 acc = new Vector4(rotations[0].X, rotations[0].Y, rotations[0].Z, rotations[0].W);
-                                    for (int x = 1; x < rotations.Count; x++)
-                                    {
-                                        acc += new Vector4(rotations[x].X, rotations[x].Y, rotations[x].Z, rotations[x].W);
-                                    }
-                                    acc /= rotations.Count;
-                                    avgRot = Quaternion.Normalize(new Quaternion(acc.X, acc.Y, acc.Z, acc.W));
-                                }
-
-                                Matrix4x4 newWorld = Matrix4x4.CreateFromQuaternion(avgRot) * Matrix4x4.CreateTranslation(avgPos);
-
-                                if (Vector3.Distance(Bones[i].WorldTransform.Translation, avgPos) > 0.001f)
-                                {
-                                    Bones[i].WorldTransform = newWorld;
-                                    changed = true;
-                                }
-                            }
-                        }
-                    }
-
-                    // Convert world transforms into local transforms
-                    for (int i = 0; i < Bones.Count; i++)
-                    {
-                        if (!string.IsNullOrEmpty(Bones[i].Parent))
-                        {
-                            var parent =
-                                Bones.FirstOrDefault(x => x.Name == Bones[i].Parent);
-
-                            if (parent != null)
-                            {
-                                Matrix4x4.Invert(
-                                    parent.WorldTransform,
-                                    out Matrix4x4 parentInverse);
-
-                                Bones[i].LocalTransform =
-                                    Bones[i].WorldTransform * parentInverse;
-                            }
+                            hasWorldTransform[nodeIndex] = true;
+                            exactSkinnedNodeIndices.Add(nodeIndex);
                         }
                         else
                         {
-                            // Root bone
-                            Bones[i].LocalTransform = Bones[i].WorldTransform;
+                            float difference = MatrixMaxAbsDifference(
+                                Bones[nodeIndex].WorldTransform, worldSpace);
+                            if (difference > 1e-3f)
+                            {
+                                conflictingContextMatrices++;
+                                maximumContextMatrixDifference =
+                                    MathF.Max(maximumContextMatrixDifference, difference);
+                            }
                         }
                     }
-                    
 
+                    SkinnedBonesByRenderContext.Add(contextBoneMap);
                 }
 
+                // Unskinned nodes do not have explicit bind positions in this CHPR parser.
+                // Keep the existing neighbor-estimation idea, but traverse the real node-index
+                // hierarchy. Name-based lookup was mixing neighbors from duplicate skeleton copies.
+                bool changed = true;
+                int iterations = 0;
+                while (changed && iterations < 3)
+                {
+                    changed = false;
+                    iterations++;
 
+                    for (int i = 0; i < Bones.Count; i++)
+                    {
+                        if (exactSkinnedNodeIndices.Contains(i))
+                            continue;
+
+                        List<Vector3> translations = new List<Vector3>();
+                        List<Quaternion> rotations = new List<Quaternion>();
+
+                        int parentIndex = Bones[i].ParentNodeIndex;
+                        if (parentIndex >= 0 &&
+                            parentIndex < Bones.Count &&
+                            hasWorldTransform[parentIndex] &&
+                            Matrix4x4.Decompose(
+                                Bones[parentIndex].WorldTransform,
+                                out _, out Quaternion parentRotation, out Vector3 parentTranslation))
+                        {
+                            translations.Add(parentTranslation);
+                            rotations.Add(Quaternion.Normalize(parentRotation));
+                        }
+
+                        for (int childIndex = 0; childIndex < Bones.Count; childIndex++)
+                        {
+                            if (Bones[childIndex].ParentNodeIndex != i ||
+                                !hasWorldTransform[childIndex])
+                                continue;
+
+                            if (Matrix4x4.Decompose(
+                                Bones[childIndex].WorldTransform,
+                                out _, out Quaternion childRotation, out Vector3 childTranslation))
+                            {
+                                translations.Add(childTranslation);
+
+                                if (rotations.Count > 0 &&
+                                    Quaternion.Dot(rotations[0], childRotation) < 0)
+                                {
+                                    childRotation = new Quaternion(
+                                        -childRotation.X, -childRotation.Y,
+                                        -childRotation.Z, -childRotation.W);
+                                }
+
+                                rotations.Add(Quaternion.Normalize(childRotation));
+                            }
+                        }
+
+                        if (translations.Count == 0 || rotations.Count == 0)
+                            continue;
+
+                        Vector3 averagePosition = Vector3.Zero;
+                        foreach (Vector3 translation in translations)
+                            averagePosition += translation;
+                        averagePosition /= translations.Count;
+
+                        Vector4 quaternionSum = Vector4.Zero;
+                        Quaternion reference = rotations[0];
+                        foreach (Quaternion rotation in rotations)
+                        {
+                            Quaternion aligned = Quaternion.Dot(reference, rotation) < 0
+                                ? new Quaternion(-rotation.X, -rotation.Y, -rotation.Z, -rotation.W)
+                                : rotation;
+                            quaternionSum += new Vector4(
+                                aligned.X, aligned.Y, aligned.Z, aligned.W);
+                        }
+
+                        Quaternion averageRotation = Quaternion.Normalize(
+                            new Quaternion(
+                                quaternionSum.X, quaternionSum.Y,
+                                quaternionSum.Z, quaternionSum.W));
+
+                        Matrix4x4 estimatedWorld =
+                            Matrix4x4.CreateFromQuaternion(averageRotation) *
+                            Matrix4x4.CreateTranslation(averagePosition);
+
+                        float differenceFromPrevious = MatrixMaxAbsDifference(
+                            Bones[i].WorldTransform, estimatedWorld);
+                        if (!hasWorldTransform[i] || differenceFromPrevious > 1e-3f)
+                        {
+                            Bones[i].WorldTransform = estimatedWorld;
+                            hasWorldTransform[i] = true;
+                            changed = true;
+                        }
+                    }
+                }
+
+                // Convert estimated/exact world matrices into local transforms using parent indices.
+                // This remains unambiguous even if the source contains repeated node names.
+                for (int i = 0; i < Bones.Count; i++)
+                {
+                    int parentIndex = Bones[i].ParentNodeIndex;
+                    if (parentIndex >= 0 && parentIndex < Bones.Count)
+                    {
+                        if (hasWorldTransform[i] &&
+                            hasWorldTransform[parentIndex] &&
+                            Matrix4x4.Invert(
+                                Bones[parentIndex].WorldTransform,
+                                out Matrix4x4 parentInverse))
+                        {
+                            Bones[i].LocalTransform =
+                                Bones[i].WorldTransform * parentInverse;
+                        }
+                    }
+                    else if (hasWorldTransform[i])
+                    {
+                        // Root bone
+                        Bones[i].LocalTransform = Bones[i].WorldTransform;
+                    }
+                }
+
+                Console.WriteLine(
+                    $"CHPR skeleton construction: {Bones.Count} unique nodes, " +
+                    $"{RenderContexts.Count} render contexts, " +
+                    $"{SkinnedBonesByRenderContext.Sum(map => map.Count)} context skin entries, " +
+                    $"{exactSkinnedNodeIndices.Count} unique nodes with bind matrices.");
+                if (conflictingContextMatrices > 0)
+                {
+                    Console.WriteLine(
+                        $"CHPR skeleton warning: {conflictingContextMatrices} render-context matrices " +
+                        $"disagreed for already-resolved joints (maximum element difference " +
+                        $"{maximumContextMatrixDifference:G5}); first valid matrix retained.");
+                }
 
                 /* BONE INFORMATION LOGGER */
                 
@@ -514,11 +569,46 @@ namespace RetroStudioPlugin.Files.FileData
             }
         }
 
+        private static bool IsFiniteMatrix(Matrix4x4 matrix)
+        {
+            return float.IsFinite(matrix.M11) && float.IsFinite(matrix.M12) &&
+                   float.IsFinite(matrix.M13) && float.IsFinite(matrix.M14) &&
+                   float.IsFinite(matrix.M21) && float.IsFinite(matrix.M22) &&
+                   float.IsFinite(matrix.M23) && float.IsFinite(matrix.M24) &&
+                   float.IsFinite(matrix.M31) && float.IsFinite(matrix.M32) &&
+                   float.IsFinite(matrix.M33) && float.IsFinite(matrix.M34) &&
+                   float.IsFinite(matrix.M41) && float.IsFinite(matrix.M42) &&
+                   float.IsFinite(matrix.M43) && float.IsFinite(matrix.M44);
+        }
+
+        private static float MatrixMaxAbsDifference(Matrix4x4 a, Matrix4x4 b)
+        {
+            float max = 0;
+            max = MathF.Max(max, MathF.Abs(a.M11 - b.M11));
+            max = MathF.Max(max, MathF.Abs(a.M12 - b.M12));
+            max = MathF.Max(max, MathF.Abs(a.M13 - b.M13));
+            max = MathF.Max(max, MathF.Abs(a.M14 - b.M14));
+            max = MathF.Max(max, MathF.Abs(a.M21 - b.M21));
+            max = MathF.Max(max, MathF.Abs(a.M22 - b.M22));
+            max = MathF.Max(max, MathF.Abs(a.M23 - b.M23));
+            max = MathF.Max(max, MathF.Abs(a.M24 - b.M24));
+            max = MathF.Max(max, MathF.Abs(a.M31 - b.M31));
+            max = MathF.Max(max, MathF.Abs(a.M32 - b.M32));
+            max = MathF.Max(max, MathF.Abs(a.M33 - b.M33));
+            max = MathF.Max(max, MathF.Abs(a.M34 - b.M34));
+            max = MathF.Max(max, MathF.Abs(a.M41 - b.M41));
+            max = MathF.Max(max, MathF.Abs(a.M42 - b.M42));
+            max = MathF.Max(max, MathF.Abs(a.M43 - b.M43));
+            max = MathF.Max(max, MathF.Abs(a.M44 - b.M44));
+            return max;
+        }
+
         public class BoneData
         {
             public string Name;
             public string Parent;
             public uint ParentIndex;
+            public int ParentNodeIndex = -1;
             public Matrix4x4 InverseTransform;
             public Matrix4x4 LocalTransform = Matrix4x4.Identity;
             public Matrix4x4 WorldTransform = Matrix4x4.Identity;
