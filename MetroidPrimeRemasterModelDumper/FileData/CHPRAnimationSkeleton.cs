@@ -175,19 +175,17 @@ public sealed class CHPRAnimationSkeleton
                 boneByName.TryAdd(bone.Name, bone);
         }
 
-        var skinnedNames = new HashSet<string>(
-            character.SkinnedBones
-                .Where(bone => !string.IsNullOrWhiteSpace(bone.Name))
-                .Select(bone => bone.Name),
-            StringComparer.Ordinal);
-
-        // Only skinned joints have exact world transforms here. Other BoneData.WorldTransform
-        // values may have been estimated by the legacy parser and should not calibrate this table.
+        // Only use matrices actually read from a render context. A bone name may appear in a
+        // skin palette even if its matrix was missing/invalid; in that case the world transform
+        // may be an estimate and must not be used to calibrate the animation table.
         var knownWorld = new Dictionary<int, double[]>();
         foreach (Joint joint in _joints)
         {
-            if (skinnedNames.Contains(joint.Name) && boneByName.TryGetValue(joint.Name, out CHPR.BoneData? bone))
+            if (boneByName.TryGetValue(joint.Name, out CHPR.BoneData? bone) &&
+                bone.HasExactWorldTransform)
+            {
                 knownWorld[joint.Index] = ToColumnMatrix(bone.WorldTransform);
+            }
         }
 
         var votes = new Dictionary<int, int>[64];
