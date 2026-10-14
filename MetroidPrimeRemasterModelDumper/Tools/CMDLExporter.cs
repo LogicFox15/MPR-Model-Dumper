@@ -247,6 +247,31 @@ namespace EvilWithin2Tool
                     }
 
                     iovertex.Envelope.NormalizeByteType();
+
+                    if (charProject != null)
+                    {
+                        // NormalizeByteType is designed for byte-scaled source weights. Do a final
+                        // normalization after it so the glTF values sum to exactly one even when
+                        // this IONET build only rescales byte weights or rounds their components.
+                        var weights = iovertex.Envelope.Weights;
+                        float normalizedTotal = weights.Sum(weight => weight.Weight);
+                        if (float.IsFinite(normalizedTotal) && normalizedTotal > 1e-8f)
+                        {
+                            foreach (var weight in weights)
+                                weight.Weight /= normalizedTotal;
+                        }
+                        else if (!string.IsNullOrWhiteSpace(fallbackSkinBoneName))
+                        {
+                            weights.Clear();
+                            weights.Add(new IOBoneWeight()
+                            {
+                                BoneName = fallbackSkinBoneName,
+                                Weight = 1f,
+                            });
+                            fallbackWeightVertices++;
+                        }
+                    }
+
                     vertnum++;
                 }
 
