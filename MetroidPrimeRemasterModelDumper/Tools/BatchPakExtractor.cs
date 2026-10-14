@@ -175,6 +175,22 @@ namespace MetroidPrimeRemasterModelDumper
         #region Model Making
         static void ExtractCharacterProject(Stream stream, FileEntry Entry, PAK pak)
         {
+            // Start a clean shared-animation cache for this CHPR. Otherwise a previous export
+            // could leave a valid-looking manifest/buffer that gets reused after the source or
+            // animation exporter has changed.
+            string cacheOutputRoot = Path.GetFileNameWithoutExtension(pak.FileInfo.FilePath);
+            string cacheCHPRFolder = Path.Combine(
+                cacheOutputRoot,
+                "CHPR_" + Entry.AssetEntry.FileID);
+            string cacheAnimationBuffer = Path.Combine(
+                cacheCHPRFolder,
+                "CHPR_" + Entry.AssetEntry.FileID + ".animations.bin");
+            string cacheAnimationManifest = Path.ChangeExtension(cacheAnimationBuffer, ".json");
+            if (File.Exists(cacheAnimationManifest))
+                File.Delete(cacheAnimationManifest);
+            if (File.Exists(cacheAnimationBuffer))
+                File.Delete(cacheAnimationBuffer);
+
             Console.WriteLine("Beginning Character Project extract on file: " + Entry.AssetEntry.FileID.ToString());
             Console.WriteLine("Character Project size: " + Entry.AssetEntry.Size.ToString("X8"));
             // Keep the original decompressed bytes available for the new animation scanner.
