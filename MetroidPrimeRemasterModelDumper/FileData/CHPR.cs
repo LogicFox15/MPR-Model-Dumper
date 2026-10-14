@@ -401,6 +401,7 @@ namespace RetroStudioPlugin.Files.FileData
                         {
                             Bones[nodeIndex].InverseTransform = inverseBind;
                             Bones[nodeIndex].WorldTransform = worldSpace;
+                            Bones[nodeIndex].HasExactWorldTransform = true;
                             hasWorldTransform[nodeIndex] = true;
                             exactSkinnedNodeIndices.Add(nodeIndex);
                         }
@@ -612,6 +613,7 @@ namespace RetroStudioPlugin.Files.FileData
             public string Parent;
             public uint ParentIndex;
             public int ParentNodeIndex = -1;
+            public bool HasExactWorldTransform;
             public Matrix4x4 InverseTransform;
             public Matrix4x4 LocalTransform = Matrix4x4.Identity;
             public Matrix4x4 WorldTransform = Matrix4x4.Identity;
