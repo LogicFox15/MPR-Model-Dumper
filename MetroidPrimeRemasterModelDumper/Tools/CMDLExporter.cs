@@ -29,7 +29,8 @@ namespace EvilWithin2Tool
             string path,
             CHPR charProject = null,
             bool saveLODs = false,
-            string sharedAnimationBufferPath = null)
+            string sharedAnimationBufferPath = null,
+            int renderContextIndex = -1)
         {
             //string vertexContents = "";
             IOScene ioscene = new IOScene();
@@ -48,10 +49,24 @@ namespace EvilWithin2Tool
             }
             ioscene.Materials.AddRange(materials);
 
-            if (charProject != null)
+            IReadOnlyList<CHPR.SkinnedBoneData> skinBoneMap = Array.Empty<CHPR.SkinnedBoneData>();
+
+            if (charProject != null && charProject.CharacterInfos.Count > 0)
             {
+                CHPR.CharacterInfo characterInfo = charProject.CharacterInfos[0];
+                if (renderContextIndex >= 0 &&
+                    renderContextIndex < characterInfo.SkinnedBonesByRenderContext.Count)
+                {
+                    skinBoneMap = characterInfo.SkinnedBonesByRenderContext[renderContextIndex];
+                }
+                else
+                {
+                    // Fallback for callers that do not identify a specific render context.
+                    skinBoneMap = characterInfo.SkinnedBones;
+                }
+
                 List<IOBone> iobones = new List<IOBone>();
-                foreach (var bone in charProject.CharacterInfos[0].Bones)
+                foreach (var bone in characterInfo.Bones)
                 {
                     Matrix4x4.Decompose(bone.LocalTransform,
                         out Vector3 scale,
@@ -66,13 +81,18 @@ namespace EvilWithin2Tool
                         Translation = translation,
                     });
                 }
+
+                // Parent relationships are indexed in AbsContext.NodeSet. Use these indices
+                // instead of the bone name, since names may repeat in malformed/variant rigs.
                 for (int i = 0; i < iobones.Count; i++)
                 {
-                    var parentName = charProject.CharacterInfos[0].Bones[i].Parent;
-
-                    var ioparent = iobones.FirstOrDefault(x => x.Name == parentName);
-                    if (ioparent != null)
-                        ioparent.AddChild(iobones[i]);
+                    int parentIndex = characterInfo.Bones[i].ParentNodeIndex;
+                    if (parentIndex >= 0 &&
+                        parentIndex < iobones.Count &&
+                        parentIndex != i)
+                    {
+                        iobones[parentIndex].AddChild(iobones[i]);
+                    }
                 }
 
                 foreach (var iobone in iobones)
@@ -162,11 +182,20 @@ namespace EvilWithin2Tool
                             continue;
 
                         var boneIdx = (int)vert.BoneIndices[j];
-                        var boneName = charProject.CharacterInfos[0].SkinnedBones[boneIdx].Name;
+                        if (boneIdx < 0 || boneIdx >= skinBoneMap.Count)
+                        {
+                            // A render context's palette is independent of every other context.
+                            // Never index into the flattened union when this model's palette is short.
+                            continue;
+                        }
+
+                        var skinBone = skinBoneMap[boneIdx];
+                        if (skinBone.NodeIDX < 0 || string.IsNullOrWhiteSpace(skinBone.Name))
+                            continue;
 
                         iovertex.Envelope.Weights.Add(new IOBoneWeight()
                         {
-                            BoneName = boneName,
+                            BoneName = skinBone.Name,
                             Weight = vert.BoneWeights[j],
                         });
                     }
