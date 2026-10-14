@@ -353,6 +353,7 @@ namespace RetroStudioPlugin.Files.FileData
 
                 bool[] hasWorldTransform = new bool[Bones.Count];
                 var exactSkinnedNodeIndices = new HashSet<int>();
+                var inconsistentContextNodeIndices = new HashSet<int>();
                 var allSkinnedNodeIndices = new HashSet<int>();
                 int conflictingContextMatrices = 0;
                 float maximumContextMatrixDifference = 0;
@@ -412,6 +413,7 @@ namespace RetroStudioPlugin.Files.FileData
                             if (difference > 1e-3f)
                             {
                                 conflictingContextMatrices++;
+                                inconsistentContextNodeIndices.Add(nodeIndex);
                                 maximumContextMatrixDifference =
                                     MathF.Max(maximumContextMatrixDifference, difference);
                             }
@@ -420,6 +422,11 @@ namespace RetroStudioPlugin.Files.FileData
 
                     SkinnedBonesByRenderContext.Add(contextBoneMap);
                 }
+
+                // Keep the first matrix for the exported bind skeleton, but don't call it a
+                // cross-context-consistent reference when another render context disagrees.
+                foreach (int nodeIndex in inconsistentContextNodeIndices)
+                    Bones[nodeIndex].HasExactWorldTransform = false;
 
                 // Unskinned nodes do not have explicit bind positions in this CHPR parser.
                 // Keep the existing neighbor-estimation idea, but traverse the real node-index
