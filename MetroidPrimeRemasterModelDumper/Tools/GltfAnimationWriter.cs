@@ -415,9 +415,9 @@ public static class GltfAnimationWriter
 
                     JsonObject sampler = (JsonObject)sourceSampler.DeepClone();
                     if (sampler["input"] is JsonNode input)
-                        sampler["input"] = GetInt(input, 0) + accessors.Count + cachedAccessors.Count;
+                        sampler["input"] = GetInt(input, 0);
                     if (sampler["output"] is JsonNode output)
-                        sampler["output"] = GetInt(output, 0) + accessors.Count + cachedAccessors.Count;
+                        sampler["output"] = GetInt(output, 0);
                     targetSamplers.Add(sampler);
                 }
 
