@@ -70,6 +70,21 @@ public static class GltfAnimationWriter
             JsonArray views = GetOrCreateArray(root, "bufferViews");
             JsonArray accessors = GetOrCreateArray(root, "accessors");
             JsonArray buffers = GetOrCreateArray(root, "buffers");
+
+            // When exporting multiple models from one CHPR, the first model creates a canonical
+            // animation bundle. Subsequent glTFs reuse its exact accessors and binary values,
+            // remapping only node indices by joint name. This avoids per-model binary fallbacks.
+            if (!string.IsNullOrWhiteSpace(sharedAnimationBufferPath))
+            {
+                WriteReport? cachedReport = TryWriteCachedBundle(
+                    gltfPath, root, nodes, allNodesByName, jointNodesByName,
+                    views, accessors, buffers, sharedAnimationBufferPath);
+                if (cachedReport is not null)
+                    return cachedReport;
+            }
+
+            int baseViewIndex = views.Count;
+            int baseAccessorIndex = accessors.Count;
             int outputBufferIndex = buffers.Count;
             var binary = new List<byte>(1024 * 1024);
             var gltfAnimations = new JsonArray();
@@ -171,38 +186,25 @@ public static class GltfAnimationWriter
 
             if (string.IsNullOrWhiteSpace(sharedAnimationBufferPath))
             {
-                // Preserve the original behavior for exporters that don't request CHPR-level sharing.
                 sidecarPath = localSidecarPath;
                 File.WriteAllBytes(sidecarPath, animationBytes);
             }
             else
             {
-                string sharedPath = Path.GetFullPath(sharedAnimationBufferPath);
-                string? sharedDirectory = Path.GetDirectoryName(sharedPath);
+                sidecarPath = Path.GetFullPath(sharedAnimationBufferPath);
+                string? sharedDirectory = Path.GetDirectoryName(sidecarPath);
                 if (!string.IsNullOrEmpty(sharedDirectory))
                     Directory.CreateDirectory(sharedDirectory);
 
-                if (!File.Exists(sharedPath))
-                {
-                    File.WriteAllBytes(sharedPath, animationBytes);
-                    sidecarPath = sharedPath;
-                }
-                else if (File.ReadAllBytes(sharedPath).SequenceEqual(animationBytes))
-                {
-                    // The binary data is identical, so all model glTFs can use this one file.
-                    sidecarPath = sharedPath;
-                }
-                else
-                {
-                    // Different node matches can cause a particular glTF to produce a different
-                    // set/order of animation accessors. Never overwrite a shared buffer that
-                    // earlier files already reference; fall back to a model-specific sidecar.
-                    sidecarPath = localSidecarPath;
-                    File.WriteAllBytes(sidecarPath, animationBytes);
-                    sharingWarning =
-                        $"Generated animation bytes differ from the CHPR shared buffer '{sharedPath}'. " +
-                        $"This model uses its own sidecar '{localSidecarName}' to avoid breaking earlier exports.";
-                }
+                // The first glTF reaching this point becomes the canonical animation bundle.
+                // The cache manifest preserves its animation/accessor layout so later models can
+                // reuse the same binary regardless of their own mesh-buffer/accessor counts.
+                File.WriteAllBytes(sidecarPath, animationBytes);
+                JsonObject manifest = BuildSharedManifest(
+                    animationBytes.Length, views, accessors, gltfAnimations, nodes,
+                    baseViewIndex, baseAccessorIndex, channelsWritten, groupsWritten);
+                string manifestPath = GetSharedManifestPath(sidecarPath);
+                File.WriteAllText(manifestPath, manifest.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
             }
 
             // Remove stale per-model sidecars left by earlier versions of the exporter once
@@ -247,6 +249,295 @@ public static class GltfAnimationWriter
         catch (Exception ex)
         {
             return new WriteReport(0, 0, 0, 0, $"{ex.GetType().Name}: {ex.Message}");
+        }
+    }
+
+    private static string GetSharedManifestPath(string sharedBufferPath) =>
+        Path.ChangeExtension(Path.GetFullPath(sharedBufferPath), ".json");
+
+    private static JsonObject BuildSharedManifest(
+        int byteLength,
+        JsonArray views,
+        JsonArray accessors,
+        JsonArray animations,
+        JsonArray nodes,
+        int baseViewIndex,
+        int baseAccessorIndex,
+        int channelsWritten,
+        int groupsWritten)
+    {
+        var cachedViews = new JsonArray();
+        for (int i = baseViewIndex; i < views.Count; i++)
+        {
+            if (views[i] is not JsonObject sourceView)
+                continue;
+
+            JsonObject view = (JsonObject)sourceView.DeepClone();
+            view.Remove("buffer");
+            cachedViews.Add(view);
+        }
+
+        var cachedAccessors = new JsonArray();
+        for (int i = baseAccessorIndex; i < accessors.Count; i++)
+        {
+            if (accessors[i] is not JsonObject sourceAccessor)
+                continue;
+
+            JsonObject accessor = (JsonObject)sourceAccessor.DeepClone();
+            if (accessor["bufferView"] is JsonNode bufferViewNode)
+            {
+                int absoluteView = GetInt(bufferViewNode, -1);
+                if (absoluteView >= 0)
+                    accessor["bufferView"] = absoluteView - baseViewIndex;
+            }
+            cachedAccessors.Add(accessor);
+        }
+
+        var cachedAnimations = new JsonArray();
+        foreach (JsonNode? sourceAnimation in animations)
+        {
+            if (sourceAnimation is not JsonObject sourceClip)
+                continue;
+
+            JsonObject clip = (JsonObject)sourceClip.DeepClone();
+            if (clip["samplers"] is JsonArray samplers)
+            {
+                foreach (JsonNode? samplerNode in samplers)
+                {
+                    if (samplerNode is not JsonObject sampler)
+                        continue;
+
+                    if (sampler["input"] is JsonNode input)
+                        sampler["input"] = GetInt(input, baseAccessorIndex) - baseAccessorIndex;
+                    if (sampler["output"] is JsonNode output)
+                        sampler["output"] = GetInt(output, baseAccessorIndex) - baseAccessorIndex;
+                }
+            }
+
+            if (clip["channels"] is JsonArray channels)
+            {
+                foreach (JsonNode? channelNode in channels)
+                {
+                    if (channelNode is not JsonObject channel ||
+                        channel["target"] is not JsonObject target)
+                        continue;
+
+                    int nodeIndex = GetInt(target["node"], -1);
+                    if (nodeIndex < 0 || nodeIndex >= nodes.Count || nodes[nodeIndex] is not JsonObject node)
+                        continue;
+
+                    string? nodeName = GetString(node["name"]);
+                    if (string.IsNullOrWhiteSpace(nodeName))
+                        continue;
+
+                    target.Remove("node");
+                    target["nodeName"] = nodeName;
+                }
+            }
+
+            cachedAnimations.Add(clip);
+        }
+
+        return new JsonObject
+        {
+            ["version"] = 1,
+            ["byteLength"] = byteLength,
+            ["channelsWritten"] = channelsWritten,
+            ["groupsWritten"] = groupsWritten,
+            ["bufferViews"] = cachedViews,
+            ["accessors"] = cachedAccessors,
+            ["animations"] = cachedAnimations
+        };
+    }
+
+    /// <summary>
+    /// Applies the canonical per-CHPR animation bundle to another model glTF. Accessor/view
+    /// indices are made local to that glTF, while animation target nodes are resolved by name.
+    /// Returns null if no usable cache exists, allowing the first model to create it.
+    /// </summary>
+    private static WriteReport? TryWriteCachedBundle(
+        string gltfPath,
+        JsonObject root,
+        JsonArray nodes,
+        IReadOnlyDictionary<string, int> allNodesByName,
+        IReadOnlyDictionary<string, int> jointNodesByName,
+        JsonArray views,
+        JsonArray accessors,
+        JsonArray buffers,
+        string sharedAnimationBufferPath)
+    {
+        string sharedPath = Path.GetFullPath(sharedAnimationBufferPath);
+        string manifestPath = GetSharedManifestPath(sharedPath);
+        if (!File.Exists(sharedPath) || !File.Exists(manifestPath))
+            return null;
+
+        try
+        {
+            JsonObject manifest = JsonNode.Parse(File.ReadAllText(manifestPath)) as JsonObject
+                ?? throw new InvalidDataException("Shared animation manifest is not a JSON object.");
+            if (GetInt(manifest["version"], 0) != 1)
+                return null;
+
+            int byteLength = GetInt(manifest["byteLength"], -1);
+            var fileInfo = new FileInfo(sharedPath);
+            if (byteLength <= 0 || !fileInfo.Exists || fileInfo.Length != byteLength)
+                return null;
+
+            JsonArray? cachedViews = manifest["bufferViews"] as JsonArray;
+            JsonArray? cachedAccessors = manifest["accessors"] as JsonArray;
+            JsonArray? cachedAnimations = manifest["animations"] as JsonArray;
+            if (cachedViews is null || cachedAccessors is null || cachedAnimations is null)
+                return null;
+
+            // Resolve every cached channel first, so a model with a different skeleton falls
+            // back to fresh serialization rather than producing an empty/malformed animation.
+            var resolvedClips = new List<(JsonObject Clip, int ChannelCount)>();
+            int unmatched = 0;
+            foreach (JsonNode? sourceClipNode in cachedAnimations)
+            {
+                if (sourceClipNode is not JsonObject sourceClip ||
+                    sourceClip["samplers"] is not JsonArray sourceSamplers ||
+                    sourceClip["channels"] is not JsonArray sourceChannels)
+                    continue;
+
+                var clip = new JsonObject
+                {
+                    ["name"] = GetString(sourceClip["name"]) ?? "Animation",
+                    ["samplers"] = new JsonArray(),
+                    ["channels"] = new JsonArray()
+                };
+
+                JsonArray targetSamplers = (JsonArray)clip["samplers"]!;
+                foreach (JsonNode? samplerNode in sourceSamplers)
+                {
+                    if (samplerNode is not JsonObject sourceSampler)
+                        continue;
+
+                    JsonObject sampler = (JsonObject)sourceSampler.DeepClone();
+                    if (sampler["input"] is JsonNode input)
+                        sampler["input"] = GetInt(input, 0) + accessors.Count + cachedAccessors.Count;
+                    if (sampler["output"] is JsonNode output)
+                        sampler["output"] = GetInt(output, 0) + accessors.Count + cachedAccessors.Count;
+                    targetSamplers.Add(sampler);
+                }
+
+                JsonArray targetChannels = (JsonArray)clip["channels"]!;
+                foreach (JsonNode? channelNode in sourceChannels)
+                {
+                    if (channelNode is not JsonObject sourceChannel ||
+                        sourceChannel["target"] is not JsonObject sourceTarget)
+                        continue;
+
+                    string? nodeName = GetString(sourceTarget["nodeName"]);
+                    if (string.IsNullOrWhiteSpace(nodeName))
+                    {
+                        unmatched++;
+                        continue;
+                    }
+
+                    int nodeIndex;
+                    if (jointNodesByName.TryGetValue(nodeName, out int jointNode))
+                        nodeIndex = jointNode;
+                    else if (!allNodesByName.TryGetValue(nodeName, out nodeIndex))
+                    {
+                        unmatched++;
+                        continue;
+                    }
+
+                    JsonObject channel = (JsonObject)sourceChannel.DeepClone();
+                    JsonObject target = (JsonObject)channel["target"]!;
+                    target.Remove("nodeName");
+                    target["node"] = nodeIndex;
+                    target["path"] = GetString(sourceTarget["path"]) ?? "translation";
+                    targetChannels.Add(channel);
+                }
+
+                if (targetChannels.Count > 0)
+                    resolvedClips.Add((clip, targetChannels.Count));
+            }
+
+            int channelsWritten = resolvedClips.Sum(clip => clip.ChannelCount);
+            if (channelsWritten == 0)
+                return new WriteReport(0, 0, 0, unmatched,
+                    $"Shared animation bundle '{manifestPath}' had no channels matching this model's nodes.");
+
+            int baseViewIndex = views.Count;
+            int baseAccessorIndex = accessors.Count;
+            int outputBufferIndex = buffers.Count;
+
+            foreach (JsonNode? sourceViewNode in cachedViews)
+            {
+                if (sourceViewNode is not JsonObject sourceView)
+                    continue;
+
+                JsonObject view = (JsonObject)sourceView.DeepClone();
+                view["buffer"] = outputBufferIndex;
+                views.Add(view);
+            }
+
+            foreach (JsonNode? sourceAccessorNode in cachedAccessors)
+            {
+                if (sourceAccessorNode is not JsonObject sourceAccessor)
+                    continue;
+
+                JsonObject accessor = (JsonObject)sourceAccessor.DeepClone();
+                int relativeView = GetInt(accessor["bufferView"], -1);
+                if (relativeView >= 0)
+                    accessor["bufferView"] = baseViewIndex + relativeView;
+                accessors.Add(accessor);
+            }
+
+            var animations = new JsonArray();
+            foreach (var resolved in resolvedClips)
+            {
+                JsonObject clip = resolved.Clip;
+                // Cached samplers reference accessors relative to the canonical bundle.
+                JsonArray samplers = (JsonArray)clip["samplers"]!;
+                foreach (JsonNode? samplerNode in samplers)
+                {
+                    if (samplerNode is not JsonObject sampler)
+                        continue;
+
+                    if (sampler["input"] is JsonNode input)
+                        sampler["input"] = baseAccessorIndex + GetInt(input, baseAccessorIndex + cachedAccessors.Count);
+                    if (sampler["output"] is JsonNode output)
+                        sampler["output"] = baseAccessorIndex + GetInt(output, baseAccessorIndex + cachedAccessors.Count);
+                }
+                animations.Add(clip);
+            }
+
+            string directory = Path.GetDirectoryName(Path.GetFullPath(gltfPath)) ?? Directory.GetCurrentDirectory();
+            string localSidecarPath = Path.Combine(directory, Path.GetFileNameWithoutExtension(gltfPath) + ".animations.bin");
+            string relativeBufferUri = Path.GetRelativePath(directory, sharedPath).Replace('\\', '/');
+            string bufferUri = EncodeRelativeUriPath(relativeBufferUri);
+            buffers.Add(new JsonObject
+            {
+                ["uri"] = bufferUri,
+                ["byteLength"] = byteLength
+            });
+            root["animations"] = animations;
+
+            var options = new JsonSerializerOptions { WriteIndented = true };
+            File.WriteAllText(gltfPath, root.ToJsonString(options));
+
+            if (!string.Equals(sharedPath, Path.GetFullPath(localSidecarPath), StringComparison.Ordinal) &&
+                File.Exists(localSidecarPath))
+            {
+                try { File.Delete(localSidecarPath); }
+                catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException) { }
+            }
+
+            return new WriteReport(
+                animations.Count,
+                channelsWritten,
+                GetInt(manifest["groupsWritten"], 0),
+                unmatched,
+                null);
+        }
+        catch
+        {
+            // A bad/stale cache must not block exports; the current model can recreate it.
+            return null;
         }
     }
 
