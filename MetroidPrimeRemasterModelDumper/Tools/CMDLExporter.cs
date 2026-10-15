@@ -7,7 +7,6 @@ using IONET.Collada.Core.Transform;
 using IONET.Core;
 using IONET.Core.Model;
 using IONET.Core.Skeleton;
-using RetroStudioPlugin.Files.FileData;
 using System;
 using System.Collections;
 using System.Collections.Generic;

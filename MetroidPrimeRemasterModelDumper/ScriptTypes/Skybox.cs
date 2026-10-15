@@ -1,7 +1,6 @@
 ﻿using AvaloniaToolbox.Core.IO;
 using DKCTF;
 using MetroidPrimeRemasterModelDumper;
-using RetroStudioPlugin.Files.FileData;
 using System;
 using System.Numerics;
 using static DKCTF.ROOM;

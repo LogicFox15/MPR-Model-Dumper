@@ -58,7 +58,7 @@ namespace DKCTF
             CompressionType type = (CompressionType)reader.ReadUInt32();
             reader.SetByteOrder(true);
 
-            Console.WriteLine($"type {type}");
+            //Console.WriteLine($"type {type}");
             var data = reader.ReadBytes((int)compSize - 4);
 
             switch (type)

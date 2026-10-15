@@ -1,7 +1,6 @@
 ﻿using AvaloniaToolbox.Core.IO;
 using IONET.Collada.FX.Texturing;
 using MetroidPrimeRemasterModelDumper;
-using RetroStudioPlugin.Files.FileData;
 using System;
 using System.Collections.Generic;
 using System.IO;

@@ -88,12 +88,6 @@ namespace DKCTF
                             case CMDL.EVertexComponent.in_texCoord0:
                                 vertex.TexCoord0 = rawData.Xy();
                                 vertex.TexCoord1 = new Vector2(rawData.Z, rawData.W);
-                                /*
-                                if (comp.Format == CMDL.VertexFormat.Format_16_16_16_HalfSingle || comp.Format == CMDL.VertexFormat.Format_32_32_32_32_Single)
-                                {
-                                    
-                                }
-                                */
                                 break;
 
                             case CMDL.EVertexComponent.in_texCoord1:

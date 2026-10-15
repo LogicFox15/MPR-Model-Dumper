@@ -6,7 +6,6 @@ using ImageLibrary.Formats.Encoders;
 using ImageLibrary.PlatformSwizzle;
 using IONET.Collada.Core.Lighting;
 using MetroidPrimeRemasterModelDumper.Tools;
-using RetroStudioPlugin.Files.FileData;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 using System;
@@ -72,8 +71,6 @@ namespace MetroidPrimeRemasterModelDumper
                 mode = savedMode;
             }
 
-
-
             foreach (var fileInfo in pak.files)
             {
                 try
@@ -123,18 +120,18 @@ namespace MetroidPrimeRemasterModelDumper
                                 ExtractTerrainClipMapStitched(fileInfo.FileData, fileInfo, pak);
                             savedMode = "TECM";
                             break;
-                        /*
-                    case "MCON":
-                        if (fileInfo.AssetEntry.Type == "MCON")
-                            ProcessModConTest(fileInfo.FileData, fileInfo, pak);
-                        savedMode = "MCON";
-                        break;
-                        */
                         case "ROOM":
                             if (fileInfo.AssetEntry.Type == "ROOM")
                                 ProcessRoomTest(fileInfo.FileData, fileInfo, pak);
                             savedMode = "ROOM";
                             break;
+                            /*
+                        case "MCON":
+                            if (fileInfo.AssetEntry.Type == "MCON")
+                                ProcessModConTest(fileInfo.FileData, fileInfo, pak);
+                            savedMode = "MCON";
+                            break;
+                            */
                     }
                 }
                 catch
@@ -170,8 +167,9 @@ namespace MetroidPrimeRemasterModelDumper
                     //Console.WriteLine("Located File " + model.ModelFileGuid.ToString());
 
                     // sub name
-                    string folder = charInfo.NamePool.GetString(chpr.CharacterInfos[0].SubCharData.SubChars[0].Name);
-                    //string folder = "Models";
+
+                    string folder = "CHPR_" + Entry.AssetEntry.FileID.ToString();
+                    //string folder = charInfo.NamePool.GetString(chpr.CharacterInfos[0].SubCharData.SubChars[0].Name);
 
                     // Add pak folder name onto it
                     folder = Path.Combine(Path.GetFileNameWithoutExtension(pak.FileInfo.FilePath), folder,

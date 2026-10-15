@@ -208,6 +208,7 @@ namespace DKCTF
                     case "SMDL":
                     case "WMDL":
                     case "TXTR":
+                    case "CHPR":
                         return true;
                     default:
                         return false;

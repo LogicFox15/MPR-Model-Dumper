@@ -1,19 +1,12 @@
 ﻿using AvaloniaToolbox.Core.IO;
 using DKCTF;
-using IONET.Collada.FX.Custom_Types;
-using MetroidPrimeRemasterModelDumper.Tools;
 using System;
-using System.Collections.Generic;
-using System.Diagnostics.Metrics;
-using System.Linq.Expressions;
 using System.Numerics;
+using System.Reflection.Metadata.Ecma335;
 using System.Xml.Linq;
-using static DKCTF.ROOM;
-using static RetroStudioPlugin.Files.FileData.CHPR;
-using static RetroStudioPlugin.Files.FileData.CHPR.SBaseInfo;
 #nullable disable
 
-namespace RetroStudioPlugin.Files.FileData
+namespace DKCTF
 {
     public class CHPR : FileForm
     {
@@ -30,6 +23,8 @@ namespace RetroStudioPlugin.Files.FileData
         private uint packedField;
         #endregion
 
+        public CHPR() { }
+
         public CHPR(System.IO.Stream stream) : base(stream)
         {
         }
@@ -37,7 +32,19 @@ namespace RetroStudioPlugin.Files.FileData
         public override void Read(FileReader reader)
         {
             reader.SetByteOrder(false);
-            ReadCharacterProject(reader);
+
+            // Read the appended metadata before parsing the body.
+            // The method restores the stream position after inspecting the footer.
+            long bodyEnd = ReadMetaFooter(reader);
+
+            if (Meta?.loaderDescriptor == null)
+            {
+                throw new InvalidDataException(
+                    "CHPR metadata was not loaded. " +
+                    "Check whether the input stream contains a metadata footer.");
+            }
+
+            ReadCharacterProject(reader, bodyEnd);
         }
 
         public override void ReadMetaData(FileReader reader, CFormDescriptor pakVersion)
@@ -70,22 +77,65 @@ namespace RetroStudioPlugin.Files.FileData
             Meta.loaderDescriptor.arrayBInitialEntry.field8 = reader.ReadUInt32();
         }
 
-        private void ReadCharacterProject(FileReader reader)
+        public override void WriteMetaData(FileWriter writer, CFormDescriptor pakVersion)
         {
-            // Log Meta Data info
-            Console.WriteLine("Array Count 1: " + arrayCount1.ToString());
-            Console.WriteLine("Array Count 2: " + arrayCount2.ToString());
-            Console.WriteLine("Char Info Body Offset: " + Meta.loaderDescriptor.charInfoBodyOffset.ToString());
-            Console.WriteLine("Char Info Body Size: " + Meta.loaderDescriptor.charInfoBodySize.ToString());
+            long startPosition = writer.BaseStream.Position;
 
-            for (int i = 0; i < arrayCount1; i++)
+            if (Meta?.loaderDescriptor == null)
+                throw new InvalidDataException("Cannot write CHPR metadata before it has been read.");
+
+            if (Meta.assetType == null || Meta.assetType.Length != 2)
+                throw new InvalidDataException("CHPR metadata assetType must contain exactly 2 bytes.");
+
+            CCharInfoMetaDataLoaderDescriptor d = Meta.loaderDescriptor;
+
+            if (d.arrayAInitialEntry == null || d.arrayBInitialEntry == null)
+                throw new InvalidDataException("CHPR metadata is missing an initial table entry.");
+
+            writer.Write(Meta.assetType);
+            writer.Write(Meta.versionA);
+            writer.Write(Meta.versionB);
+
+            writer.Write(d.packedCountsAndFlags);
+            writer.Write(d.allocationSizeInput);
+            writer.Write(d.charInfoBodyOffset);
+            writer.Write(d.charInfoBodySize);
+            writer.Write(d.additionalOffsetOrBoundary);
+
+            writer.Write(d.arrayAInitialEntry.field0);
+            writer.Write(d.arrayAInitialEntry.field4);
+            writer.Write(d.arrayAInitialEntry.field8);
+
+            writer.Write(d.arrayBInitialEntry.field0);
+            writer.Write(d.arrayBInitialEntry.field4);
+            writer.Write(d.arrayBInitialEntry.field8);
+
+            if (writer.BaseStream.Position - startPosition != 0x30)
+                throw new InvalidDataException("CHPR metadata serialization did not write exactly 0x30 bytes.");
+        }
+
+        private void ReadCharacterProject(FileReader reader, long bodyEnd)
+        {
+            if (bodyEnd < reader.Position || bodyEnd > reader.BaseStream.Length)
             {
-                array1.Add(UnknownWordArrayEntry.Read(reader));
+                throw new InvalidDataException($"Invalid CHPR body boundary: 0x{bodyEnd:X}");
             }
 
+            Console.WriteLine($"Array Count 1: {arrayCount1}");
+            Console.WriteLine($"Array Count 2: {arrayCount2}");
+            Console.WriteLine($"Char Info Body Offset: " + $"0x{Meta.loaderDescriptor.charInfoBodyOffset:X}");
+            Console.WriteLine($"Char Info Body Size: " + $"0x{Meta.loaderDescriptor.charInfoBodySize:X}");
+
+            // Keep your existing array parsing here for now.
+            for (int i = 0; i < arrayCount1; i++)
+                array1.Add(UnknownWordArrayEntry.Read(reader));
+
             for (int i = 0; i < arrayCount2; i++)
-            {
                 array2.Add(UnknownWordArrayEntry.Read(reader));
+
+            if (reader.Position > bodyEnd)
+            {
+                throw new InvalidDataException("CHPR partition tables extend beyond the body boundary.");
             }
 
             CharacterInfos.Add(new CharacterInfo(reader));
@@ -1228,13 +1278,13 @@ namespace RetroStudioPlugin.Files.FileData
 
                 PooledName = new CPooledName(reader);
             }
+        }
 
-            public enum AnimType : byte
-            {
-                CompStream,
-                Sequence,
-                Grid,
-            }
+        public enum AnimType : byte
+        {
+            CompStream,
+            Sequence,
+            Grid,
         }
 
         #region Animation components

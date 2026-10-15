@@ -2,7 +2,6 @@
 using DKCTF;
 using MetroidPrimeRemasterModelDumper;
 using MetroidPrimeRemasterModelDumper.ScriptTypes;
-using RetroStudioPlugin.Files.FileData;
 using System;
 using System.Numerics;
 using static DKCTF.ROOM;

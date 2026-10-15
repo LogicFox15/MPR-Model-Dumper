@@ -165,6 +165,7 @@ namespace DKCTF
                 case "SMDL": return new CMDL();
                 case "WMDL": return new CMDL();
                 case "TXTR": return new TXTR();
+                case "CHPR": return new CHPR();
             }
             return new FileForm();
         }

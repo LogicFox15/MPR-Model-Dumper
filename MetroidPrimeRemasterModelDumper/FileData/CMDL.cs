@@ -170,7 +170,7 @@ namespace DKCTF
                         var info = Meta.ReadBufferInfo[(int)buffer.ReadBufferIndex];
                         //Seek into the buffer region
                         reader.SeekBegin(info.Offset + buffer.Offset);
-                        Console.WriteLine("Vertex Buffer Position: " + reader.BaseStream.Position.ToString("X8"));
+                        //Console.WriteLine("Vertex Buffer Position: " + reader.BaseStream.Position.ToString("X8"));
 
                         //Decompress
                         var data = IOFileExtension.DecompressedBuffer(reader, buffer.CompressedSize, buffer.DecompressedSize, IsSwitch);

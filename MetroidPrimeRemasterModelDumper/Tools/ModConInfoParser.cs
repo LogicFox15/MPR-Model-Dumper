@@ -5,11 +5,9 @@ using System.Linq;
 using System.Text;
 using System.Text.Json.Serialization;
 using System.Numerics;
-using System.Security.Cryptography.X509Certificates;
 using System.Diagnostics;
 using AvaloniaToolbox.Core.IO;
 using DKCTF;
-using RetroStudioPlugin.Files.FileData;
 #nullable disable
 
 public class ModConParser

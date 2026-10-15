@@ -1,6 +1,5 @@
 ﻿using AvaloniaToolbox.Core;
 using DKCTF;
-using RetroStudioPlugin.Files.FileData;
 using System;
 using System.IO;
 using System.Linq;

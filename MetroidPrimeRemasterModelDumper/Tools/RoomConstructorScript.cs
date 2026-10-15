@@ -1,6 +1,5 @@
 ﻿using IONET.Collada.Kinematics.Articulated_Systems;
 using MetroidPrimeRemasterModelDumper.Tools;
-using RetroStudioPlugin.Files.FileData;
 using MetroidPrimeRemasterModelDumper.ScriptTypes;
 using System;
 using System.Collections.Generic;
