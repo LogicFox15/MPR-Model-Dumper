@@ -16,6 +16,7 @@ using System.Numerics;
 using System.Text;
 using System.Threading.Tasks;
 using MetroidPrimeRemasterModelDumper;
+using IONET.Core.Animation;
 
 #nullable disable
 

@@ -1,11 +1,14 @@
 ﻿using AvaloniaToolbox.Core.IO;
 using DKCTF;
+using IONET.Collada.FX.Custom_Types;
+using MetroidPrimeRemasterModelDumper.Tools;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics.Metrics;
 using System.Linq.Expressions;
 using System.Numerics;
 using System.Xml.Linq;
+using static DKCTF.ROOM;
 using static RetroStudioPlugin.Files.FileData.CHPR;
 using static RetroStudioPlugin.Files.FileData.CHPR.SBaseInfo;
 #nullable disable
@@ -15,8 +18,17 @@ namespace RetroStudioPlugin.Files.FileData
     public class CHPR : FileForm
     {
         public List<CharacterInfo> CharacterInfos = new List<CharacterInfo>();
-        private List<Partition1> Partition1s = new List<Partition1>();
-        private List<Partition2> Partition2s = new List<Partition2>();
+        
+
+        private List<UnknownWordArrayEntry> array1 = new List<UnknownWordArrayEntry>();
+        private List<UnknownWordArrayEntry> array2 = new List<UnknownWordArrayEntry>();
+
+        #region Meta Data Variables
+        public CCharInfoMetaData Meta;
+        private uint arrayCount1;
+        private uint arrayCount2;
+        private uint packedField;
+        #endregion
 
         public CHPR(System.IO.Stream stream) : base(stream)
         {
@@ -28,85 +40,70 @@ namespace RetroStudioPlugin.Files.FileData
             ReadCharacterProject(reader);
         }
 
+        public override void ReadMetaData(FileReader reader, CFormDescriptor pakVersion)
+        {
+            Meta = new CCharInfoMetaData();
+            Meta.assetType = reader.ReadBytes(2);
+            Meta.versionA = reader.ReadByte();
+            Meta.versionB = reader.ReadByte();
+            Meta.loaderDescriptor = new CCharInfoMetaDataLoaderDescriptor();
+            Meta.loaderDescriptor.packedCountsAndFlags = reader.ReadUInt32();
+            // array counts
+            arrayCount1 = (Meta.loaderDescriptor.packedCountsAndFlags >> 1) & 0xFF;
+            arrayCount2 = Meta.loaderDescriptor.packedCountsAndFlags >> 12;
+            packedField = (Meta.loaderDescriptor.packedCountsAndFlags >> 9) & 7;
+
+            Meta.loaderDescriptor.allocationSizeInput = reader.ReadUInt32();
+            Meta.loaderDescriptor.charInfoBodyOffset = reader.ReadUInt32();
+            Meta.loaderDescriptor.charInfoBodySize = reader.ReadUInt32();
+            Meta.loaderDescriptor.additionalOffsetOrBoundary = reader.ReadUInt32();
+
+            Meta.loaderDescriptor.arrayAInitialEntry = new CCharInfoMetaDataLoaderTableEntry();
+            Meta.loaderDescriptor.arrayBInitialEntry = new CCharInfoMetaDataLoaderTableEntry();
+
+            Meta.loaderDescriptor.arrayAInitialEntry.field0 = reader.ReadUInt32();
+            Meta.loaderDescriptor.arrayAInitialEntry.field4 = reader.ReadUInt32();
+            Meta.loaderDescriptor.arrayAInitialEntry.field8 = reader.ReadUInt32();
+
+            Meta.loaderDescriptor.arrayBInitialEntry.field0 = reader.ReadUInt32();
+            Meta.loaderDescriptor.arrayBInitialEntry.field4 = reader.ReadUInt32();
+            Meta.loaderDescriptor.arrayBInitialEntry.field8 = reader.ReadUInt32();
+        }
+
         private void ReadCharacterProject(FileReader reader)
         {
-            Console.WriteLine("Stream Length: " + reader.BaseStream.Length.ToString("X8"));
+            // Log Meta Data info
+            Console.WriteLine("Array Count 1: " + arrayCount1.ToString());
+            Console.WriteLine("Array Count 2: " + arrayCount2.ToString());
+            Console.WriteLine("Char Info Body Offset: " + Meta.loaderDescriptor.charInfoBodyOffset.ToString());
+            Console.WriteLine("Char Info Body Size: " + Meta.loaderDescriptor.charInfoBodySize.ToString());
 
-            /* BRUTEFORCE TO CHAR INFO */
-            bool readingPartitions = true;
-            while (readingPartitions)
+            for (int i = 0; i < arrayCount1; i++)
             {
-                Partition1 partition = new Partition1().Read(reader);
-
-                if(partition.Offset + partition.Length == reader.BaseStream.Length)
-                {
-                    readingPartitions = false;
-                }
-                Partition1s.Add(partition);
+                array1.Add(UnknownWordArrayEntry.Read(reader));
             }
 
-            // Need to find a better way to identify the second array, its size, and if it even exists.
-            uint mode = 0;
-            var pos = reader.Position;
-            bool readingPartition2 = true;
-
-            // Safety checks
-            while (readingPartition2)
+            for (int i = 0; i < arrayCount2; i++)
             {
-                reader.BaseStream.Position += 4;
-
-                string stringCheck = reader.ReadStringZeroTerminated();
-                if (Enum.IsDefined(typeof(EVertexComponent), stringCheck))
-                {
-                    // Found the bone names;
-                    reader.SeekBegin(pos);
-                    readingPartition2 = false;
-                }
-                else
-                {
-                    reader.SeekBegin(pos);
-                    // Continue reading things
-                    Partition2 part = new Partition2(reader);
-                    pos = reader.Position;
-                }
-
+                array2.Add(UnknownWordArrayEntry.Read(reader));
             }
-            
-            /* END BRUTEFORCE TO CHAR INFO */
-
-
-            Console.WriteLine("Total partitions in CHPR: " + Partition1s.Count.ToString());
 
             CharacterInfos.Add(new CharacterInfo(reader));
         }
 
-        public class Partition1
+        public class UnknownWordArrayEntry
         {
             public uint Offset;
             public uint Length;
             public uint Length2;
 
-            public Partition1 Read(FileReader reader)
+            public static UnknownWordArrayEntry Read(FileReader reader)
             {
-                Partition1 part = new Partition1();
+                UnknownWordArrayEntry part = new UnknownWordArrayEntry();
                 part.Offset = reader.ReadUInt32();
                 part.Length = reader.ReadUInt32();
                 part.Length2 = reader.ReadUInt32();
                 return part;
-            }
-        }
-
-        public class Partition2
-        {
-            public uint tempEntry;
-            public uint tempOffset;
-            public uint tempSize;
-
-            public Partition2(FileReader reader)
-            {
-                tempEntry = reader.ReadUInt32();
-                tempOffset = reader.ReadUInt32();
-                tempSize = reader.ReadUInt32();
             }
         }
 
@@ -115,8 +112,6 @@ namespace RetroStudioPlugin.Files.FileData
             Primary = 0,
             Base = 1,
         }
-
-
 
         public class CharacterInfo
         {
@@ -128,18 +123,6 @@ namespace RetroStudioPlugin.Files.FileData
             public List<SRenderContext> RenderContexts = new List<SRenderContext>();
 
             public SUnkContext5 UnkContext5;
-
-            //public List<Matrix4x4> SkinnedInverseMatrices = new List<Matrix4x4>();
-            //public List<ushort> SkinnedMatrixBoneIDs =  new List<ushort>();
-
-
-            //public SUnkContext6 UnkContext6;
-
-            //public ushort UnkContext7_1;
-            //public ushort UnkContext7_2;
-            //public uint UnkContext7_3;
-            //public uint UnkContext7_4;
-            //public uint UnkContext7_5;
 
             public List<BoneData> Bones = new List<BoneData>();
             public List<SkinnedBoneData> SkinnedBones = new List<SkinnedBoneData>();
@@ -277,33 +260,6 @@ namespace RetroStudioPlugin.Files.FileData
                 }
 
                 SubCharData = new SSubCharData(reader);
-
-                /*
-                // Logging
-                for (int i = 0; i < Channels.Count; i++)
-                {
-                    if (Channels[i].PooledName.HasName)
-                        Console.WriteLine($"Channel[{i}] {NamePool.Strings[(int)Channels[i].PooledName.NameID]}");
-                }
-
-                for (int i = 0; i < ModelNodes.Count; i++)
-                {
-                    if (ModelNodes[i].Name.HasName)
-                        Console.WriteLine($"ModelNode[{i}] {NamePool.Strings[(int)ModelNodes[i].Name.NameID]} {ModelNodes[i].ModelFileGuid}");
-                }
-
-                for (int i = 0; i < Anims.Count; i++)
-                {
-                    if (Anims[i].BaseInfo.PooledName.HasName)
-                        Console.WriteLine($"Anims[{i}]_{Anims[i].BaseInfo.Type} {NamePool.Strings[(int)Anims[i].BaseInfo.PooledName.NameID]}");
-                }
-
-                for (int i = 0; i < SubCharData.SubChars.Count; i++)
-                {
-                    if (SubCharData.SubChars[i].Name.HasName)
-                        Console.WriteLine($"SubChars[{i}] {NamePool.Strings[(int)SubCharData.SubChars[i].Name.NameID]}");
-                }
-                */
 
                 for (int r = 0; r < RenderContexts.Count; r++)
                 {
@@ -473,28 +429,7 @@ namespace RetroStudioPlugin.Files.FileData
                             Bones[i].LocalTransform = Bones[i].WorldTransform;
                         }
                     }
-                    
-
                 }
-
-
-
-                /* BONE INFORMATION LOGGER */
-                
-                /*
-                string boneIDContents = "Bone Information: ";
-
-                boneIDContents = boneIDContents + Environment.NewLine + Environment.NewLine + "";
-                for (int i = 0; i < SkinnedBones.Count; i++)
-                {
-                    boneIDContents = boneIDContents + Environment.NewLine + "Skinned Bone ID: " + SkinnedBones[i].BoneID.ToString() + "     Skinned Bone Node Index: " + SkinnedBones[i].NodeIDX.ToString() + "     Skinned Bone Name: " + SkinnedBones[i].Name.ToString();
-                }
-
-                System.IO.File.WriteAllText(AppContext.BaseDirectory + "/BoneIDCheck.json", boneIDContents);
-                */
-
-                // Temporary kill switch
-                //throw new Exception("Hit the end of a CHPR. Kill application.");
             }
         }
 
@@ -688,9 +623,8 @@ namespace RetroStudioPlugin.Files.FileData
 
         }
 
-
+        #region Unknown Context 5
         /* NEW UNKNOWN CONTEXT 5 START */
-
         public class SUnkContext5
         {
             public byte List1Count1;
@@ -753,12 +687,8 @@ namespace RetroStudioPlugin.Files.FileData
                         polyObj?.Read(reader);
                         PolyList.Add(polyObj);
                     }
-
-
                 }
             }
-
-
         }
 
         // ==========================================
@@ -893,20 +823,6 @@ namespace RetroStudioPlugin.Files.FileData
                 Data = reader.ReadBytes((int)ValC * 8);
             }
         }
-
-        // VTable: PTR_FUN_71017b42b8 -> thunk_FUN_7100a89d3c
-        /*
-        public class Poly_f1d9a313 : PolyCommonParse_WithExtra
-        {
-            public override void Read(FileReader reader)
-            {
-                CountA = reader.ReadUInt32();
-                CountB = reader.ReadUInt32();
-                ReadCommon(reader);
-                ReadExtra(reader);
-            }
-        }
-        */
 
         public class Poly_f1d9a313 : PolyCommonParse
         {
@@ -1189,11 +1105,9 @@ namespace RetroStudioPlugin.Files.FileData
         }
 
         /* NEW UNKNOWN CONTEXT 5 END */
+        #endregion
 
-
-
-
-
+        #region Unknown Context 6
         public class SUnkContext6
         {
             public ushort Count1;
@@ -1235,6 +1149,7 @@ namespace RetroStudioPlugin.Files.FileData
                 }
             }
         }
+        #endregion
 
         public class SChannel
         {
@@ -1322,6 +1237,7 @@ namespace RetroStudioPlugin.Files.FileData
             }
         }
 
+        #region Animation components
         public class CAnimCompStream
         {
             public uint TotalSize;
@@ -1543,6 +1459,7 @@ namespace RetroStudioPlugin.Files.FileData
                 //Unk4 = reader.ReadUInt32();
             }
         }
+        #endregion
 
         public class SModelNode // Add more stuff
         {
@@ -1617,16 +1534,6 @@ namespace RetroStudioPlugin.Files.FileData
             }
         }
 
-        public class CTransform4f
-        {
-            public Matrix4x4 Transform;
-
-            public CTransform4f(FileReader reader)
-            {
-                Transform = reader.ReadMatrix3x4();
-            }
-        }
-
         public class NamePool
         {
             public List<string> Strings = new List<string>();
@@ -1692,5 +1599,37 @@ namespace RetroStudioPlugin.Files.FileData
                 writer.Write(this.StringIDs);
             }
         }
+
+
+        #region CHPR Meta Data
+        public class CCharInfoMetaData
+        {
+            public byte[] assetType = new byte[2];
+            public byte versionA;
+            public byte versionB;
+
+            public CCharInfoMetaDataLoaderDescriptor loaderDescriptor;
+        }
+
+        public class CCharInfoMetaDataLoaderDescriptor
+        {
+            public uint packedCountsAndFlags;
+            public uint allocationSizeInput;
+            public uint charInfoBodyOffset;
+            public uint charInfoBodySize;
+            public uint additionalOffsetOrBoundary;
+
+            public CCharInfoMetaDataLoaderTableEntry arrayAInitialEntry;
+            public CCharInfoMetaDataLoaderTableEntry arrayBInitialEntry;
+        }
+
+        public class CCharInfoMetaDataLoaderTableEntry
+        {
+            public uint field0;
+            public uint field4;
+            public uint field8;
+        }
+        #endregion
+
     }
 }

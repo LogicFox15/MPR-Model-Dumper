@@ -489,8 +489,6 @@ namespace DKCTF
         }
 
         #endregion
-
     }
-
 }
 
