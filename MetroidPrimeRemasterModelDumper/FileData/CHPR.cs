@@ -13,8 +13,8 @@ namespace DKCTF
         public List<CharacterInfo> CharacterInfos = new List<CharacterInfo>();
         
 
-        private List<UnknownWordArrayEntry> array1 = new List<UnknownWordArrayEntry>();
-        private List<UnknownWordArrayEntry> array2 = new List<UnknownWordArrayEntry>();
+        private List<UnknownArrayEntry> array1 = new List<UnknownArrayEntry>();
+        private List<AnimationArrayEntry> animationClipArray = new List<AnimationArrayEntry>();
 
         #region Meta Data Variables
         public CCharInfoMetaData Meta;
@@ -128,10 +128,10 @@ namespace DKCTF
 
             // Keep your existing array parsing here for now.
             for (int i = 0; i < arrayCount1; i++)
-                array1.Add(UnknownWordArrayEntry.Read(reader));
+                array1.Add(UnknownArrayEntry.Read(reader));
 
             for (int i = 0; i < arrayCount2; i++)
-                array2.Add(UnknownWordArrayEntry.Read(reader));
+                animationClipArray.Add(AnimationArrayEntry.Read(reader));
 
             if (reader.Position > bodyEnd)
             {
@@ -141,18 +141,34 @@ namespace DKCTF
             CharacterInfos.Add(new CharacterInfo(reader));
         }
 
-        public class UnknownWordArrayEntry
+        public class UnknownArrayEntry
         {
             public uint Offset;
             public uint Length;
             public uint Length2;
 
-            public static UnknownWordArrayEntry Read(FileReader reader)
+            public static UnknownArrayEntry Read(FileReader reader)
             {
-                UnknownWordArrayEntry part = new UnknownWordArrayEntry();
+                UnknownArrayEntry part = new UnknownArrayEntry();
                 part.Offset = reader.ReadUInt32();
                 part.Length = reader.ReadUInt32();
                 part.Length2 = reader.ReadUInt32();
+                return part;
+            }
+        }
+
+        public class AnimationArrayEntry
+        {
+            public uint clipNumber;
+            public uint offset;
+            public uint unknown;
+
+            public static AnimationArrayEntry Read(FileReader reader)
+            {
+                AnimationArrayEntry part = new AnimationArrayEntry();
+                part.clipNumber = reader.ReadUInt32();
+                part.offset = reader.ReadUInt32();
+                part.unknown = reader.ReadUInt32();
                 return part;
             }
         }
@@ -276,7 +292,6 @@ namespace DKCTF
                     for (int i = 0; i < NumAnchorInfos; i++)
                         AnchorInfos.Add(new SAnchorInfo(reader));
                 }
-
 
                 Console.WriteLine("Position of model nodes: " + reader.BaseStream.Position.ToString("X8")); // For testing   
                 if (NumModels > 0) 
@@ -1493,6 +1508,7 @@ namespace DKCTF
                 }
             }
         }
+        #endregion
 
         public class SAnchorInfo // Removed one uint
         {
@@ -1509,7 +1525,6 @@ namespace DKCTF
                 //Unk4 = reader.ReadUInt32();
             }
         }
-        #endregion
 
         public class SModelNode // Add more stuff
         {
