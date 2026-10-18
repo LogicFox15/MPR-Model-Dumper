@@ -14,7 +14,7 @@ namespace DKCTF
         
 
         private List<UnknownArrayEntry> array1 = new List<UnknownArrayEntry>();
-        private List<AnimationDataEntry> animationClipArray = new List<AnimationDataEntry>();
+        private List<AnimationArrayEntry> animationClipArray = new List<AnimationArrayEntry>();
 
         #region Meta Data Variables
         public CCharInfoMetaData Meta;
@@ -154,13 +154,13 @@ namespace DKCTF
             }
         }
 
-        public class AnimationDataEntry
+        public class AnimationArrayEntry
         {
             public uint clipNumber;
             public uint offset;
             public uint unknown;
 
-            public static AnimationDataEntry Read(FileReader reader)
+            public static AnimationArrayEntry Read(FileReader reader)
             {
                 AnimationDataEntry part = new AnimationDataEntry();
                 part.clipNumber = reader.ReadUInt32();
@@ -287,6 +287,7 @@ namespace DKCTF
                     for (int i = 0; i < NumAnchorInfos; i++)
                         AnchorInfos.Add(new SAnchorInfo(reader));
                 }
+
                 if (NumModels > 0) 
                 {
                     for (int i = 0; i < NumModels; i++)
