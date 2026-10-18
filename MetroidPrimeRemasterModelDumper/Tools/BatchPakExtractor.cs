@@ -6,16 +6,9 @@ using ImageLibrary.Formats.Encoders;
 using ImageLibrary.PlatformSwizzle;
 using IONET.Collada.Core.Lighting;
 using MetroidPrimeRemasterModelDumper.Tools;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
-using System;
-using System.Data.Common;
-using System.IO;
-using System.Numerics;
 using System.Text.Json;
 using System.Xml.Linq;
 using static DKCTF.CMDL;
-using static System.Runtime.InteropServices.JavaScript.JSType;
 #nullable disable
 
 namespace MetroidPrimeRemasterModelDumper
@@ -27,7 +20,6 @@ namespace MetroidPrimeRemasterModelDumper
         public static bool saveLODs = false;
         public static bool makeFolders = false;
         public static List<CMaterialNew> MaterialsNew = new List<CMaterialNew>();
-
 
         public static void ExtractModels(string pakFile)
         {

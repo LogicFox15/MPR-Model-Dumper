@@ -13,13 +13,13 @@ namespace DKCTF
         public List<CharacterInfo> CharacterInfos = new List<CharacterInfo>();
         
 
-        private List<UnknownWordArrayEntry> array1 = new List<UnknownWordArrayEntry>();
-        private List<UnknownWordArrayEntry> array2 = new List<UnknownWordArrayEntry>();
+        private List<UnknownArrayEntry> array1 = new List<UnknownArrayEntry>();
+        private List<AnimationDataEntry> animationClipArray = new List<AnimationDataEntry>();
 
         #region Meta Data Variables
         public CCharInfoMetaData Meta;
         private uint arrayCount1;
-        private uint arrayCount2;
+        private uint storedAnimationCount;
         private uint packedField;
         #endregion
 
@@ -57,7 +57,7 @@ namespace DKCTF
             Meta.loaderDescriptor.packedCountsAndFlags = reader.ReadUInt32();
             // array counts
             arrayCount1 = (Meta.loaderDescriptor.packedCountsAndFlags >> 1) & 0xFF;
-            arrayCount2 = Meta.loaderDescriptor.packedCountsAndFlags >> 12;
+            storedAnimationCount = Meta.loaderDescriptor.packedCountsAndFlags >> 12;
             packedField = (Meta.loaderDescriptor.packedCountsAndFlags >> 9) & 7;
 
             Meta.loaderDescriptor.allocationSizeInput = reader.ReadUInt32();
@@ -121,17 +121,12 @@ namespace DKCTF
                 throw new InvalidDataException($"Invalid CHPR body boundary: 0x{bodyEnd:X}");
             }
 
-            Console.WriteLine($"Array Count 1: {arrayCount1}");
-            Console.WriteLine($"Array Count 2: {arrayCount2}");
-            Console.WriteLine($"Char Info Body Offset: " + $"0x{Meta.loaderDescriptor.charInfoBodyOffset:X}");
-            Console.WriteLine($"Char Info Body Size: " + $"0x{Meta.loaderDescriptor.charInfoBodySize:X}");
-
             // Keep your existing array parsing here for now.
             for (int i = 0; i < arrayCount1; i++)
-                array1.Add(UnknownWordArrayEntry.Read(reader));
+                array1.Add(UnknownArrayEntry.Read(reader));
 
-            for (int i = 0; i < arrayCount2; i++)
-                array2.Add(UnknownWordArrayEntry.Read(reader));
+            for (int i = 0; i < storedAnimationCount; i++)
+                animationClipArray.Add(AnimationDataEntry.Read(reader));
 
             if (reader.Position > bodyEnd)
             {
@@ -139,20 +134,38 @@ namespace DKCTF
             }
 
             CharacterInfos.Add(new CharacterInfo(reader));
+
+            // Build Animations
         }
 
-        public class UnknownWordArrayEntry
+        public class UnknownArrayEntry
         {
             public uint Offset;
             public uint Length;
             public uint Length2;
 
-            public static UnknownWordArrayEntry Read(FileReader reader)
+            public static UnknownArrayEntry Read(FileReader reader)
             {
-                UnknownWordArrayEntry part = new UnknownWordArrayEntry();
+                UnknownArrayEntry part = new UnknownArrayEntry();
                 part.Offset = reader.ReadUInt32();
                 part.Length = reader.ReadUInt32();
                 part.Length2 = reader.ReadUInt32();
+                return part;
+            }
+        }
+
+        public class AnimationDataEntry
+        {
+            public uint clipNumber;
+            public uint offset;
+            public uint unknown;
+
+            public static AnimationDataEntry Read(FileReader reader)
+            {
+                AnimationDataEntry part = new AnimationDataEntry();
+                part.clipNumber = reader.ReadUInt32();
+                part.offset = reader.ReadUInt32();
+                part.unknown = reader.ReadUInt32();
                 return part;
             }
         }
@@ -169,14 +182,14 @@ namespace DKCTF
 
             public SAnimContext AnimContext;
             public SAbsContext AbsContext;
+
+            public bool HasRenderContext;
             public SRenderContext RenderContext;
             public List<SRenderContext> RenderContexts = new List<SRenderContext>();
 
+            public bool HasUnkContext5;
             public SUnkContext5 UnkContext5;
-
-            public List<BoneData> Bones = new List<BoneData>();
-            public List<SkinnedBoneData> SkinnedBones = new List<SkinnedBoneData>();
-
+            
             public List<SChannel> Channels = new List<SChannel>();
 
             public byte NumModels;
@@ -185,19 +198,29 @@ namespace DKCTF
             public ushort NumAnims;
             public ushort NumAnimParams;
 
+            public bool hasStreamFragDecodeData;
             public List<SFragDecode> FragDecodes = new List<SFragDecode>();
+
+            public bool hasConstPool;
             public List<SConstPool> ConstPools = new List<SConstPool>();
 
             public ushort Unk10;
 
-            public List<CAnim> Anims = new List<CAnim>();
             public List<SAnchorInfo> AnchorInfos = new List<SAnchorInfo>();
             public List<SModelNode> ModelNodes = new List<SModelNode>();
 
+            public bool hasUnkContext6;
+            public SUnkContext6 UnkContext6;
             public SSubCharData SubCharData;
+            public SUnkContext7 UnkContext7;
+            public SUnkContext8 UnkContext8;
 
-            public bool HasRenderContext;
-            public bool HasUnkContext5;
+            public List<SAnimParamNode> AnimParamNodes = new List<SAnimParamNode>();
+
+
+            public List<BoneData> Bones = new List<BoneData>();
+            public List<SkinnedBoneData> SkinnedBones = new List<SkinnedBoneData>();
+
 
             public CharacterInfo(FileReader reader)
             {
@@ -216,100 +239,78 @@ namespace DKCTF
                 {
                     RenderContext = new SRenderContext(reader);
                     RenderContexts = RenderContext.CreateRenderContextList(RenderContext); // For the sake of not having to dive in and get the child contexts later on.
-
-                    Console.WriteLine("Number of Render Contexts: " + RenderContexts.Count); // Here to double check I'm actually getting the render contexts properly
                 }
-
-                Console.WriteLine("Position of unknown context 5: " + reader.BaseStream.Position.ToString("X8")); // For testing
 
                 HasUnkContext5 = reader.ReadBoolean();
                 if (HasUnkContext5)
                 {
                     UnkContext5 = new SUnkContext5(reader); // FUN_7100692dd8
-                }
+                }               
 
-                Console.WriteLine("Position after new context in binary (Should be channels): " + reader.BaseStream.Position.ToString("X8")); // For testing                 
-
-                // SChannelLoad::Load 
                 byte numChannels = reader.ReadByte();
+                // Console.WriteLine("numChannels: " + numChannels.ToString());
                 for (int i = 0; i < numChannels; i++)
                     Channels.Add(new SChannel(reader));
-                Console.WriteLine("numChannels: " + numChannels.ToString());
+                
 
                 NumModels = reader.ReadByte();
+                // Console.WriteLine("NumModels: " + NumModels.ToString());
                 Unk4 = reader.ReadByte();
+                // Console.WriteLine("Unk4: " + Unk4.ToString());
                 NumAnchorInfos = reader.ReadByte();
+                // Console.WriteLine("NumAnchorInfos: " + NumAnchorInfos.ToString());
                 NumAnims = reader.ReadUInt16();
+                // Console.WriteLine("NumAnims: " + NumAnims.ToString());
                 NumAnimParams = reader.ReadUInt16();
+                // Console.WriteLine("NumAnimParams: " + NumAnimParams.ToString());
 
-                Console.WriteLine("NumModels: " + NumModels.ToString());
-                Console.WriteLine("Unk4: " + Unk4.ToString());
-                Console.WriteLine("NumAnchorInfos: " + NumAnchorInfos.ToString());
-                Console.WriteLine("NumAnims: " + NumAnims.ToString());
-                Console.WriteLine("NumAnimParams: " + NumAnimParams.ToString());
-
-                Console.WriteLine("Position of Frag Decode Data: " + reader.BaseStream.Position.ToString("X8")); // For testing 
-                bool hasStreamFragDecodeData = reader.ReadBoolean();
+                hasStreamFragDecodeData = reader.ReadBoolean();
                 if (hasStreamFragDecodeData)
                 {
                     uint fragDecodeCount = reader.ReadUInt32();
+                    // Console.WriteLine("fragDecodeCount: " + fragDecodeCount.ToString());
                     for (int i = 0; i < fragDecodeCount; i++)
                         FragDecodes.Add(new SFragDecode(reader));
-                    Console.WriteLine("fragDecodeCount: " + fragDecodeCount.ToString());
                 }
 
-                Console.WriteLine("Position of Const Pool: " + reader.BaseStream.Position.ToString("X8")); // For testing 
-                bool hasConstPool = reader.ReadBoolean();
+                hasConstPool = reader.ReadBoolean();
                 if (hasConstPool)
                 {
                     uint constPoolCount = reader.ReadUInt32();
+                    //Console.WriteLine("constPoolCount: " + constPoolCount.ToString());
                     for (int i = 0; i < constPoolCount; i++)
                         ConstPools.Add(new SConstPool(reader));
-                    Console.WriteLine("constPoolCount: " + constPoolCount.ToString());
                 }
-
                 ushort unk10 = reader.ReadUInt16();
-
-                Console.WriteLine("Position of Anchor Infos: " + reader.BaseStream.Position.ToString("X8")); // For testing 
                 if (NumAnchorInfos > 0)
                 {
                     for (int i = 0; i < NumAnchorInfos; i++)
                         AnchorInfos.Add(new SAnchorInfo(reader));
                 }
-
-
-                Console.WriteLine("Position of model nodes: " + reader.BaseStream.Position.ToString("X8")); // For testing   
                 if (NumModels > 0) 
                 {
                     for (int i = 0; i < NumModels; i++)
                         ModelNodes.Add(new SModelNode(reader));
                 }
 
-                bool hasOptionalBlock1 = reader.ReadBoolean();
-                if (hasOptionalBlock1)
+                hasUnkContext6 = reader.ReadBoolean();
+                if (hasUnkContext6)
                 {
-                    ushort countA = reader.ReadUInt16();
-                    ushort countB = reader.ReadUInt16();
-
-                    for (int i = 0; i < countA; i++)
-                    {
-                        var name = new CPooledName(reader);
-                        uint val1 = reader.ReadUInt32();
-                        uint val2 = reader.ReadUInt32();
-                        uint val3 = reader.ReadUInt32();
-                        uint val4 = reader.ReadUInt32();
-                    }
-
-                    if (countB > 0)
-                    {
-                        for (int i = 0; i < countB; i++)
-                        {
-                            uint val5 = reader.ReadUInt32();
-                        }
-                    }
+                    UnkContext6 = new SUnkContext6(reader);
                 }
 
                 SubCharData = new SSubCharData(reader);
+                UnkContext7 = new SUnkContext7(reader);
+                UnkContext8 = new SUnkContext8(reader);
+
+                // Native CCharInfo constructor: NumAnimParams entries.
+                // Each entry contains a 16-byte value, a uint, and a typed collection.
+                for (int i = 0; i < NumAnimParams; i++)
+                {
+                    AnimParamNodes.Add(new SAnimParamNode(reader));
+                }
+
+
 
                 for (int r = 0; r < RenderContexts.Count; r++)
                 {
@@ -551,7 +552,7 @@ namespace DKCTF
             }
         }
 
-        public class SAbsContext
+        public class SAbsContext        // Works as intended
         {
             public SNodeSet NodeSet;
 
@@ -581,7 +582,7 @@ namespace DKCTF
                 byte[] section2 = reader.ReadBytes(num3);
                 byte[] section3 = reader.ReadBytes(num4);
                 byte[] section4 = reader.ReadBytes(num5);
-                byte[] section6 = reader.ReadBytes(num6); // NEW
+                byte[] section6 = reader.ReadBytes(num6);
 
                 NodeSet = new SNodeSet(reader);
 
@@ -593,7 +594,7 @@ namespace DKCTF
             }
         }
 
-        public class SRenderContext // Has been modified slightly
+        public class SRenderContext         // Works as intended
         {
             public Matrix4x4[] InverseMatrices = new Matrix4x4[0];
             public Matrix4x4[] SkinnedInverseMatrices;
@@ -615,6 +616,7 @@ namespace DKCTF
             public ushort[] section3;
 
             public byte[] section4;
+            public byte[] sectionNum4Data;
 
             public SRenderContext(FileReader reader)
             {
@@ -630,12 +632,8 @@ namespace DKCTF
                 section3 = reader.ReadUInt16s((int)num3);
 
                 SkinnedInverseMatrices = reader.ReadMatrix3x4s(num1 + 1);
-
-                //InverseMatrixBoneIds = reader.ReadUInt32s((int)num4); // Is not present
-
-                //InverseMatrices = reader.ReadMatrix3x4s(num4); // Is not present
-
-                section4 = reader.ReadBytes((int)num5);
+                InverseMatrixBoneIds = reader.ReadUInt32s((int)num4); // Is always 0 in Prime 4
+                section4 = reader.ReadBytes(checked((int)num5));
 
                 HasSubContext = reader.ReadBoolean(); // New sub context
                 if (HasSubContext)
@@ -690,36 +688,27 @@ namespace DKCTF
 
             public SUnkContext5(FileReader reader)
             {
-                //Console.WriteLine("Has Unknown Context 5");
                 // FUN_710060910c & FUN_7100692dd8
                 List1Count1 = reader.ReadByte();
                 List1Count2 = reader.ReadUInt16();
 
                 // FUN_71000d5760
                 List1Data = reader.ReadBytes(List1Count1 * 6);
-                //Console.WriteLine("Unknown Context 5: Position after first data list: " + reader.BaseStream.Position.ToString("X8")); // for debugging
 
                 // FUN_7100692edc
                 List2Count = reader.ReadUInt16();
                 List2Unk = reader.ReadUInt16();
                 List2Data = reader.ReadUInt32s(List2Count);
-                //Console.WriteLine("Unknown Context 5: Position after second data list: " + reader.BaseStream.Position.ToString("X8")); // for debugging
 
                 HasPolyList = reader.ReadBoolean();
                 if (HasPolyList)
                 {
-                    //Console.WriteLine("Unknown Context 5: Has polymorphic list");
-                    //Console.WriteLine("Unknown Context 5: Position of polymorphic list: " + reader.BaseStream.Position.ToString("X8")); // for debugging
-
                     // FUN_71006930c8
                     uint polyCount = reader.ReadUInt32();
                     for (int i = 0; i < polyCount; i++)
                     {
                         uint typeHash = reader.ReadUInt32();
                         PolyBase polyObj = null;
-
-                        Console.WriteLine($"Found poly hash: {typeHash:X8}");
-                        Console.WriteLine("Poly hash located at: " + reader.BaseStream.Position.ToString("X8"));
 
                         switch (typeHash)
                         {
@@ -1157,50 +1146,6 @@ namespace DKCTF
         /* NEW UNKNOWN CONTEXT 5 END */
         #endregion
 
-        #region Unknown Context 6
-        public class SUnkContext6
-        {
-            public ushort Count1;
-            public ushort Count2;
-            public List<SUnkContext6Entry1> Entries1 = new List<SUnkContext6Entry1>();
-            public uint[] Entries2;
-
-            public SUnkContext6(FileReader reader)
-            {
-                Count1 = reader.ReadUInt16();
-                Count2 = reader.ReadUInt16();
-
-                for (int i = 0; i < Count1; i++)
-                {
-                    Entries1.Add(new SUnkContext6Entry1(reader));
-                }
-
-                if (Count2 > 0)
-                {
-                    Entries2 = reader.ReadUInt32s(Count2);
-                }
-            }
-
-            public class SUnkContext6Entry1
-            {
-                public CPooledName Name;
-                public uint Unk1;
-                public uint Unk2;
-                public uint Unk3;
-                public uint Unk4;
-
-                public SUnkContext6Entry1(FileReader reader)
-                {
-                    Name = new CPooledName(reader);
-                    Unk1 = reader.ReadUInt32();
-                    Unk2 = reader.ReadUInt32();
-                    Unk3 = reader.ReadUInt32();
-                    Unk4 = reader.ReadUInt32();
-                }
-            }
-        }
-        #endregion
-
         public class SChannel
         {
             public CPooledName PooledName;
@@ -1280,6 +1225,7 @@ namespace DKCTF
             }
         }
 
+        #region Animation components
         public enum AnimType : byte
         {
             CompStream,
@@ -1287,7 +1233,6 @@ namespace DKCTF
             Grid,
         }
 
-        #region Animation components
         public class CAnimCompStream
         {
             public uint TotalSize;
@@ -1493,6 +1438,7 @@ namespace DKCTF
                 }
             }
         }
+        #endregion
 
         public class SAnchorInfo // Removed one uint
         {
@@ -1509,7 +1455,6 @@ namespace DKCTF
                 //Unk4 = reader.ReadUInt32();
             }
         }
-        #endregion
 
         public class SModelNode // Add more stuff
         {
@@ -1536,6 +1481,53 @@ namespace DKCTF
                 ModelFileGuid = IOFileExtension.ReadID(reader);
             }
         }
+
+        #region Unknown Context 6
+        public class SUnkContext6
+        {
+            public ushort countA;
+            public ushort countB;
+            public List<SUnkContext6Entry1> Entries1 = new List<SUnkContext6Entry1>();
+            public List<uint> Entries2 = new List<uint>();
+
+            public SUnkContext6(FileReader reader)
+            {
+                countA = reader.ReadUInt16();
+                countB = reader.ReadUInt16();
+
+                for (int i = 0; i < countA; i++)
+                {
+                    Entries1.Add(new SUnkContext6Entry1(reader));
+                }
+
+                if (countB > 0)
+                {
+                    for (int i = 0; i < countB; i++)
+                    {
+                        Entries2.Add(reader.ReadUInt32());
+                    }
+                }
+            }
+
+            public class SUnkContext6Entry1
+            {
+                public CPooledName Name;
+                public uint Unk1;
+                public uint Unk2;
+                public uint Unk3;
+                public uint Unk4;
+
+                public SUnkContext6Entry1(FileReader reader)
+                {
+                    Name = new CPooledName(reader);
+                    Unk1 = reader.ReadUInt32();
+                    Unk2 = reader.ReadUInt32();
+                    Unk3 = reader.ReadUInt32();
+                    Unk4 = reader.ReadUInt32();
+                }
+            }
+        }
+        #endregion
 
         public class SSubChar
         {
@@ -1570,6 +1562,289 @@ namespace DKCTF
                     SubChars.Add(new SSubChar(reader, DataSizes[i])); // error here
             }
         }
+
+        #region Unknown Context 7
+        public class SUnkContext7
+        {
+            public ushort Count;
+            public ushort PayloadSize;
+
+            // Native code copies Count * 4 bytes.
+            public byte[] EntryData = Array.Empty<byte>();
+
+            // Native code then copies PayloadSize bytes.
+            public byte[] Payload = Array.Empty<byte>();
+
+            public SUnkContext7(FileReader reader)
+            {
+                Count = reader.ReadUInt16();
+                Console.WriteLine("Unknown Context 7 Count: " + Count.ToString());
+                PayloadSize = reader.ReadUInt16();
+
+                EntryData = reader.ReadBytes(checked((int)Count * 4));
+                Payload = reader.ReadBytes(PayloadSize);
+            }
+        }
+        #endregion
+
+        #region Unknown Context 8
+        public class SUnkContext8
+        {
+            public uint EntryCount;
+
+            // The native code tests the sign bit of this value.
+            public uint SizeWord;
+
+            public uint ConditionalDataSize;
+
+            // Each entry occupies 8 bytes in the native parser.
+            public byte[] EntryData = Array.Empty<byte>();
+
+            public byte[] ConditionalDataA = Array.Empty<byte>();
+            public byte[] ConditionalDataB = Array.Empty<byte>();
+
+            public SUnkContext8(FileReader reader)
+            {
+                EntryCount = reader.ReadUInt32();
+                Console.WriteLine("Unknown Context 8 Count: " + EntryCount.ToString());
+                SizeWord = reader.ReadUInt32();
+
+                // Native code reads an extra size only when the high bit is set.
+                if ((SizeWord & 0x80000000u) != 0)
+                {
+                    ConditionalDataSize = reader.ReadUInt32();
+                }
+
+                // Preserve the low 31 bits without assigning them a meaning.
+                SizeWord &= 0x7FFFFFFFu;
+
+                EntryData = reader.ReadBytes(checked((int)((long)EntryCount * 8)));
+
+                if (ConditionalDataSize != 0)
+                {
+                    int dataSize = checked((int)ConditionalDataSize);
+                    ConditionalDataA = reader.ReadBytes(dataSize);
+                    ConditionalDataB = reader.ReadBytes(dataSize);
+                }
+            }
+        }
+        #endregion
+
+        #region Animation Parameters
+        public class SAnimParamNode
+        {
+            // Read by FUN_710034dbb8. Keep raw until the helper is fully identified.
+            public byte[] Value16 = Array.Empty<byte>();
+
+            // A 32-bit field immediately following Value16 in the stream.
+            public uint ParameterWord;
+
+            public SAnimParamMap Parameters;
+
+            public SAnimParamNode(FileReader reader)
+            {
+                Value16 = reader.ReadBytes(16);
+                ParameterWord = reader.ReadUInt32();
+                Parameters = new SAnimParamMap(reader);
+            }
+        }
+
+        // FUN_71004491e8
+        public class SAnimParamMap
+        {
+            public const uint PAS4 = 0x50415334;
+            public const uint PAS6 = 0x50415336;
+
+            public uint FormatTag;
+            public uint EntryCount;
+
+            // PAS4 has a four-byte value which the native reader skips.
+            public byte[] ExtraHeaderBytes = Array.Empty<byte>();
+
+            public List<SAnimParamMapEntry> Entries =new List<SAnimParamMapEntry>();
+
+            public SAnimParamMap(FileReader reader)
+            {
+                FormatTag = reader.ReadUInt32();
+                EntryCount = reader.ReadUInt32();
+
+                int count = ReadCount(EntryCount, "animation parameter map");
+
+                if (FormatTag == PAS4)
+                {
+                    ExtraHeaderBytes = reader.ReadBytes(4);
+                }
+
+                for (int i = 0; i < count; i++)
+                {
+                    Entries.Add(new SAnimParamMapEntry(reader, FormatTag));
+                }
+            }
+
+            internal static int ReadCount(uint count, string label)
+            {
+                // Sanity limit to prevent corrupt counts from allocating enormous lists.
+                if (count > 1_000_000)
+                {
+                    throw new InvalidDataException(
+                        $"Unreasonable {label} count: {count}");
+                }
+
+                return checked((int)count);
+            }
+        }
+
+        // FUN_710044967c
+        public class SAnimParamMapEntry
+        {
+            public uint EntryKey;
+            public uint DescriptorCount;
+            public uint ValueRecordCount;
+
+            public List<SAnimParamFieldDescriptor> Descriptors = new List<SAnimParamFieldDescriptor>();
+
+            public List<SAnimParamValueRecord> ValueRecords = new List<SAnimParamValueRecord>();
+
+            public SAnimParamMapEntry(FileReader reader, uint formatTag)
+            {
+                EntryKey = reader.ReadUInt32();
+                DescriptorCount = reader.ReadUInt32();
+                ValueRecordCount = reader.ReadUInt32();
+
+                int descriptorCount = SAnimParamMap.ReadCount(
+                    DescriptorCount, "field descriptor");
+
+                int valueRecordCount = SAnimParamMap.ReadCount(
+                    ValueRecordCount, "parameter value record");
+
+                for (int i = 0; i < descriptorCount; i++)
+                {
+                    Descriptors.Add(
+                        new SAnimParamFieldDescriptor(reader, formatTag));
+                }
+
+                for (int i = 0; i < valueRecordCount; i++)
+                {
+                    ValueRecords.Add(
+                        new SAnimParamValueRecord(reader, Descriptors));
+                }
+            }
+        }
+
+        // FUN_7100449c64
+        public class SAnimParamFieldDescriptor
+        {
+            // Only read for the PAS6 format.
+            public uint? FormatSpecificValue;
+
+            public uint TypeCode;
+            public uint Field08;
+            public uint Field0C;
+
+            // Used by some descriptor types.
+            public uint ExtraValue0;
+            public uint ExtraValue1;
+
+            // Used by type 3.
+            public byte? ExtraByte0;
+            public byte? ExtraByte1;
+
+            public SAnimParamFieldDescriptor(FileReader reader, uint formatTag)
+            {
+                if (formatTag == SAnimParamMap.PAS6)
+                {
+                    FormatSpecificValue = reader.ReadUInt32();
+                }
+
+                TypeCode = reader.ReadUInt32();
+                Field08 = reader.ReadUInt32();
+                Field0C = reader.ReadUInt32();
+
+                switch (TypeCode)
+                {
+                    case 0:
+                        // FUN_710058aec0 reads 16-bit values.
+                        ExtraValue0 = reader.ReadUInt16();
+                        ExtraValue1 = reader.ReadUInt16();
+                        break;
+                    case 1:
+                    case 2:
+                    case 5:
+                        ExtraValue0 = reader.ReadUInt32();
+                        ExtraValue1 = reader.ReadUInt32();
+                        break;
+                    case 3:
+                        ExtraByte0 = reader.ReadByte();
+                        ExtraByte1 = reader.ReadByte();
+                        break;
+                    case 4:
+                        ExtraValue0 = reader.ReadUInt32();
+                        ExtraValue1 = reader.ReadUInt32();
+                        break;
+                    default:
+                        // The native function consumes no additional bytes
+                        // for other type codes in this descriptor parser.
+                        break;
+                }
+            }
+        }
+
+        public class SAnimParamValueRecord
+        {
+            public uint Key;
+
+            public List<SAnimParamValue> Values = new List<SAnimParamValue>();
+
+            public SAnimParamValueRecord(
+                FileReader reader,
+                IReadOnlyList<SAnimParamFieldDescriptor> descriptors)
+            {
+                Key = reader.ReadUInt32();
+
+                foreach (SAnimParamFieldDescriptor descriptor in descriptors)
+                {
+                    Values.Add(new SAnimParamValue(reader, descriptor.TypeCode));
+                }
+            }
+        }
+
+        public class SAnimParamValue
+        {
+            public uint TypeCode;
+
+            public bool HasSerializedValue;
+            public uint UIntValue;
+            public byte ByteValue;
+
+            public bool IsBoolean => TypeCode == 3;
+            public bool BooleanValue => ByteValue != 0;
+
+            public SAnimParamValue(FileReader reader, uint typeCode)
+            {
+                TypeCode = typeCode;
+
+                switch (typeCode)
+                {
+                    case 0:
+                    case 1:
+                    case 2:
+                    case 4:
+                    case 5:
+                        UIntValue = reader.ReadUInt32();
+                        HasSerializedValue = true;
+                        break;
+                    case 3:
+                        ByteValue = reader.ReadByte();
+                        HasSerializedValue = true;
+                        break;
+                    default:
+                        // Matches the provided native switch:
+                        // no value bytes are consumed for other type codes.
+                        break;
+                }
+            }
+        }
+        #endregion
 
         public class CPooledName
         {
