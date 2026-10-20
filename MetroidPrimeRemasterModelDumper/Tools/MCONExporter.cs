@@ -214,6 +214,8 @@ namespace EvilWithin2Tool
                 for (int i = 0; i < mesh.Indices.Length; i++)
                     iopoly.Indicies.Add((int)mesh.Indices[i]);
 
+                //iomesh.TransformVertices(matrix);
+
                 TransformMCONMesh(iomesh, matrix);
             }
         }

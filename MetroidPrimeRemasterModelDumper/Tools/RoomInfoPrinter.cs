@@ -97,9 +97,16 @@ namespace MetroidPrimeRemasterModelDumper
                 }
                 foreach (var skybox in room.layers[i].skyboxes)
                 {
-
-                    ObjectTXT += System.Environment.NewLine + "Skybox Visual ID: " + skybox.objectID.ToString();
-                    ObjectTXT += System.Environment.NewLine + "Skybox Strength: " + skybox.skyboxStrength.ToString();
+                    try
+                    {
+                        ObjectTXT += System.Environment.NewLine + "Skybox Visual ID: " + skybox.objectID.ToString();
+                    }
+                    catch { }
+                    try
+                    {
+                        ObjectTXT += System.Environment.NewLine + "Skybox Strength: " + skybox.skyboxStrength.ToString();
+                    }
+                    catch { }
 
                     ObjectTXT += System.Environment.NewLine + "Position: " + skybox.commonObjectData.entityProperties.position.X.ToString() + ", " + (-skybox.commonObjectData.entityProperties.position.Z).ToString() + ", " + skybox.commonObjectData.entityProperties.position.Y.ToString();
                     ObjectTXT += System.Environment.NewLine + "Rotation: " + skybox.commonObjectData.entityProperties.blenderRotation.X.ToString() + ", " + skybox.commonObjectData.entityProperties.blenderRotation.Y.ToString() + ", " + skybox.commonObjectData.entityProperties.blenderRotation.Z.ToString();

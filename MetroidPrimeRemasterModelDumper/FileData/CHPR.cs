@@ -126,7 +126,7 @@ namespace DKCTF
                 array1.Add(UnknownArrayEntry.Read(reader));
 
             for (int i = 0; i < storedAnimationCount; i++)
-                animationClipArray.Add(AnimationDataEntry.Read(reader));
+                animationClipArray.Add(AnimationArrayEntry.Read(reader));
 
             if (reader.Position > bodyEnd)
             {
@@ -156,24 +156,18 @@ namespace DKCTF
 
         public class AnimationArrayEntry
         {
-            public uint clipNumber;
+            public uint outputSlot;
             public uint offset;
-            public uint unknown;
+            public uint size;
 
             public static AnimationArrayEntry Read(FileReader reader)
             {
-                AnimationDataEntry part = new AnimationDataEntry();
-                part.clipNumber = reader.ReadUInt32();
+                AnimationArrayEntry part = new AnimationArrayEntry();
+                part.outputSlot = reader.ReadUInt32();
                 part.offset = reader.ReadUInt32();
-                part.unknown = reader.ReadUInt32();
+                part.size = reader.ReadUInt32();
                 return part;
             }
-        }
-
-        public enum EVertexComponent
-        {
-            Primary = 0,
-            Base = 1,
         }
 
         public class CharacterInfo
@@ -235,7 +229,7 @@ namespace DKCTF
                 AbsContext = new SAbsContext(reader);  // absolute context (bind info)
 
                 HasRenderContext = reader.ReadBoolean(); // Render context is now optional, for some reason
-                if(HasRenderContext) // FUN_71008feef0?
+                if (HasRenderContext) // FUN_71008feef0?
                 {
                     RenderContext = new SRenderContext(reader);
                     RenderContexts = RenderContext.CreateRenderContextList(RenderContext); // For the sake of not having to dive in and get the child contexts later on.
@@ -245,13 +239,13 @@ namespace DKCTF
                 if (HasUnkContext5)
                 {
                     UnkContext5 = new SUnkContext5(reader); // FUN_7100692dd8
-                }               
+                }
 
                 byte numChannels = reader.ReadByte();
                 // Console.WriteLine("numChannels: " + numChannels.ToString());
                 for (int i = 0; i < numChannels; i++)
                     Channels.Add(new SChannel(reader));
-                
+
 
                 NumModels = reader.ReadByte();
                 // Console.WriteLine("NumModels: " + NumModels.ToString());
@@ -288,12 +282,13 @@ namespace DKCTF
                         AnchorInfos.Add(new SAnchorInfo(reader));
                 }
 
-                if (NumModels > 0) 
+                if (NumModels > 0)
                 {
                     for (int i = 0; i < NumModels; i++)
                         ModelNodes.Add(new SModelNode(reader));
                 }
 
+                /* Can't make these work for some reason
                 hasUnkContext6 = reader.ReadBoolean();
                 if (hasUnkContext6)
                 {
@@ -301,185 +296,192 @@ namespace DKCTF
                 }
 
                 SubCharData = new SSubCharData(reader);
+
                 UnkContext7 = new SUnkContext7(reader);
                 UnkContext8 = new SUnkContext8(reader);
 
+                Console.WriteLine("Reader Position after Unknown Context 8: " + reader.BaseStream.Position.ToString("X8"));
+
+                
                 // Native CCharInfo constructor: NumAnimParams entries.
                 // Each entry contains a 16-byte value, a uint, and a typed collection.
                 for (int i = 0; i < NumAnimParams; i++)
                 {
                     AnimParamNodes.Add(new SAnimParamNode(reader));
                 }
+                */
 
-
-
+                /*
                 for (int r = 0; r < RenderContexts.Count; r++)
                 {
-                    // Bone building?
-                    for (int i = 0; i < RenderContexts[r].SkinnedMatrixBoneIDs.Length; i++)
-                    {
-                        var boneID = RenderContexts[r].SkinnedMatrixBoneIDs[i];
-                        // Find the index where the node ID is located at
-                        var nodeIndex = AbsContext.NodeSet.FindIndex(boneID);
 
-                        string boneName = NamePool.GetString(AbsContext.NodeSet.NameSet, nodeIndex);
-                        this.SkinnedBones.Add(new SkinnedBoneData()
-                        {
-                            Name = boneName,
-                            BoneID = boneID,
-                            NodeIDX = nodeIndex
-                        });
+                }
+                */
+
+                // Bone building?
+                for (int i = 0; i < RenderContexts[0].SkinnedMatrixBoneIDs.Length; i++)
+                {
+                    var boneID = RenderContexts[0].SkinnedMatrixBoneIDs[i];
+                    // Find the index where the node ID is located at
+                    var nodeIndex = AbsContext.NodeSet.FindIndex(boneID);
+
+                    string boneName = NamePool.GetString(AbsContext.NodeSet.NameSet, nodeIndex);
+                    this.SkinnedBones.Add(new SkinnedBoneData()
+                    {
+                        Name = boneName,
+                        BoneID = boneID,
+                        NodeIDX = nodeIndex
+                    });
+                }
+
+                // 1. Build the COMPLETE skeleton from the Absolute Context
+                for (int i = 0; i < AbsContext.NodeSet.NodeIDs.Length; i++)
+                {
+                    uint nodeID = AbsContext.NodeSet.NodeIDs[i];
+                    string boneName = NamePool.GetString(AbsContext.NodeSet.NameSet, i);
+
+                    // Section5 perfectly aligns with the global NodeSet for parenting info
+                    ushort parentID = AbsContext.Section5[i].Item1;
+                    int parentIndex = AbsContext.NodeSet.FindIndex(parentID);
+
+                    string parentName = "";
+                    if (parentIndex >= 0)
+                    {
+                        parentName = NamePool.GetString(AbsContext.NodeSet.NameSet, parentIndex);
                     }
 
-                    // 1. Build the COMPLETE skeleton from the Absolute Context
-                    for (int i = 0; i < AbsContext.NodeSet.NodeIDs.Length; i++)
+                    Bones.Add(new BoneData()
                     {
-                        uint nodeID = AbsContext.NodeSet.NodeIDs[i];
-                        string boneName = NamePool.GetString(AbsContext.NodeSet.NameSet, i);
+                        Name = boneName,
+                        Parent = parentName,
+                        // Default matrices to Identity; we will overwrite the skinned ones below
+                        InverseTransform = Matrix4x4.Identity,
+                        WorldTransform = Matrix4x4.Identity,
+                        LocalTransform = Matrix4x4.Identity
+                    });
+                }
 
-                        // Section5 perfectly aligns with the global NodeSet for parenting info
-                        ushort parentID = AbsContext.Section5[i].Item1;
-                        int parentIndex = AbsContext.NodeSet.FindIndex(parentID);
+                // 2. Assign Render Context matrices exclusively to the skinned subset
+                HashSet<int> skinnedBoneIndices = new HashSet<int>(); // Track what we've solved
+                for (int i = 0; i < RenderContexts[0].SkinnedMatrixBoneIDs.Length; i++)
+                {
+                    var boneID = RenderContexts[0].SkinnedMatrixBoneIDs[i];
+                    var nodeIndex = AbsContext.NodeSet.FindIndex(boneID);
 
-                        string parentName = "";
-                        if (parentIndex >= 0)
-                        {
-                            parentName = NamePool.GetString(AbsContext.NodeSet.NameSet, parentIndex);
-                        }
-
-                        Bones.Add(new BoneData()
-                        {
-                            Name = boneName,
-                            Parent = parentName,
-                            // Default matrices to Identity; we will overwrite the skinned ones below
-                            InverseTransform = Matrix4x4.Identity,
-                            WorldTransform = Matrix4x4.Identity,
-                            LocalTransform = Matrix4x4.Identity
-                        });
-                    }
-
-                    // 2. Assign Render Context matrices exclusively to the skinned subset
-                    HashSet<int> skinnedBoneIndices = new HashSet<int>(); // Track what we've solved
-                    for (int i = 0; i < RenderContexts[r].SkinnedMatrixBoneIDs.Length; i++)
+                    if (nodeIndex >= 0 && nodeIndex < Bones.Count)
                     {
-                        var boneID = RenderContexts[r].SkinnedMatrixBoneIDs[i];
-                        var nodeIndex = AbsContext.NodeSet.FindIndex(boneID);
+                        skinnedBoneIndices.Add(nodeIndex);
+                        Matrix4x4.Invert(Matrix4x4.Transpose(RenderContexts[0].SkinnedInverseMatrices[i]), out Matrix4x4 worldSpace);
 
-                        if (nodeIndex >= 0 && nodeIndex < Bones.Count)
-                        {
-                            skinnedBoneIndices.Add(nodeIndex);
-                            Matrix4x4.Invert(Matrix4x4.Transpose(RenderContexts[r].SkinnedInverseMatrices[i]), out Matrix4x4 worldSpace);
-
-                            Bones[nodeIndex].InverseTransform = RenderContexts[r].SkinnedInverseMatrices[i];
-                            Bones[nodeIndex].WorldTransform = worldSpace;
-                            // LocalTransform is handled in the next step
-                        }
+                        Bones[nodeIndex].InverseTransform = RenderContexts[0].SkinnedInverseMatrices[i];
+                        Bones[nodeIndex].WorldTransform = worldSpace;
+                        // LocalTransform is handled in the next step
                     }
+                }
 
 
-                    // This is here because Retro did not include the transforms of unskinned bones. Because of this,
-                    // if one wants the rigs to not fall apart immediately, we must average the positions and rotations
-                    // of the skinned bones between the neighbors. This is a temporary solution while we try to figure
-                    // out how Retro is doing it.
-                    bool changed = true;
-                    int iterations = 0;
-                    while (changed && iterations < 3)
-                    {
-                        changed = false;
-                        iterations++;
+                // This is here because Retro did not include the transforms of unskinned bones. Because of this,
+                // if one wants the rigs to not fall apart immediately, we must average the positions and rotations
+                // of the skinned bones between the neighbors. This is a temporary solution while we try to figure
+                // out how Retro is doing it.
+                bool changed = true;
+                int iterations = 0;
+                while (changed && iterations < 3)
+                {
+                    changed = false;
+                    iterations++;
 
-                        for (int i = 0; i < Bones.Count; i++)
-                        {
-                            if (skinnedBoneIndices.Contains(i)) continue;
-
-                            List<Vector3> translations = new List<Vector3>();
-                            List<Quaternion> rotations = new List<Quaternion>();
-
-                            // 1. Collect Neighbor Data (Parent)
-                            var parentBone = Bones.FirstOrDefault(b => b.Name == Bones[i].Parent);
-                            if (parentBone != null && parentBone.WorldTransform != Matrix4x4.Identity)
-                            {
-                                if (Matrix4x4.Decompose(parentBone.WorldTransform, out _, out Quaternion pRot, out Vector3 pTrans))
-                                {
-                                    translations.Add(pTrans);
-                                    rotations.Add(pRot);
-                                }
-                            }
-
-                            // 2. Collect Neighbor Data (Children)
-                            var children = Bones.Where(b => b.Parent == Bones[i].Name).ToList();
-                            foreach (var child in children)
-                            {
-                                if (child.WorldTransform != Matrix4x4.Identity)
-                                {
-                                    if (Matrix4x4.Decompose(child.WorldTransform, out _, out Quaternion cRot, out Vector3 cTrans))
-                                    {
-                                        translations.Add(cTrans);
-
-                                        // Ensure the quaternion is in the same hemisphere as the first one to avoid "flipping"
-                                        if (rotations.Count > 0 && Quaternion.Dot(rotations[0], cRot) < 0)
-                                            cRot = Quaternion.Inverse(cRot); // Or -cRot depending on library version
-
-                                        rotations.Add(cRot);
-                                    }
-                                }
-                            }
-
-                            // 3. Average and Apply
-                            if (translations.Count > 0)
-                            {
-                                // Average Position
-                                Vector3 avgPos = Vector3.Zero;
-                                foreach (var t in translations) avgPos += t;
-                                avgPos /= translations.Count;
-
-                                // Average Rotation (Normalized Linear Interpolation)
-                                Quaternion avgRot = rotations[0];
-                                if (rotations.Count > 1)
-                                {
-                                    Vector4 acc = new Vector4(rotations[0].X, rotations[0].Y, rotations[0].Z, rotations[0].W);
-                                    for (int x = 1; x < rotations.Count; x++)
-                                    {
-                                        acc += new Vector4(rotations[x].X, rotations[x].Y, rotations[x].Z, rotations[x].W);
-                                    }
-                                    acc /= rotations.Count;
-                                    avgRot = Quaternion.Normalize(new Quaternion(acc.X, acc.Y, acc.Z, acc.W));
-                                }
-
-                                Matrix4x4 newWorld = Matrix4x4.CreateFromQuaternion(avgRot) * Matrix4x4.CreateTranslation(avgPos);
-
-                                if (Vector3.Distance(Bones[i].WorldTransform.Translation, avgPos) > 0.001f)
-                                {
-                                    Bones[i].WorldTransform = newWorld;
-                                    changed = true;
-                                }
-                            }
-                        }
-                    }
-
-                    // Convert world transforms into local transforms
                     for (int i = 0; i < Bones.Count; i++)
                     {
-                        if (!string.IsNullOrEmpty(Bones[i].Parent))
+                        if (skinnedBoneIndices.Contains(i)) continue;
+
+                        List<Vector3> translations = new List<Vector3>();
+                        List<Quaternion> rotations = new List<Quaternion>();
+
+                        // 1. Collect Neighbor Data (Parent)
+                        var parentBone = Bones.FirstOrDefault(b => b.Name == Bones[i].Parent);
+                        if (parentBone != null && parentBone.WorldTransform != Matrix4x4.Identity)
                         {
-                            var parent =
-                                Bones.FirstOrDefault(x => x.Name == Bones[i].Parent);
-
-                            if (parent != null)
+                            if (Matrix4x4.Decompose(parentBone.WorldTransform, out _, out Quaternion pRot, out Vector3 pTrans))
                             {
-                                Matrix4x4.Invert(
-                                    parent.WorldTransform,
-                                    out Matrix4x4 parentInverse);
-
-                                Bones[i].LocalTransform =
-                                    Bones[i].WorldTransform * parentInverse;
+                                translations.Add(pTrans);
+                                rotations.Add(pRot);
                             }
                         }
-                        else
+
+                        // 2. Collect Neighbor Data (Children)
+                        var children = Bones.Where(b => b.Parent == Bones[i].Name).ToList();
+                        foreach (var child in children)
                         {
-                            // Root bone
-                            Bones[i].LocalTransform = Bones[i].WorldTransform;
+                            if (child.WorldTransform != Matrix4x4.Identity)
+                            {
+                                if (Matrix4x4.Decompose(child.WorldTransform, out _, out Quaternion cRot, out Vector3 cTrans))
+                                {
+                                    translations.Add(cTrans);
+
+                                    // Ensure the quaternion is in the same hemisphere as the first one to avoid "flipping"
+                                    if (rotations.Count > 0 && Quaternion.Dot(rotations[0], cRot) < 0)
+                                        cRot = Quaternion.Inverse(cRot); // Or -cRot depending on library version
+
+                                    rotations.Add(cRot);
+                                }
+                            }
                         }
+
+                        // 3. Average and Apply
+                        if (translations.Count > 0)
+                        {
+                            // Average Position
+                            Vector3 avgPos = Vector3.Zero;
+                            foreach (var t in translations) avgPos += t;
+                            avgPos /= translations.Count;
+
+                            // Average Rotation (Normalized Linear Interpolation)
+                            Quaternion avgRot = rotations[0];
+                            if (rotations.Count > 1)
+                            {
+                                Vector4 acc = new Vector4(rotations[0].X, rotations[0].Y, rotations[0].Z, rotations[0].W);
+                                for (int x = 1; x < rotations.Count; x++)
+                                {
+                                    acc += new Vector4(rotations[x].X, rotations[x].Y, rotations[x].Z, rotations[x].W);
+                                }
+                                acc /= rotations.Count;
+                                avgRot = Quaternion.Normalize(new Quaternion(acc.X, acc.Y, acc.Z, acc.W));
+                            }
+
+                            Matrix4x4 newWorld = Matrix4x4.CreateFromQuaternion(avgRot) * Matrix4x4.CreateTranslation(avgPos);
+
+                            if (Vector3.Distance(Bones[i].WorldTransform.Translation, avgPos) > 0.001f)
+                            {
+                                Bones[i].WorldTransform = newWorld;
+                                changed = true;
+                            }
+                        }
+                    }
+                }
+
+                // Convert world transforms into local transforms
+                for (int i = 0; i < Bones.Count; i++)
+                {
+                    if (!string.IsNullOrEmpty(Bones[i].Parent))
+                    {
+                        var parent =
+                            Bones.FirstOrDefault(x => x.Name == Bones[i].Parent);
+
+                        if (parent != null)
+                        {
+                            Matrix4x4.Invert(
+                                parent.WorldTransform,
+                                out Matrix4x4 parentInverse);
+
+                            Bones[i].LocalTransform =
+                                Bones[i].WorldTransform * parentInverse;
+                        }
+                    }
+                    else
+                    {
+                        // Root bone
+                        Bones[i].LocalTransform = Bones[i].WorldTransform;
                     }
                 }
             }
@@ -1192,46 +1194,57 @@ namespace DKCTF
             }
         }
 
+        #region Animation components
+
         public class SBaseInfo
         {
             public AnimType Type;
             public byte Unk1;
-
             public ushort Index;
 
             public byte Unk3;
-
             public byte Unk4;
             public byte Unk5;
-
             public byte Unk6;
             public byte Unk7;
+            public byte Unk8;
 
-            public CPooledName PooledName;
+            // Present only when Unk8 is nonzero.
+            public uint SharedReference;
+
+            public ushort Unk10;
+            public ushort Unk12;
 
             public SBaseInfo(FileReader reader)
             {
                 Type = (AnimType)reader.ReadByte();
                 Unk1 = reader.ReadByte();
                 Index = reader.ReadUInt16();
+
                 Unk3 = reader.ReadByte();
+
                 Unk4 = reader.ReadByte();
                 if (Unk4 != 0)
                     Unk5 = reader.ReadByte();
+
                 Unk6 = reader.ReadByte();
                 if (Unk6 != 0)
                     Unk7 = reader.ReadByte();
 
-                PooledName = new CPooledName(reader);
+                Unk8 = reader.ReadByte();
+                if (Unk8 != 0)
+                    SharedReference = reader.ReadUInt32();
+
+                Unk10 = reader.ReadUInt16();
+                Unk12 = reader.ReadUInt16();
             }
         }
 
-        #region Animation components
         public enum AnimType : byte
         {
-            CompStream,
-            Sequence,
-            Grid,
+            CompStream = 0,
+            Sequence = 1,
+            Grid = 2,
         }
 
         public class CAnimCompStream
@@ -1269,35 +1282,39 @@ namespace DKCTF
             public byte Unk1;
             public byte Unk2;
 
-            public byte[] Data;
+            public byte[] Data = Array.Empty<byte>();
 
-            public float Unk3;
-
-            public CPooledName PooledName;
+            public uint Unk3;
 
             public List<CAnimSequenceEntry> Entries = new List<CAnimSequenceEntry>();
 
             public CAnimSequence(FileReader reader)
             {
-                var numEntries = reader.ReadUInt32();
-                var dataSize = reader.ReadUInt32();
+                uint numEntries = reader.ReadUInt32();
+                uint dataSize = reader.ReadUInt32();
+
                 Unk1 = reader.ReadByte();
                 Unk2 = reader.ReadByte();
 
-                for (int i = 0; i < numEntries; i++)
+                if (numEntries > int.MaxValue || dataSize > int.MaxValue)
                 {
-                    Entries.Add(new CAnimSequenceEntry()
+                    throw new InvalidDataException("CHPR sequence contains an invalid size.");
+                }
+
+                for (int i = 0; i < (int)numEntries; i++)
+                {
+                    Entries.Add(new CAnimSequenceEntry
                     {
                         Unk1 = reader.ReadByte(),
                         Unk2 = reader.ReadByte(),
                         Unk3 = reader.ReadByte(),
                         Unk4 = reader.ReadUInt16(),
-                        Unk5 = reader.ReadUInt32(),
+                        Unk5 = reader.ReadUInt32()
                     });
                 }
 
                 Data = reader.ReadBytes((int)dataSize);
-                Unk3 = reader.ReadSingle();
+                Unk3 = reader.ReadUInt32();
             }
 
             public class CAnimSequenceEntry
@@ -1307,6 +1324,10 @@ namespace DKCTF
                 public byte Unk3;
                 public ushort Unk4;
                 public uint Unk5;
+
+                // Native representation keeps the low seven bits of Unk2
+                // and derives bit 7 from whether Unk3 is nonzero.
+                public byte PackedFlags => (byte)((Unk2 & 0x7F) | (Unk3 != 0 ? 0x80 : 0));
             }
         }
 
@@ -1388,11 +1409,17 @@ namespace DKCTF
 
             public CAnimGrid(FileReader reader)
             {
-                var numUnk3 = reader.ReadInt32();
+                int numUnk3 = reader.ReadInt32();
                 Type = reader.ReadByte();
+
+                if (numUnk3 < 0)
+                {
+                    throw new InvalidDataException("Invalid CHPR grid entry count.");
+                }
+                    
                 switch (Type)
                 {
-                    case 0: // None
+                    case 0:
                         break;
                     case 1:
                         Grid1 = new CGridGeo1d(reader);
@@ -1400,14 +1427,22 @@ namespace DKCTF
                     case 2:
                         Grid2 = new CGridGeo2d(reader);
                         break;
+                    default:
+                        throw new InvalidDataException( $"Unknown CHPR grid type: {Type}");
                 }
 
-                var numUnk2 = reader.ReadInt32();
+                int numUnk2 = reader.ReadInt32();
+
+                if (numUnk2 < 0)
+                {
+                    throw new InvalidDataException("Invalid CHPR grid auxiliary count.");
+                }
+
                 if (numUnk2 > 0)
                 {
                     Unknowns2 = reader.ReadUInt32s(numUnk2);
                 }
-
+                    
                 if (numUnk3 > 0)
                 {
                     Unknowns3 = reader.ReadUInt32s(numUnk3);
@@ -1425,6 +1460,7 @@ namespace DKCTF
             public CAnim(FileReader reader)
             {
                 BaseInfo = new SBaseInfo(reader);
+
                 switch (BaseInfo.Type)
                 {
                     case AnimType.CompStream:
@@ -1436,6 +1472,8 @@ namespace DKCTF
                     case AnimType.Grid:
                         AnimGrid = new CAnimGrid(reader);
                         break;
+                    default:
+                        throw new InvalidDataException($"Unsupported CHPR animation type: " + $"{(byte)BaseInfo.Type}");
                 }
             }
         }
@@ -1532,35 +1570,69 @@ namespace DKCTF
 
         public class SSubChar
         {
-            public CPooledName Name;
+            public bool HasReference;
+            public uint PackedReference;
+
             public CObjectId Guid;
 
-            public byte[] Unk1;
-            public byte[] Unk2;
+            public byte SubRecordCount;
+            public byte[] Unk1 = Array.Empty<byte>();
+            public byte[] Unk2 = Array.Empty<byte>();
 
-            public SSubChar(FileReader reader, uint size)
+            public SSubChar(FileReader reader, uint rawSize)
             {
-                Name = new CPooledName(reader); // Error here
+                HasReference = reader.ReadByte() != 0;
+
+                if (HasReference)
+                    PackedReference = reader.ReadUInt32();
+
                 Guid = IOFileExtension.ReadID(reader);
-                byte num = reader.ReadByte();
-                // total bytes = size
-                Unk1 = reader.ReadBytes((int)(num * -12 + size));
-                Unk2 = reader.ReadBytes((int)(num * 12));
+
+                SubRecordCount = reader.ReadByte();
+
+                // The native code casts the entry size to a signed short.
+                if (rawSize > short.MaxValue)
+                {
+                    throw new InvalidDataException($"Sub-character size exceeds the native signed-short range: {rawSize}");
+                }
+
+                int dataSize = (int)(short)rawSize;
+                int secondSize = checked(SubRecordCount * 12);
+                int firstSize = dataSize - secondSize;
+
+                if (firstSize < 0)
+                {
+                    throw new InvalidDataException($"Invalid sub-character payload size: " + $"{dataSize} bytes for {SubRecordCount} sub-records.");
+                }
+
+                Unk1 = reader.ReadBytes(firstSize);
+                Unk2 = reader.ReadBytes(secondSize);
+
+                if (Unk1.Length != firstSize || Unk2.Length != secondSize)
+                {
+                    throw new EndOfStreamException("Unexpected end of stream while reading sub-character data.");
+                }
             }
         }
 
         public class SSubCharData
         {
-            public uint[] DataSizes;
+            public ushort EntryCount;
+            public uint[] DataSizes = Array.Empty<uint>();
+            public ushort HeaderField;
+
             public List<SSubChar> SubChars = new List<SSubChar>();
 
             public SSubCharData(FileReader reader)
             {
-                ushort numSub = reader.ReadUInt16();
-                DataSizes = reader.ReadUInt32s((int)numSub);
-                reader.ReadUInt16();
-                for (int i = 0; i < numSub; i++)
-                    SubChars.Add(new SSubChar(reader, DataSizes[i])); // error here
+                EntryCount = reader.ReadUInt16();
+                DataSizes = reader.ReadUInt32s(EntryCount);
+                HeaderField = reader.ReadUInt16();
+
+                for (int i = 0; i < EntryCount; i++)
+                {
+                    SubChars.Add(new SSubChar(reader, DataSizes[i]));
+                }
             }
         }
 
@@ -1925,7 +1997,6 @@ namespace DKCTF
                 writer.Write(this.StringIDs);
             }
         }
-
 
         #region CHPR Meta Data
         public class CCharInfoMetaData
