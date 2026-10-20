@@ -15,6 +15,7 @@ namespace DKCTF
 
         private List<UnknownArrayEntry> array1 = new List<UnknownArrayEntry>();
         private List<AnimationArrayEntry> animationClipArray = new List<AnimationArrayEntry>();
+        public List<AnimationArrayEntry> animations => animationClipArray;
 
         #region Meta Data Variables
         public CCharInfoMetaData Meta;
@@ -32,19 +33,15 @@ namespace DKCTF
         public override void Read(FileReader reader)
         {
             reader.SetByteOrder(false);
-
-            // Read the appended metadata before parsing the body.
-            // The method restores the stream position after inspecting the footer.
+            long payloadStart = reader.Position;
             long bodyEnd = ReadMetaFooter(reader);
 
             if (Meta?.loaderDescriptor == null)
             {
-                throw new InvalidDataException(
-                    "CHPR metadata was not loaded. " +
-                    "Check whether the input stream contains a metadata footer.");
+                throw new InvalidDataException("CHPR metadata was not loaded. " + "Check whether the input stream contains a metadata footer.");
             }
 
-            ReadCharacterProject(reader, bodyEnd);
+            ReadCharacterProject(reader, bodyEnd, payloadStart);
         }
 
         public override void ReadMetaData(FileReader reader, CFormDescriptor pakVersion)
@@ -114,14 +111,20 @@ namespace DKCTF
                 throw new InvalidDataException("CHPR metadata serialization did not write exactly 0x30 bytes.");
         }
 
-        private void ReadCharacterProject(FileReader reader, long bodyEnd)
+        private void ReadCharacterProject(FileReader reader, long bodyEnd, long payloadStart)
         {
             if (bodyEnd < reader.Position || bodyEnd > reader.BaseStream.Length)
             {
                 throw new InvalidDataException($"Invalid CHPR body boundary: 0x{bodyEnd:X}");
             }
 
-            // Keep your existing array parsing here for now.
+            long tableBytes = checked((long)arrayCount1 * 12L + (long)storedAnimationCount * 12L);
+
+            if (tableBytes > bodyEnd - reader.Position)
+            {
+                throw new InvalidDataException("CHPR partition tables extend beyond the body boundary.");
+            }
+
             for (int i = 0; i < arrayCount1; i++)
                 array1.Add(UnknownArrayEntry.Read(reader));
 
@@ -136,6 +139,7 @@ namespace DKCTF
             CharacterInfos.Add(new CharacterInfo(reader));
 
             // Build Animations
+            ReadAnimationPayloads(reader, payloadStart, bodyEnd);
         }
 
         public class UnknownArrayEntry
@@ -156,16 +160,27 @@ namespace DKCTF
 
         public class AnimationArrayEntry
         {
-            public uint outputSlot;
-            public uint offset;
-            public uint size;
+            public uint OutputSlot;
+            public uint Offset;
+            public uint Size;
+            // The parsed animation, when decoding succeeds.
+            public CAnim Animation;
+            // Original data is retained even if parsing fails.
+            public byte[] RawData = Array.Empty<byte>();
+            // Number of bytes consumed by CAnim.
+            public int BytesParsed;
+            // Any remaining bytes after the parsed animation.
+            public byte[] TrailingData = Array.Empty<byte>();
+            // Diagnostic information if decoding fails.
+            public string ParseError;
+
 
             public static AnimationArrayEntry Read(FileReader reader)
             {
                 AnimationArrayEntry part = new AnimationArrayEntry();
-                part.outputSlot = reader.ReadUInt32();
-                part.offset = reader.ReadUInt32();
-                part.size = reader.ReadUInt32();
+                part.OutputSlot = reader.ReadUInt32();
+                part.Offset = reader.ReadUInt32();
+                part.Size = reader.ReadUInt32();
                 return part;
             }
         }
@@ -486,6 +501,108 @@ namespace DKCTF
                 }
             }
         }
+
+        private void ReadAnimationPayloads(FileReader reader, long payloadStart, long bodyEnd)
+        {
+            foreach (AnimationArrayEntry entry in animationClipArray)
+            {
+                entry.Animation = null;
+                entry.RawData = Array.Empty<byte>();
+                entry.TrailingData = Array.Empty<byte>();
+                entry.BytesParsed = 0;
+                entry.ParseError = null;
+
+                if (entry.Size == 0)
+                    continue;
+
+                if (entry.Size > int.MaxValue)
+                {
+                    entry.ParseError =
+                        $"Animation range is too large: {entry.Size} bytes.";
+                    continue;
+                }
+
+                // PROVISIONAL:
+                // This assumes entry.offset is relative to payloadStart.
+                long dataStart = checked(payloadStart + (long)entry.Offset);
+                long dataSize = entry.Size;
+
+                if (dataStart < payloadStart ||
+                    dataStart > bodyEnd ||
+                    dataSize > bodyEnd - dataStart)
+                {
+                    entry.ParseError =
+                        $"Animation range is outside the payload: " +
+                        $"offset=0x{entry.Offset:X}, size=0x{entry.Size:X}.";
+
+                    continue;
+                }
+
+                int length = checked((int)entry.Size);
+                byte[] animationBytes;
+
+                using (reader.TemporarySeek(
+                    dataStart,
+                    System.IO.SeekOrigin.Begin))
+                {
+                    animationBytes = reader.ReadBytes(length);
+                }
+
+                if (animationBytes.Length != length)
+                {
+                    entry.ParseError =
+                        $"Unexpected end of stream at animation slot " +
+                        $"{entry.OutputSlot}.";
+
+                    continue;
+                }
+
+                entry.RawData = animationBytes;
+
+                try
+                {
+                    using (FileReader animationReader =
+                           new FileReader(animationBytes))
+                    {
+                        animationReader.SetByteOrder(false);
+
+                        // Reuse your existing nested CAnim parser.
+                        entry.Animation = new CAnim(animationReader);
+
+                        entry.BytesParsed =
+                            checked((int)animationReader.Position);
+
+                        int remaining =
+                            animationBytes.Length - entry.BytesParsed;
+
+                        if (remaining < 0)
+                        {
+                            throw new InvalidDataException(
+                                "Animation parser consumed beyond its data range.");
+                        }
+
+                        if (remaining > 0)
+                        {
+                            entry.TrailingData =
+                                animationReader.ReadBytes(remaining);
+                        }
+                    }
+                }
+                catch (Exception ex) when (
+                    ex is InvalidDataException ||
+                    ex is EndOfStreamException ||
+                    ex is ArgumentException ||
+                    ex is OverflowException ||
+                    ex is IndexOutOfRangeException)
+                {
+                    entry.Animation = null;
+                    entry.BytesParsed = 0;
+                    entry.TrailingData = Array.Empty<byte>();
+                    entry.ParseError = ex.Message;
+                }
+            }
+        }
+
 
         public class BoneData
         {
@@ -1209,7 +1326,7 @@ namespace DKCTF
             public byte Unk7;
             public byte Unk8;
 
-            // Present only when Unk8 is nonzero.
+            public bool HasSharedReference;
             public uint SharedReference;
 
             public ushort Unk10;
@@ -1232,7 +1349,9 @@ namespace DKCTF
                     Unk7 = reader.ReadByte();
 
                 Unk8 = reader.ReadByte();
-                if (Unk8 != 0)
+
+                HasSharedReference = reader.ReadByte() != 0;
+                if (HasSharedReference)
                     SharedReference = reader.ReadUInt32();
 
                 Unk10 = reader.ReadUInt16();
