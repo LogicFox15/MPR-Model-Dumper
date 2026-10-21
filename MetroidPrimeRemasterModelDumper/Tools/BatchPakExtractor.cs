@@ -150,6 +150,14 @@ namespace MetroidPrimeRemasterModelDumper
                     FileEntry file = new FileEntry();
                     file = SearchForFile(model.ModelFileGuid.ToString());
 
+                    //This SHOULD be a failsafe in case there's any nonexistent SMDL files, but it doesn't work properly...
+                    if (file == null)
+                    {
+                        Console.WriteLine("Error while trying to locate " + model.ModelFileGuid.ToString());
+                        continue;
+                    }
+
+                    //... So this is a failsafe for the above failsafe; it seems to catch the ones that slip by the normal failsafe.
                     if (file == null)
                     {
                         Console.WriteLine("Error while trying to locate " + model.ModelFileGuid.ToString());
