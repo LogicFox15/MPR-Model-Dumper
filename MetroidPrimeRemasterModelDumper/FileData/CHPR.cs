@@ -167,6 +167,11 @@ namespace DKCTF
             public CAnim Animation;
             // Original data is retained even if parsing fails.
             public byte[] RawData = Array.Empty<byte>();
+            // Parsed type-0 CompStream decoder. The player contains per-clip playback state.
+            public CHPRAnimationDecoder DecodedCompStream;
+            public CHPRAnimationDecoder.Player AnimationPlayer;
+            // Decoder failures are kept separate from structural CAnim parse failures.
+            public string DecodeError;
             // Number of bytes consumed by CAnim.
             public int BytesParsed;
             // Any remaining bytes after the parsed animation.
@@ -1222,6 +1227,9 @@ namespace DKCTF
 
                 entry.Animation = null;
                 entry.RawData = Array.Empty<byte>();
+                entry.DecodedCompStream = null;
+                entry.AnimationPlayer = null;
+                entry.DecodeError = null;
                 entry.TrailingData = Array.Empty<byte>();
                 entry.BytesParsed = 0;
                 entry.ParseError = null;
@@ -1289,6 +1297,26 @@ namespace DKCTF
                         entry.Animation = new CAnim(animationReader);
                         entry.BytesParsed = checked((int)animationReader.Position);
 
+                        // Type 0 is the compressed stream used by ordinary animated clips.
+                        // Decode it independently: an experimental decoder failure must not
+                        // invalidate the structural CHPR parse or discard RawData.
+                        if (entry.Animation.BaseInfo.Type == AnimType.CompStream)
+                        {
+                            try
+                            {
+                                entry.DecodedCompStream = CHPRAnimationDecoder.Read(
+                                    animationBytes,
+                                    entry.Animation.BaseInfoSize);
+                                entry.DecodedCompStream.SetConstantPools(GetConstantPoolsByIndex());
+                                entry.AnimationPlayer = entry.DecodedCompStream.CreatePlayer();
+                            }
+                            catch (Exception decoderException)
+                            {
+                                entry.DecodeError =
+                                    $"{decoderException.GetType().Name}: {decoderException.Message}";
+                            }
+                        }
+
                         int remaining = animationBytes.Length - entry.BytesParsed;
                         if (remaining < 0)
                         {
@@ -1303,11 +1331,23 @@ namespace DKCTF
 
                     successCount++;
 
-                    Console.WriteLine($"{label}: SUCCESS - " + $"type={entry.Animation.BaseInfo.Type}, " + $"index={entry.Animation.BaseInfo.Index}, " + $"parsed={entry.BytesParsed}/{length} bytes, " + $"trailing={entry.TrailingData.Length} bytes.");
+                    string decoderSummary = entry.AnimationPlayer != null
+                        ? $" decoder=ready (frames={entry.DecodedCompStream.Frames}, " +
+                          $"streams={entry.DecodedCompStream.Streams.Count})"
+                        : entry.DecodeError != null
+                            ? $" decoder=failed ({entry.DecodeError})"
+                            : string.Empty;
+
+                    Console.WriteLine($"{label}: SUCCESS - " + $"type={entry.Animation.BaseInfo.Type}, " +
+                        $"index={entry.Animation.BaseInfo.Index}, " + $"parsed={entry.BytesParsed}/{length} bytes, " +
+                        $"trailing={entry.TrailingData.Length} bytes." + decoderSummary);
                 }
                 catch (Exception ex)
                 {
                     entry.Animation = null;
+                    entry.DecodedCompStream = null;
+                    entry.AnimationPlayer = null;
+                    entry.DecodeError = null;
                     entry.BytesParsed = 0;
                     entry.TrailingData = Array.Empty<byte>();
                     entry.ParseError = $"{ex.GetType().Name}: {ex.Message}";
@@ -1319,6 +1359,31 @@ namespace DKCTF
             }
 
             Console.WriteLine($"[CHPR] Animation reading finished: " + $"{successCount} succeeded, {failedCount} failed, " + $"{emptyCount} empty.");
+        }
+
+        // The constant-pool record's first ushort is the pool index. Build an indexed array
+        // so stream metadata can select a pool directly; preserve gaps instead of compacting.
+        private float[][] GetConstantPoolsByIndex()
+        {
+            List<SConstPool> sourcePools = CharacterInfos
+                .SelectMany(info => info.ConstPools)
+                .ToList();
+
+            if (sourcePools.Count == 0)
+                return Array.Empty<float[]>();
+
+            int maximumIndex = sourcePools.Max(pool => (int)pool.Unknown1);
+            if (maximumIndex > 4095)
+                throw new InvalidDataException($"Unreasonable CHPR constant-pool index: {maximumIndex}");
+
+            float[][] pools = new float[maximumIndex + 1][];
+            foreach (SConstPool pool in sourcePools)
+            {
+                if (pool.Unknown1 < pools.Length)
+                    pools[pool.Unknown1] = pool.Unknowns2 ?? Array.Empty<float>();
+            }
+
+            return pools;
         }
 
         public class SBaseInfo
@@ -1608,13 +1673,17 @@ namespace DKCTF
         public class CAnim
         {
             public SBaseInfo BaseInfo;
+            // Actual size of SBaseInfo; its conditional fields make it variable-length.
+            public int BaseInfoSize { get; private set; }
             public CAnimCompStream AnimCompStream;
             public CAnimSequence AnimSequence;
             public CAnimGrid AnimGrid;
 
             public CAnim(FileReader reader)
             {
+                long start = reader.Position;
                 BaseInfo = new SBaseInfo(reader);
+                BaseInfoSize = checked((int)(reader.Position - start));
 
                 switch (BaseInfo.Type)
                 {
