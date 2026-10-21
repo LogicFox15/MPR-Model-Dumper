@@ -50,6 +50,7 @@ namespace MetroidPrimeRemasterModelDumper
                 Console.WriteLine("    TERR = Dump TERR (Sol Valley Terrain Resource)");
                 Console.WriteLine("    TECM = Dump TECM (Sol Valley Clip Map Resource)");
                 Console.WriteLine("    ROOM = Dump ROOM and several related files");
+                Console.WriteLine("    ANIM = Anim Test");
                 Console.WriteLine("");
                 Console.WriteLine("WARNING: LOD identification is still buggy. Also, there are still");
                 Console.WriteLine("issues with the UV maps. Dumps may not be 100% accurate.");
@@ -117,6 +118,11 @@ namespace MetroidPrimeRemasterModelDumper
                                 ProcessRoomTest(fileInfo.FileData, fileInfo, pak);
                             savedMode = "ROOM";
                             break;
+                        case "ANIM":
+                            if (fileInfo.AssetEntry.Type == "CHPR")
+                                ExtractAnimationTest(fileInfo.FileData, fileInfo, pak);
+                            savedMode = "ANIM";
+                            break;
                             /*
                         case "MCON":
                             if (fileInfo.AssetEntry.Type == "MCON")
@@ -137,6 +143,16 @@ namespace MetroidPrimeRemasterModelDumper
         }
 
         #region Model Making
+        static void ExtractAnimationTest(Stream stream, FileEntry Entry, PAK pak)
+        {
+            Console.WriteLine("Beginning Character Project extract on file: " + Entry.AssetEntry.FileID.ToString());
+            Console.WriteLine("Character Project size: " + Entry.AssetEntry.Size.ToString("X8"));
+            CHPR chpr = new CHPR(stream);
+            Console.WriteLine("Consumed a CHPR");
+            Console.ReadKey();
+            
+        }
+
         static void ExtractCharacterProject(Stream stream, FileEntry Entry, PAK pak)
         {
             Console.WriteLine("Beginning Character Project extract on file: " + Entry.AssetEntry.FileID.ToString());

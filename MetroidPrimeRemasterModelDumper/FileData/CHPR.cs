@@ -326,283 +326,181 @@ namespace DKCTF
                 }
                 */
 
-                /*
                 for (int r = 0; r < RenderContexts.Count; r++)
                 {
-
-                }
-                */
-
-                // Bone building?
-                for (int i = 0; i < RenderContexts[0].SkinnedMatrixBoneIDs.Length; i++)
-                {
-                    var boneID = RenderContexts[0].SkinnedMatrixBoneIDs[i];
-                    // Find the index where the node ID is located at
-                    var nodeIndex = AbsContext.NodeSet.FindIndex(boneID);
-
-                    string boneName = NamePool.GetString(AbsContext.NodeSet.NameSet, nodeIndex);
-                    this.SkinnedBones.Add(new SkinnedBoneData()
+                    // Bone building?
+                    for (int i = 0; i < RenderContexts[r].SkinnedMatrixBoneIDs.Length; i++)
                     {
-                        Name = boneName,
-                        BoneID = boneID,
-                        NodeIDX = nodeIndex
-                    });
-                }
+                        var boneID = RenderContexts[r].SkinnedMatrixBoneIDs[i];
+                        // Find the index where the node ID is located at
+                        var nodeIndex = AbsContext.NodeSet.FindIndex(boneID);
 
-                // 1. Build the COMPLETE skeleton from the Absolute Context
-                for (int i = 0; i < AbsContext.NodeSet.NodeIDs.Length; i++)
-                {
-                    uint nodeID = AbsContext.NodeSet.NodeIDs[i];
-                    string boneName = NamePool.GetString(AbsContext.NodeSet.NameSet, i);
-
-                    // Section5 perfectly aligns with the global NodeSet for parenting info
-                    ushort parentID = AbsContext.Section5[i].Item1;
-                    int parentIndex = AbsContext.NodeSet.FindIndex(parentID);
-
-                    string parentName = "";
-                    if (parentIndex >= 0)
-                    {
-                        parentName = NamePool.GetString(AbsContext.NodeSet.NameSet, parentIndex);
+                        string boneName = NamePool.GetString(AbsContext.NodeSet.NameSet, nodeIndex);
+                        this.SkinnedBones.Add(new SkinnedBoneData()
+                        {
+                            Name = boneName,
+                            BoneID = boneID,
+                            NodeIDX = nodeIndex
+                        });
                     }
 
-                    Bones.Add(new BoneData()
+                    // 1. Build the COMPLETE skeleton from the Absolute Context
+                    for (int i = 0; i < AbsContext.NodeSet.NodeIDs.Length; i++)
                     {
-                        Name = boneName,
-                        Parent = parentName,
-                        // Default matrices to Identity; we will overwrite the skinned ones below
-                        InverseTransform = Matrix4x4.Identity,
-                        WorldTransform = Matrix4x4.Identity,
-                        LocalTransform = Matrix4x4.Identity
-                    });
-                }
+                        uint nodeID = AbsContext.NodeSet.NodeIDs[i];
+                        string boneName = NamePool.GetString(AbsContext.NodeSet.NameSet, i);
 
-                // 2. Assign Render Context matrices exclusively to the skinned subset
-                HashSet<int> skinnedBoneIndices = new HashSet<int>(); // Track what we've solved
-                for (int i = 0; i < RenderContexts[0].SkinnedMatrixBoneIDs.Length; i++)
-                {
-                    var boneID = RenderContexts[0].SkinnedMatrixBoneIDs[i];
-                    var nodeIndex = AbsContext.NodeSet.FindIndex(boneID);
+                        // Section5 perfectly aligns with the global NodeSet for parenting info
+                        ushort parentID = AbsContext.Section5[i].Item1;
+                        int parentIndex = AbsContext.NodeSet.FindIndex(parentID);
 
-                    if (nodeIndex >= 0 && nodeIndex < Bones.Count)
-                    {
-                        skinnedBoneIndices.Add(nodeIndex);
-                        Matrix4x4.Invert(Matrix4x4.Transpose(RenderContexts[0].SkinnedInverseMatrices[i]), out Matrix4x4 worldSpace);
+                        string parentName = "";
+                        if (parentIndex >= 0)
+                        {
+                            parentName = NamePool.GetString(AbsContext.NodeSet.NameSet, parentIndex);
+                        }
 
-                        Bones[nodeIndex].InverseTransform = RenderContexts[0].SkinnedInverseMatrices[i];
-                        Bones[nodeIndex].WorldTransform = worldSpace;
-                        // LocalTransform is handled in the next step
+                        Bones.Add(new BoneData()
+                        {
+                            Name = boneName,
+                            Parent = parentName,
+                            // Default matrices to Identity; we will overwrite the skinned ones below
+                            InverseTransform = Matrix4x4.Identity,
+                            WorldTransform = Matrix4x4.Identity,
+                            LocalTransform = Matrix4x4.Identity
+                        });
                     }
-                }
+
+                    // 2. Assign Render Context matrices exclusively to the skinned subset
+                    HashSet<int> skinnedBoneIndices = new HashSet<int>(); // Track what we've solved
+                    for (int i = 0; i < RenderContexts[r].SkinnedMatrixBoneIDs.Length; i++)
+                    {
+                        var boneID = RenderContexts[r].SkinnedMatrixBoneIDs[i];
+                        var nodeIndex = AbsContext.NodeSet.FindIndex(boneID);
+
+                        if (nodeIndex >= 0 && nodeIndex < Bones.Count)
+                        {
+                            skinnedBoneIndices.Add(nodeIndex);
+                            Matrix4x4.Invert(Matrix4x4.Transpose(RenderContexts[r].SkinnedInverseMatrices[i]), out Matrix4x4 worldSpace);
+
+                            Bones[nodeIndex].InverseTransform = RenderContexts[r].SkinnedInverseMatrices[i];
+                            Bones[nodeIndex].WorldTransform = worldSpace;
+                            // LocalTransform is handled in the next step
+                        }
+                    }
 
 
-                // This is here because Retro did not include the transforms of unskinned bones. Because of this,
-                // if one wants the rigs to not fall apart immediately, we must average the positions and rotations
-                // of the skinned bones between the neighbors. This is a temporary solution while we try to figure
-                // out how Retro is doing it.
-                bool changed = true;
-                int iterations = 0;
-                while (changed && iterations < 3)
-                {
-                    changed = false;
-                    iterations++;
+                    // This is here because Retro did not include the transforms of unskinned bones. Because of this,
+                    // if one wants the rigs to not fall apart immediately, we must average the positions and rotations
+                    // of the skinned bones between the neighbors. This is a temporary solution while we try to figure
+                    // out how Retro is doing it.
+                    bool changed = true;
+                    int iterations = 0;
+                    while (changed && iterations < 3)
+                    {
+                        changed = false;
+                        iterations++;
 
+                        for (int i = 0; i < Bones.Count; i++)
+                        {
+                            if (skinnedBoneIndices.Contains(i)) continue;
+
+                            List<Vector3> translations = new List<Vector3>();
+                            List<Quaternion> rotations = new List<Quaternion>();
+
+                            // 1. Collect Neighbor Data (Parent)
+                            var parentBone = Bones.FirstOrDefault(b => b.Name == Bones[i].Parent);
+                            if (parentBone != null && parentBone.WorldTransform != Matrix4x4.Identity)
+                            {
+                                if (Matrix4x4.Decompose(parentBone.WorldTransform, out _, out Quaternion pRot, out Vector3 pTrans))
+                                {
+                                    translations.Add(pTrans);
+                                    rotations.Add(pRot);
+                                }
+                            }
+
+                            // 2. Collect Neighbor Data (Children)
+                            var children = Bones.Where(b => b.Parent == Bones[i].Name).ToList();
+                            foreach (var child in children)
+                            {
+                                if (child.WorldTransform != Matrix4x4.Identity)
+                                {
+                                    if (Matrix4x4.Decompose(child.WorldTransform, out _, out Quaternion cRot, out Vector3 cTrans))
+                                    {
+                                        translations.Add(cTrans);
+
+                                        // Ensure the quaternion is in the same hemisphere as the first one to avoid "flipping"
+                                        if (rotations.Count > 0 && Quaternion.Dot(rotations[0], cRot) < 0)
+                                            cRot = Quaternion.Inverse(cRot); // Or -cRot depending on library version
+
+                                        rotations.Add(cRot);
+                                    }
+                                }
+                            }
+
+                            // 3. Average and Apply
+                            if (translations.Count > 0)
+                            {
+                                // Average Position
+                                Vector3 avgPos = Vector3.Zero;
+                                foreach (var t in translations) avgPos += t;
+                                avgPos /= translations.Count;
+
+                                // Average Rotation (Normalized Linear Interpolation)
+                                Quaternion avgRot = rotations[0];
+                                if (rotations.Count > 1)
+                                {
+                                    Vector4 acc = new Vector4(rotations[0].X, rotations[0].Y, rotations[0].Z, rotations[0].W);
+                                    for (int x = 1; x < rotations.Count; x++)
+                                    {
+                                        acc += new Vector4(rotations[x].X, rotations[x].Y, rotations[x].Z, rotations[x].W);
+                                    }
+                                    acc /= rotations.Count;
+                                    avgRot = Quaternion.Normalize(new Quaternion(acc.X, acc.Y, acc.Z, acc.W));
+                                }
+
+                                Matrix4x4 newWorld = Matrix4x4.CreateFromQuaternion(avgRot) * Matrix4x4.CreateTranslation(avgPos);
+
+                                if (Vector3.Distance(Bones[i].WorldTransform.Translation, avgPos) > 0.001f)
+                                {
+                                    Bones[i].WorldTransform = newWorld;
+                                    changed = true;
+                                }
+                            }
+                        }
+                    }
+
+                    // Convert world transforms into local transforms
                     for (int i = 0; i < Bones.Count; i++)
                     {
-                        if (skinnedBoneIndices.Contains(i)) continue;
-
-                        List<Vector3> translations = new List<Vector3>();
-                        List<Quaternion> rotations = new List<Quaternion>();
-
-                        // 1. Collect Neighbor Data (Parent)
-                        var parentBone = Bones.FirstOrDefault(b => b.Name == Bones[i].Parent);
-                        if (parentBone != null && parentBone.WorldTransform != Matrix4x4.Identity)
+                        if (!string.IsNullOrEmpty(Bones[i].Parent))
                         {
-                            if (Matrix4x4.Decompose(parentBone.WorldTransform, out _, out Quaternion pRot, out Vector3 pTrans))
+                            var parent =
+                                Bones.FirstOrDefault(x => x.Name == Bones[i].Parent);
+
+                            if (parent != null)
                             {
-                                translations.Add(pTrans);
-                                rotations.Add(pRot);
+                                Matrix4x4.Invert(
+                                    parent.WorldTransform,
+                                    out Matrix4x4 parentInverse);
+
+                                Bones[i].LocalTransform =
+                                    Bones[i].WorldTransform * parentInverse;
                             }
                         }
-
-                        // 2. Collect Neighbor Data (Children)
-                        var children = Bones.Where(b => b.Parent == Bones[i].Name).ToList();
-                        foreach (var child in children)
+                        else
                         {
-                            if (child.WorldTransform != Matrix4x4.Identity)
-                            {
-                                if (Matrix4x4.Decompose(child.WorldTransform, out _, out Quaternion cRot, out Vector3 cTrans))
-                                {
-                                    translations.Add(cTrans);
-
-                                    // Ensure the quaternion is in the same hemisphere as the first one to avoid "flipping"
-                                    if (rotations.Count > 0 && Quaternion.Dot(rotations[0], cRot) < 0)
-                                        cRot = Quaternion.Inverse(cRot); // Or -cRot depending on library version
-
-                                    rotations.Add(cRot);
-                                }
-                            }
-                        }
-
-                        // 3. Average and Apply
-                        if (translations.Count > 0)
-                        {
-                            // Average Position
-                            Vector3 avgPos = Vector3.Zero;
-                            foreach (var t in translations) avgPos += t;
-                            avgPos /= translations.Count;
-
-                            // Average Rotation (Normalized Linear Interpolation)
-                            Quaternion avgRot = rotations[0];
-                            if (rotations.Count > 1)
-                            {
-                                Vector4 acc = new Vector4(rotations[0].X, rotations[0].Y, rotations[0].Z, rotations[0].W);
-                                for (int x = 1; x < rotations.Count; x++)
-                                {
-                                    acc += new Vector4(rotations[x].X, rotations[x].Y, rotations[x].Z, rotations[x].W);
-                                }
-                                acc /= rotations.Count;
-                                avgRot = Quaternion.Normalize(new Quaternion(acc.X, acc.Y, acc.Z, acc.W));
-                            }
-
-                            Matrix4x4 newWorld = Matrix4x4.CreateFromQuaternion(avgRot) * Matrix4x4.CreateTranslation(avgPos);
-
-                            if (Vector3.Distance(Bones[i].WorldTransform.Translation, avgPos) > 0.001f)
-                            {
-                                Bones[i].WorldTransform = newWorld;
-                                changed = true;
-                            }
+                            // Root bone
+                            Bones[i].LocalTransform = Bones[i].WorldTransform;
                         }
                     }
                 }
 
-                // Convert world transforms into local transforms
-                for (int i = 0; i < Bones.Count; i++)
-                {
-                    if (!string.IsNullOrEmpty(Bones[i].Parent))
-                    {
-                        var parent =
-                            Bones.FirstOrDefault(x => x.Name == Bones[i].Parent);
-
-                        if (parent != null)
-                        {
-                            Matrix4x4.Invert(
-                                parent.WorldTransform,
-                                out Matrix4x4 parentInverse);
-
-                            Bones[i].LocalTransform =
-                                Bones[i].WorldTransform * parentInverse;
-                        }
-                    }
-                    else
-                    {
-                        // Root bone
-                        Bones[i].LocalTransform = Bones[i].WorldTransform;
-                    }
-                }
+                
             }
         }
 
-        private void ReadAnimationPayloads(FileReader reader, long payloadStart, long bodyEnd)
-        {
-            foreach (AnimationArrayEntry entry in animationClipArray)
-            {
-                entry.Animation = null;
-                entry.RawData = Array.Empty<byte>();
-                entry.TrailingData = Array.Empty<byte>();
-                entry.BytesParsed = 0;
-                entry.ParseError = null;
-
-                if (entry.Size == 0)
-                    continue;
-
-                if (entry.Size > int.MaxValue)
-                {
-                    entry.ParseError =
-                        $"Animation range is too large: {entry.Size} bytes.";
-                    continue;
-                }
-
-                // PROVISIONAL:
-                // This assumes entry.offset is relative to payloadStart.
-                long dataStart = checked(payloadStart + (long)entry.Offset);
-                long dataSize = entry.Size;
-
-                if (dataStart < payloadStart ||
-                    dataStart > bodyEnd ||
-                    dataSize > bodyEnd - dataStart)
-                {
-                    entry.ParseError =
-                        $"Animation range is outside the payload: " +
-                        $"offset=0x{entry.Offset:X}, size=0x{entry.Size:X}.";
-
-                    continue;
-                }
-
-                int length = checked((int)entry.Size);
-                byte[] animationBytes;
-
-                using (reader.TemporarySeek(
-                    dataStart,
-                    System.IO.SeekOrigin.Begin))
-                {
-                    animationBytes = reader.ReadBytes(length);
-                }
-
-                if (animationBytes.Length != length)
-                {
-                    entry.ParseError =
-                        $"Unexpected end of stream at animation slot " +
-                        $"{entry.OutputSlot}.";
-
-                    continue;
-                }
-
-                entry.RawData = animationBytes;
-
-                try
-                {
-                    using (FileReader animationReader =
-                           new FileReader(animationBytes))
-                    {
-                        animationReader.SetByteOrder(false);
-
-                        // Reuse your existing nested CAnim parser.
-                        entry.Animation = new CAnim(animationReader);
-
-                        entry.BytesParsed =
-                            checked((int)animationReader.Position);
-
-                        int remaining =
-                            animationBytes.Length - entry.BytesParsed;
-
-                        if (remaining < 0)
-                        {
-                            throw new InvalidDataException(
-                                "Animation parser consumed beyond its data range.");
-                        }
-
-                        if (remaining > 0)
-                        {
-                            entry.TrailingData =
-                                animationReader.ReadBytes(remaining);
-                        }
-                    }
-                }
-                catch (Exception ex) when (
-                    ex is InvalidDataException ||
-                    ex is EndOfStreamException ||
-                    ex is ArgumentException ||
-                    ex is OverflowException ||
-                    ex is IndexOutOfRangeException)
-                {
-                    entry.Animation = null;
-                    entry.BytesParsed = 0;
-                    entry.TrailingData = Array.Empty<byte>();
-                    entry.ParseError = ex.Message;
-                }
-            }
-        }
-
+        
 
         public class BoneData
         {
@@ -1312,6 +1210,116 @@ namespace DKCTF
         }
 
         #region Animation components
+        private void ReadAnimationPayloads(FileReader reader, long payloadStart, long bodyEnd)
+        {
+            int successCount = 0;
+            int failedCount = 0;
+            int emptyCount = 0;
+
+            for (int i = 0; i < animationClipArray.Count; i++)
+            {
+                AnimationArrayEntry entry = animationClipArray[i];
+
+                entry.Animation = null;
+                entry.RawData = Array.Empty<byte>();
+                entry.TrailingData = Array.Empty<byte>();
+                entry.BytesParsed = 0;
+                entry.ParseError = null;
+
+                string label = $"[CHPR] Animation {i + 1}/{animationClipArray.Count} " + $"(slot={entry.OutputSlot}, offset=0x{entry.Offset:X}, " + $"size=0x{entry.Size:X})";
+
+                if (entry.Size == 0)
+                {
+                    emptyCount++;
+                    Console.WriteLine($"{label}: SKIPPED - empty payload.");
+                    continue;
+                }
+
+                if (entry.Size > int.MaxValue)
+                {
+                    entry.ParseError = $"Animation payload is too large: {entry.Size} bytes.";
+
+                    failedCount++;
+                    Console.WriteLine($"{label}: FAILED - {entry.ParseError}");
+
+                    continue;
+                }
+
+                long dataStart = entry.Offset;
+                long dataSize = entry.Size;
+
+                if (dataStart < payloadStart || dataStart > bodyEnd || dataSize > bodyEnd - dataStart)
+                {
+                    entry.ParseError = "Animation range extends beyond the available payload.";
+
+                    failedCount++;
+                    Console.WriteLine($"{label}: FAILED - {entry.ParseError}");
+
+                    continue;
+                }
+
+                int length = checked((int)entry.Size);
+                byte[] animationBytes;
+
+                using (reader.TemporarySeek(dataStart, System.IO.SeekOrigin.Begin))
+                {
+                    animationBytes = reader.ReadBytes(length);
+                }
+
+                if (animationBytes.Length != length)
+                {
+                    entry.ParseError = $"Expected {length} bytes but read " + $"{animationBytes.Length} bytes.";
+                    entry.RawData = animationBytes;
+                    failedCount++;
+
+                    Console.WriteLine($"{label}: FAILED - {entry.ParseError}");
+
+                    continue;
+                }
+
+                entry.RawData = animationBytes;
+
+                try
+                {
+                    using (FileReader animationReader = new FileReader(animationBytes))
+                    {
+                        animationReader.SetByteOrder(false);
+
+                        // Parse the common header and type-specific animation data.
+                        entry.Animation = new CAnim(animationReader);
+                        entry.BytesParsed = checked((int)animationReader.Position);
+
+                        int remaining = animationBytes.Length - entry.BytesParsed;
+                        if (remaining < 0)
+                        {
+                            throw new InvalidDataException("Animation parser consumed beyond its data range.");
+                        }
+
+                        if (remaining > 0)
+                        {
+                            entry.TrailingData = animationReader.ReadBytes(remaining);
+                        }
+                    }
+
+                    successCount++;
+
+                    Console.WriteLine($"{label}: SUCCESS - " + $"type={entry.Animation.BaseInfo.Type}, " + $"index={entry.Animation.BaseInfo.Index}, " + $"parsed={entry.BytesParsed}/{length} bytes, " + $"trailing={entry.TrailingData.Length} bytes.");
+                }
+                catch (Exception ex)
+                {
+                    entry.Animation = null;
+                    entry.BytesParsed = 0;
+                    entry.TrailingData = Array.Empty<byte>();
+                    entry.ParseError = $"{ex.GetType().Name}: {ex.Message}";
+
+                    failedCount++;
+
+                    Console.WriteLine($"{label}: FAILED - {entry.ParseError}");
+                }
+            }
+
+            Console.WriteLine($"[CHPR] Animation reading finished: " + $"{successCount} succeeded, {failedCount} failed, " + $"{emptyCount} empty.");
+        }
 
         public class SBaseInfo
         {
@@ -1377,12 +1385,15 @@ namespace DKCTF
             public uint Unk7;
             public ushort Unk8;
 
+            public byte[] HeaderExtension = Array.Empty<byte>();
             public byte[] Data;
 
             public CPooledName PooledName;
 
             public CAnimCompStream(FileReader reader)
             {
+                long start = reader.Position;
+
                 TotalSize = reader.ReadUInt32();
                 DataOffset = reader.ReadUInt16();
                 Unk3 = reader.ReadUInt16();
@@ -1392,7 +1403,32 @@ namespace DKCTF
                 Unk7 = reader.ReadUInt32();
                 Unk8 = reader.ReadUInt16();
 
-                Data = reader.ReadBytes((int)(TotalSize - DataOffset));
+                const int ParsedHeaderSize = 24;
+
+                if (TotalSize < ParsedHeaderSize || TotalSize > int.MaxValue)
+                    throw new InvalidDataException(
+                        $"Invalid CHPR CompStream size: {TotalSize}");
+
+                if (DataOffset < ParsedHeaderSize || DataOffset > TotalSize)
+                    throw new InvalidDataException(
+                        $"Invalid CHPR CompStream data offset: {DataOffset}");
+
+                int extensionSize = DataOffset - ParsedHeaderSize;
+                int dataSize = checked((int)(TotalSize - DataOffset));
+
+                HeaderExtension = reader.ReadBytes(extensionSize);
+                if (HeaderExtension.Length != extensionSize)
+                    throw new EndOfStreamException(
+                        "Unexpected end of CHPR CompStream header.");
+
+                Data = reader.ReadBytes(dataSize);
+                if (Data.Length != dataSize)
+                    throw new EndOfStreamException(
+                        "Unexpected end of CHPR CompStream data.");
+
+                if (reader.Position - start != TotalSize)
+                    throw new InvalidDataException(
+                        "CHPR CompStream did not consume its declared size.");
             }
         }
 
