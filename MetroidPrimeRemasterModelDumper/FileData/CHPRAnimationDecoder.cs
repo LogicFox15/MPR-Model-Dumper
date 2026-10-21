@@ -558,11 +558,12 @@ public sealed class CHPRAnimationDecoder
                 Group group = stream.Groups[list[0]];
                 if (group.Type == 3)
                 {
-                    ulong flags = reader.Read(list.Length - 1);
+                    // A group can contain more than 64 channels. Consume each flag in stream
+                    // order instead of packing the whole group into a single ulong.
                     for (int k = 1; k < list.Length; k++)
                     {
                         long key = ((long)s << 40) | ((long)list[0] << 20) | (uint)list[k];
-                        _flags[key] = (int)((flags >> (k - 1)) & 1);
+                        _flags[key] = (int)reader.Read(1);
                     }
                     continue;
                 }
