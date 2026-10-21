@@ -1,4 +1,4 @@
-﻿using AvaloniaToolbox.Core.IO;
+using AvaloniaToolbox.Core.IO;
 using DKCTF;
 using EvilWithin2Tool;
 using ImageLibrary;
@@ -141,7 +141,26 @@ namespace MetroidPrimeRemasterModelDumper
         {
             Console.WriteLine("Beginning Character Project extract on file: " + Entry.AssetEntry.FileID.ToString());
             Console.WriteLine("Character Project size: " + Entry.AssetEntry.Size.ToString("X8"));
-            CHPR chpr = new CHPR(stream);
+            //This will get overwritten, it's just so the "chpr" variable is set to SOMETHING before the try-catch block
+            CHPR chpr = null;
+            //This should catch errors caused by CHPRs that don't have any SMDL references
+            try
+            {
+                chpr = new CHPR(stream);
+            }
+            catch (ArgumentOutOfRangeException e)
+            {
+                Console.WriteLine("An ArgumentOutOfRangeException occurred while attempting to get the CHPR stream.");
+                Console.WriteLine("Skipping CHPR...");
+                return;
+            }
+            catch (Exception e)
+            {
+                //Shouldn't reach here, but in case it does...
+                Console.WriteLine("An exception occurred while attempting to get the CHPR stream.");
+                Console.WriteLine("Skipping CHPR...");
+                return;
+            }
 
             foreach (var charInfo in chpr.CharacterInfos)
             {
@@ -150,6 +169,14 @@ namespace MetroidPrimeRemasterModelDumper
                     FileEntry file = new FileEntry();
                     file = SearchForFile(model.ModelFileGuid.ToString());
 
+                    //This SHOULD be a failsafe in case there's any nonexistent SMDL files, but it doesn't work properly...
+                    if (file == null)
+                    {
+                        Console.WriteLine("Error while trying to locate " + model.ModelFileGuid.ToString());
+                        continue;
+                    }
+
+                    //... So this is a failsafe for the above failsafe; it seems to catch the ones that slip by the normal failsafe.
                     if (file == null)
                     {
                         Console.WriteLine("Error while trying to locate " + model.ModelFileGuid.ToString());
@@ -164,8 +191,23 @@ namespace MetroidPrimeRemasterModelDumper
                     //string folder = charInfo.NamePool.GetString(chpr.CharacterInfos[0].SubCharData.SubChars[0].Name);
 
                     // Add pak folder name onto it
-                    folder = Path.Combine(Path.GetFileNameWithoutExtension(pak.FileInfo.FilePath), folder,
-                        file.AssetEntry.FileID.ToString());
+                    //... And also a failsafe for the failsafe's failsafe! How does this keep happening?!
+                    try
+                    {
+                        folder = Path.Combine(Path.GetFileNameWithoutExtension(pak.FileInfo.FilePath), folder,
+                            file.AssetEntry.FileID.ToString());
+                    }
+                    catch (NullReferenceException e)
+                    {
+                        Console.WriteLine("Error while trying to locate " + model.ModelFileGuid.ToString());
+                        continue;
+                    }
+                    catch (Exception e)
+                    {
+                        //Should NOT reach here, but just in case
+                        Console.WriteLine("Error while trying to locate " + model.ModelFileGuid.ToString());
+                        continue;
+                    }
 
                     //Console.WriteLine(model.ModelFileGuid.ToString());
 
