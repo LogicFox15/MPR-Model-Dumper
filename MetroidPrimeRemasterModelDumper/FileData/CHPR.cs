@@ -167,10 +167,9 @@ namespace DKCTF
             public CAnim Animation;
             // Original data is retained even if parsing fails.
             public byte[] RawData = Array.Empty<byte>();
-            // Parsed type-0 CompStream decoder. The player contains per-clip playback state.
+            // Parsed native CompStream header and stream table.
             public CHPRAnimationDecoder DecodedCompStream;
-            public CHPRAnimationDecoder.Player AnimationPlayer;
-            // Decoder failures are kept separate from structural CAnim parse failures.
+            // Native decoder failures are kept separate from structural CAnim parse failures.
             public string DecodeError;
             // Number of bytes consumed by CAnim.
             public int BytesParsed;
@@ -1228,7 +1227,6 @@ namespace DKCTF
                 entry.Animation = null;
                 entry.RawData = Array.Empty<byte>();
                 entry.DecodedCompStream = null;
-                entry.AnimationPlayer = null;
                 entry.DecodeError = null;
                 entry.TrailingData = Array.Empty<byte>();
                 entry.BytesParsed = 0;
@@ -1307,8 +1305,6 @@ namespace DKCTF
                                 entry.DecodedCompStream = CHPRAnimationDecoder.Read(
                                     animationBytes,
                                     entry.Animation.BaseInfoSize);
-                                entry.DecodedCompStream.SetConstantPools(GetConstantPoolsByIndex());
-                                entry.AnimationPlayer = entry.DecodedCompStream.CreatePlayer();
                             }
                             catch (Exception decoderException)
                             {
@@ -1331,11 +1327,11 @@ namespace DKCTF
 
                     successCount++;
 
-                    string decoderSummary = entry.AnimationPlayer != null
-                        ? $" decoder=ready (frames={entry.DecodedCompStream.Frames}, " +
-                          $"streams={entry.DecodedCompStream.Streams.Count})"
+                    string decoderSummary = entry.DecodedCompStream != null
+                        ? $" native-stream-table=parsed (streams={entry.DecodedCompStream.Streams.Count}, " +
+                          $"tableBits={entry.DecodedCompStream.StreamTableBitsConsumed})"
                         : entry.DecodeError != null
-                            ? $" decoder=failed ({entry.DecodeError})"
+                            ? $" native-stream-table=failed ({entry.DecodeError})"
                             : string.Empty;
 
                     Console.WriteLine($"{label}: SUCCESS - " + $"type={entry.Animation.BaseInfo.Type}, " +
@@ -1346,7 +1342,6 @@ namespace DKCTF
                 {
                     entry.Animation = null;
                     entry.DecodedCompStream = null;
-                    entry.AnimationPlayer = null;
                     entry.DecodeError = null;
                     entry.BytesParsed = 0;
                     entry.TrailingData = Array.Empty<byte>();
@@ -1359,31 +1354,6 @@ namespace DKCTF
             }
 
             Console.WriteLine($"[CHPR] Animation reading finished: " + $"{successCount} succeeded, {failedCount} failed, " + $"{emptyCount} empty.");
-        }
-
-        // The constant-pool record's first ushort is the pool index. Build an indexed array
-        // so stream metadata can select a pool directly; preserve gaps instead of compacting.
-        private float[][] GetConstantPoolsByIndex()
-        {
-            List<SConstPool> sourcePools = CharacterInfos
-                .SelectMany(info => info.ConstPools)
-                .ToList();
-
-            if (sourcePools.Count == 0)
-                return Array.Empty<float[]>();
-
-            int maximumIndex = sourcePools.Max(pool => (int)pool.Unknown1);
-            if (maximumIndex > 4095)
-                throw new InvalidDataException($"Unreasonable CHPR constant-pool index: {maximumIndex}");
-
-            float[][] pools = new float[maximumIndex + 1][];
-            foreach (SConstPool pool in sourcePools)
-            {
-                if (pool.Unknown1 < pools.Length)
-                    pools[pool.Unknown1] = pool.Unknowns2 ?? Array.Empty<float>();
-            }
-
-            return pools;
         }
 
         public class SBaseInfo
