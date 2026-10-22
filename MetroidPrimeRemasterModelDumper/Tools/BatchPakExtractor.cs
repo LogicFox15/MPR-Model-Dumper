@@ -149,97 +149,46 @@ namespace MetroidPrimeRemasterModelDumper
             Console.WriteLine("Character Project size: " + Entry.AssetEntry.Size.ToString("X8"));
             CHPR chpr = new CHPR(stream);
             Console.WriteLine("Consumed a CHPR");
-            Console.ReadKey();
-            
         }
 
         static void ExtractCharacterProject(Stream stream, FileEntry Entry, PAK pak)
         {
-            Console.WriteLine("Beginning Character Project extract on file: " + Entry.AssetEntry.FileID.ToString());
-            Console.WriteLine("Character Project size: " + Entry.AssetEntry.Size.ToString("X8"));
-            //This will get overwritten, it's just so the "chpr" variable is set to SOMETHING before the try-catch block
-            CHPR chpr = null;
-            //This should catch errors caused by CHPRs that don't have any SMDL references
             try
             {
-                chpr = new CHPR(stream);
-            }
-            catch (ArgumentOutOfRangeException e)
-            {
-                Console.WriteLine("An ArgumentOutOfRangeException occurred while attempting to get the CHPR stream.");
-                Console.WriteLine("Skipping CHPR...");
-                return;
+                Console.WriteLine("Beginning Character Project extract on file: " + Entry.AssetEntry.FileID.ToString());
+                Console.WriteLine("Character Project size: " + Entry.AssetEntry.Size.ToString("X8"));
+                //This will get overwritten, it's just so the "chpr" variable is set to SOMETHING before the try-catch block
+                CHPR chpr = new CHPR(stream);
+
+                foreach (var charInfo in chpr.CharacterInfos)
+                {
+                    foreach (var model in charInfo.ModelNodes)
+                    {
+                        FileEntry file = new FileEntry();
+                        file = SearchForFile(model.ModelFileGuid.ToString());
+
+                        // sub name
+                        string folder = "CHPR_" + Entry.AssetEntry.FileID.ToString();
+                        folder = Path.Combine(Path.GetFileNameWithoutExtension(pak.FileInfo.FilePath), folder, file.AssetEntry.FileID.ToString());
+                        if (!Directory.Exists(folder))
+                            Directory.CreateDirectory(folder);
+
+                        var cmdl = new CMDL(file.FileData);
+                        string modelName = charInfo.NamePool.GetString(model.Name);
+
+                        string path = Path.Combine(folder, modelName);
+                        CMDLExporter.Export(cmdl, path, chpr, saveLODs);
+                        Console.WriteLine("Exported file " + file.AssetEntry.FileID.ToString());
+                        Console.WriteLine("");
+                    }
+                }
             }
             catch (Exception e)
             {
-                //Shouldn't reach here, but in case it does...
-                Console.WriteLine("An exception occurred while attempting to get the CHPR stream.");
-                Console.WriteLine("Skipping CHPR...");
-                return;
-            }
-
-            foreach (var charInfo in chpr.CharacterInfos)
-            {
-                foreach (var model in charInfo.ModelNodes)
-                {
-                    FileEntry file = new FileEntry();
-                    file = SearchForFile(model.ModelFileGuid.ToString());
-
-                    //This SHOULD be a failsafe in case there's any nonexistent SMDL files, but it doesn't work properly...
-                    if (file == null)
-                    {
-                        Console.WriteLine("Error while trying to locate " + model.ModelFileGuid.ToString());
-                        continue;
-                    }
-
-                    //... So this is a failsafe for the above failsafe; it seems to catch the ones that slip by the normal failsafe.
-                    if (file == null)
-                    {
-                        Console.WriteLine("Error while trying to locate " + model.ModelFileGuid.ToString());
-                        continue;
-                    }
-
-                    //Console.WriteLine("Located File " + model.ModelFileGuid.ToString());
-
-                    // sub name
-
-                    string folder = "CHPR_" + Entry.AssetEntry.FileID.ToString();
-                    //string folder = charInfo.NamePool.GetString(chpr.CharacterInfos[0].SubCharData.SubChars[0].Name);
-
-                    // Add pak folder name onto it
-                    //... And also a failsafe for the failsafe's failsafe! How does this keep happening?!
-                    try
-                    {
-                        folder = Path.Combine(Path.GetFileNameWithoutExtension(pak.FileInfo.FilePath), folder,
-                            file.AssetEntry.FileID.ToString());
-                    }
-                    catch (NullReferenceException e)
-                    {
-                        Console.WriteLine("Error while trying to locate " + model.ModelFileGuid.ToString());
-                        continue;
-                    }
-                    catch (Exception e)
-                    {
-                        //Should NOT reach here, but just in case
-                        Console.WriteLine("Error while trying to locate " + model.ModelFileGuid.ToString());
-                        continue;
-                    }
-
-                    //Console.WriteLine(model.ModelFileGuid.ToString());
-
-                    if (!Directory.Exists(folder))
-                        Directory.CreateDirectory(folder);
-
-                    var cmdl = new CMDL(file.FileData);
-                    string modelName = charInfo.NamePool.GetString(model.Name);
-
-                    string path = Path.Combine(folder, modelName);
-                    CMDLExporter.Export(cmdl, path, chpr, saveLODs);
-                    Console.WriteLine("Exported file " + file.AssetEntry.FileID.ToString());
-                    Console.WriteLine("");
-                    //throw new Exception("Kill application.");
-
-                }
+                Console.WriteLine(e);
+                Console.WriteLine("An error occurred while attempting to export a model from a CHPR file. This will not");
+                Console.WriteLine("kill the tool. Press any key to continue.");
+                Console.ReadKey();
             }
         }
 
