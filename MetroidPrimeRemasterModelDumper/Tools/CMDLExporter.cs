@@ -10,6 +10,7 @@ using IONET.Core.Skeleton;
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Numerics;
 using System.Text;
@@ -23,7 +24,102 @@ namespace EvilWithin2Tool
 {
     public class CMDLExporter
     {
-        public static void Export(CMDL cmdl, string path, CHPR charProject = null, bool saveLODs = false)
+        /// <summary>
+        /// Exports a standalone CHPR rig used as the shared target for that character
+        /// project's animation clips. Individual skin exports can keep their own rig
+        /// but omit the duplicated baked animation tracks.
+        /// </summary>
+        public static void ExportRig(string path, CHPR charProject)
+        {
+            if (charProject == null || charProject.CharacterInfos.Count == 0)
+                throw new ArgumentException("Cannot export a shared rig without CHPR CharacterInfo.", nameof(charProject));
+            if (string.IsNullOrWhiteSpace(path))
+                throw new ArgumentException("A shared-rig output path is required.", nameof(path));
+
+            CHPR.CharacterInfo characterInfo = charProject.CharacterInfos[0];
+            IOScene scene = new IOScene();
+            IOModel model = new IOModel();
+            scene.Models.Add(model);
+
+            Console.WriteLine($"[CHPR] Preparing shared rig hierarchy: {characterInfo.Bones.Count} bones.");
+            List<IOBone> bones = BuildBones(characterInfo);
+            Console.WriteLine($"[CHPR] Shared rig hierarchy prepared: {bones.Count} nodes.");
+
+            foreach (IOBone bone in bones)
+            {
+                if (bone.Parent == null)
+                    model.Skeleton.RootBones.Add(bone);
+            }
+
+            string outputFile = path.EndsWith(".gltf", StringComparison.OrdinalIgnoreCase)
+                ? path
+                : path + ".gltf";
+            string outputDirectory = Path.GetDirectoryName(Path.GetFullPath(outputFile));
+            if (!string.IsNullOrEmpty(outputDirectory))
+                Directory.CreateDirectory(outputDirectory);
+
+            Console.WriteLine($"[CHPR] Writing shared animation rig: bones={bones.Count}, output={outputFile}");
+            // Preserve every hierarchy node in this mesh-free file; no mesh optimization is needed.
+            IOManager.ExportScene(scene, outputFile, new ExportSettings
+            {
+                Optimize = false
+            });
+            Console.WriteLine($"[CHPR] Shared animation rig written: {outputFile}");
+        }
+
+        private static List<IOBone> BuildBones(CHPR.CharacterInfo characterInfo)
+        {
+            var bones = new List<IOBone>(characterInfo.Bones.Count);
+            foreach (CHPR.BoneData bone in characterInfo.Bones)
+            {
+                if (!Matrix4x4.Decompose(bone.LocalTransform, out Vector3 scale,
+                        out Quaternion rotation, out Vector3 translation))
+                {
+                    scale = Vector3.One;
+                    rotation = Quaternion.Identity;
+                    translation = Vector3.Zero;
+                }
+
+                bones.Add(new IOBone
+                {
+                    Name = bone.Name,
+                    Rotation = rotation,
+                    Scale = scale,
+                    Translation = translation
+                });
+            }
+
+            // Preserve the original first-match behavior for duplicate names while making
+            // parent lookup linear rather than scanning the full skeleton for every bone.
+            var firstBoneByName = new Dictionary<string, IOBone>(StringComparer.Ordinal);
+            foreach (IOBone bone in bones)
+            {
+                // Match string equality from the previous FirstOrDefault implementation:
+                // null names never matched an empty parent-name string.
+                if (bone.Name == null)
+                    continue;
+
+                if (!firstBoneByName.ContainsKey(bone.Name))
+                    firstBoneByName.Add(bone.Name, bone);
+            }
+
+            for (int i = 0; i < bones.Count; i++)
+            {
+                string parentName = characterInfo.Bones[i].Parent;
+                if (parentName == null)
+                    continue;
+
+                if (firstBoneByName.TryGetValue(parentName, out IOBone parent) &&
+                    !ReferenceEquals(parent, bones[i]))
+                {
+                    parent.AddChild(bones[i]);
+                }
+            }
+
+            return bones;
+        }
+
+        public static void Export(CMDL cmdl, string path, CHPR charProject = null, bool saveLODs = false, bool appendAnimations = true)
         {
             //string vertexContents = "";
             IOScene ioscene = new IOScene();
@@ -44,32 +140,8 @@ namespace EvilWithin2Tool
 
             if (charProject != null)
             {
-                List<IOBone> iobones = new List<IOBone>();
-                foreach (var bone in charProject.CharacterInfos[0].Bones)
-                {
-                    Matrix4x4.Decompose(bone.LocalTransform,
-                        out Vector3 scale,
-                        out Quaternion rotation,
-                        out Vector3 translation);
-
-                    iobones.Add(new IOBone()
-                    {
-                        Name = bone.Name,
-                        Rotation = rotation,
-                        Scale = scale,
-                        Translation = translation,
-                    });
-                }
-                for (int i = 0; i < iobones.Count; i++)
-                {
-                    var parentName = charProject.CharacterInfos[0].Bones[i].Parent;
-
-                    var ioparent = iobones.FirstOrDefault(x => x.Name == parentName);
-                    if (ioparent != null)
-                        ioparent.AddChild(iobones[i]);
-                }
-
-                foreach (var iobone in iobones)
+                List<IOBone> iobones = BuildBones(charProject.CharacterInfos[0]);
+                foreach (IOBone iobone in iobones)
                     if (iobone.Parent == null)
                         iomodel.Skeleton.RootBones.Add(iobone);
             }
@@ -349,6 +421,24 @@ namespace EvilWithin2Tool
             {
                 Optimize = true,
             });
+
+            // The static model is written first. CompStream animations are appended
+            // afterward so a decoder failure does not prevent the model export.
+            if (charProject != null && appendAnimations)
+            {
+                try
+                {
+                    bool appended = CHPRAnimationExporter.AppendToGltf(path + ".gltf", charProject, out string animationReport);
+                    Console.WriteLine("[CHPR] " + animationReport);
+                    if (!appended)
+                        Console.WriteLine("[CHPR] Static model export remains available without baked animation channels.");
+                }
+                catch (Exception animationEx)
+                {
+                    Console.WriteLine("[CHPR] Animation export failed without aborting static model export: " +
+                        animationEx.GetType().Name + ": " + animationEx.Message);
+                }
+            }
 
             // Temporary kill switch
             //throw new Exception("Exported a rig, hopefully");

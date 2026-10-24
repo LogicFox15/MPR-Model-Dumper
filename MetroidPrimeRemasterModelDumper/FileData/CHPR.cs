@@ -17,6 +17,10 @@ namespace DKCTF
         private List<AnimationArrayEntry> animationClipArray = new List<AnimationArrayEntry>();
         public List<AnimationArrayEntry> animations => animationClipArray;
 
+        // Preserve the parsed CHPR body so pose-address mapping can be retried at export time
+        // if an exporter receives CharacterInfo bones without the addresses assigned at parse time.
+        private byte[] characterProjectBodyData = Array.Empty<byte>();
+
         #region Meta Data Variables
         public CCharInfoMetaData Meta;
         private uint arrayCount1;
@@ -118,6 +122,15 @@ namespace DKCTF
                 throw new InvalidDataException($"Invalid CHPR body boundary: 0x{bodyEnd:X}");
             }
 
+            long bodyLengthLong = bodyEnd - payloadStart;
+            if (bodyLengthLong < 0 || bodyLengthLong > int.MaxValue)
+                throw new InvalidDataException($"CHPR body length is outside supported bounds: {bodyLengthLong}.");
+
+            byte[] bodyData;
+            using (reader.TemporarySeek(payloadStart, System.IO.SeekOrigin.Begin))
+                bodyData = reader.ReadBytes((int)bodyLengthLong);
+            characterProjectBodyData = bodyData;
+
             long tableBytes = checked((long)arrayCount1 * 12L + (long)storedAnimationCount * 12L);
 
             if (tableBytes > bodyEnd - reader.Position)
@@ -136,10 +149,69 @@ namespace DKCTF
                 throw new InvalidDataException("CHPR partition tables extend beyond the body boundary.");
             }
 
-            CharacterInfos.Add(new CharacterInfo(reader));
+            var characterInfo = new CharacterInfo(reader);
+            CharacterInfos.Add(characterInfo);
+
+            ReportPoseAddressMap(characterInfo, retry: false);
 
             // Build Animations
             ReadAnimationPayloads(reader, payloadStart, bodyEnd);
+        }
+
+        /// <summary>
+        /// Ensures the primary CharacterInfo has pose addresses. The map is normally
+        /// assigned during parsing; this retries it only when an exporter sees none.
+        /// </summary>
+        public int EnsurePoseAddressMap()
+        {
+            if (CharacterInfos.Count == 0)
+                return 0;
+
+            CharacterInfo characterInfo = CharacterInfos[0];
+            int existingCount = 0;
+            foreach (BoneData bone in characterInfo.Bones)
+                if (bone.PoseAddress >= 0)
+                    existingCount++;
+
+            if (existingCount > 0)
+                return existingCount;
+
+            if (characterProjectBodyData == null || characterProjectBodyData.Length == 0)
+            {
+                Console.WriteLine("[CHPR] Pose-address map retry unavailable: original CHPR body was not retained.");
+                return 0;
+            }
+
+            ReportPoseAddressMap(characterInfo, retry: true);
+
+            int recoveredCount = 0;
+            foreach (BoneData bone in characterInfo.Bones)
+                if (bone.PoseAddress >= 0)
+                    recoveredCount++;
+
+            return recoveredCount;
+        }
+
+        private void ReportPoseAddressMap(CharacterInfo characterInfo, bool retry)
+        {
+            CHPRPoseAddressMapper.MappingResult poseAddressMap =
+                CHPRPoseAddressMapper.Assign(characterProjectBodyData, characterInfo);
+
+            string prefix = retry ? "[CHPR] Pose-address map retry" : "[CHPR] Pose-address map";
+            Console.WriteLine($"{prefix}: status={(poseAddressMap.Success ? "mapped" : "unavailable")}, " +
+                $"addressAssignments={poseAddressMap.AddressesAssigned}, " +
+                $"matchedType5Records={poseAddressMap.Type5Records}, " +
+                $"bonesWithFinalAddress={poseAddressMap.BonesWithFinalAddress}, " +
+                $"stringTable=0x{poseAddressMap.StringTableOffset:X}-0x{poseAddressMap.StringTableEnd:X}/" +
+                $"{poseAddressMap.StringCount} strings, " +
+                $"nameList=0x{poseAddressMap.NameListOffset:X}/" +
+                $"{poseAddressMap.NameListCount}, " +
+                $"nodeTable=0x{poseAddressMap.NodeTableOffset:X}, " +
+                $"hierarchy=0x{poseAddressMap.HierarchyOffset:X}, " +
+                $"records={poseAddressMap.HierarchyRecords}.");
+
+            if (!poseAddressMap.Success)
+                Console.WriteLine($"{prefix} warning: {poseAddressMap.Error}");
         }
 
         public class UnknownArrayEntry
@@ -165,6 +237,15 @@ namespace DKCTF
             public uint Size;
             // The parsed animation, when decoding succeeds.
             public CHPRAnimationDecoder.CAnim Animation;
+
+            // Parsed CompStream structure, populated independently of the top-level CAnim parse.
+            public CHPRCompStreamAnimation.ParsedClip CompStreamClip;
+            public string CompStreamParseError;
+
+            // Resolved game clip name from the CHPR name tables, when available.
+            public string GameAnimationName;
+            public int GameAnimationNameIndex = -1;
+
             // Original data is retained even if parsing fails.
             public byte[] RawData = Array.Empty<byte>();
             // Number of bytes consumed by CAnim.
@@ -505,6 +586,12 @@ namespace DKCTF
             public string Name;
             public string Parent;
             public uint ParentIndex;
+
+            // Raw CHPR animation output address: slot | (index << 6).
+            // -1 means no trustworthy hierarchy mapping was recovered.
+            public int PoseAddress = -1;
+            public byte PoseAddressRecordType;
+
             public Matrix4x4 InverseTransform;
             public Matrix4x4 LocalTransform = Matrix4x4.Identity;
             public Matrix4x4 WorldTransform = Matrix4x4.Identity;
@@ -1219,6 +1306,8 @@ namespace DKCTF
                 AnimationArrayEntry entry = animationClipArray[i];
 
                 entry.Animation = null;
+                entry.CompStreamClip = null;
+                entry.CompStreamParseError = null;
                 entry.RawData = Array.Empty<byte>();
                 entry.TrailingData = Array.Empty<byte>();
                 entry.BytesParsed = 0;
@@ -1279,32 +1368,41 @@ namespace DKCTF
 
                 try
                 {
-                    using (FileReader animationReader = new FileReader(animationBytes))
-                    {
-                        animationReader.SetByteOrder(false);
+                    // Parse the common header and type-specific animation data.
+                    CHPRAnimationDecoder.PayloadParseResult result = CHPRAnimationDecoder.ParsePayload(animationBytes);
 
-                        // Parse the common header and type-specific animation data.
-                        CHPRAnimationDecoder.PayloadParseResult result = CHPRAnimationDecoder.ParsePayload(animationBytes);
-
-                        entry.Animation = result.Animation;
-                        entry.BytesParsed = result.BytesParsed;
-                        entry.TrailingData = result.TrailingData;
-
-                        int remaining = animationBytes.Length - entry.BytesParsed;
-                        if (remaining < 0)
-                        {
-                            throw new InvalidDataException("Animation parser consumed beyond its data range.");
-                        }
-
-                        if (remaining > 0)
-                        {
-                            entry.TrailingData = animationReader.ReadBytes(remaining);
-                        }
-                    }
+                    entry.Animation = result.Animation;
+                    entry.BytesParsed = result.BytesParsed;
+                    entry.TrailingData = result.TrailingData;
 
                     successCount++;
 
-                    Console.WriteLine($"{label}: SUCCESS - " + $"type={entry.Animation.BaseInfo.Type}, " + $"index={entry.Animation.BaseInfo.Index}, " + $"parsed={entry.BytesParsed}/{length} bytes, " + $"trailing={entry.TrailingData.Length} bytes.");
+                    Console.WriteLine($"{label}: SUCCESS - " +
+                        $"type={entry.Animation.BaseInfo.Type}, " +
+                        $"index={entry.Animation.BaseInfo.Index}, " +
+                        $"parsed={entry.BytesParsed}/{length} bytes, " +
+                        $"trailing={entry.TrailingData.Length} bytes.");
+
+                    // CompStream parsing is intentionally separate: a new or not-yet-
+                    // understood stream format must not invalidate the outer CAnim parse.
+                    if (entry.Animation.BaseInfo.Type == CHPRAnimationDecoder.AnimType.CompStream)
+                    {
+                        try
+                        {
+                            entry.CompStreamClip = CHPRCompStreamAnimation.ParseAnimationPayload(animationBytes, entry.Animation);
+                            Console.WriteLine($"[CHPR] Animation {i + 1}: CompStream structure parsed - " +
+                                $"streams={entry.CompStreamClip.Streams.Count}, " +
+                                $"descriptorCommands={entry.CompStreamClip.DescriptorCommands.Count}, " +
+                                $"descriptorTerminated={entry.CompStreamClip.DescriptorTerminated}, " +
+                                $"frameCount={entry.CompStreamClip.FrameCount}, " +
+                                $"rate={entry.CompStreamClip.Rate}.");
+                        }
+                        catch (Exception streamEx)
+                        {
+                            entry.CompStreamParseError = $"{streamEx.GetType().Name}: {streamEx.Message}";
+                            Console.WriteLine($"[CHPR] Animation {i + 1}: CompStream structure parse failed - {entry.CompStreamParseError}");
+                        }
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -1319,7 +1417,43 @@ namespace DKCTF
                 }
             }
 
-            Console.WriteLine($"[CHPR] Animation reading finished: " + $"{successCount} succeeded, {failedCount} failed, " + $"{emptyCount} empty.");
+            // Resolve names after every payload has been parsed so the name mapper can
+            // compare known frame counts and infer this file's payload-id offset.
+            CHPRAnimationNameMapper.MappingResult nameResult =
+                CHPRAnimationNameMapper.Assign(characterProjectBodyData, animationClipArray);
+            Console.WriteLine($"[CHPR] Animation name mapping: resolved={nameResult.NamesAssigned}/{animationClipArray.Count}, " +
+                $"stringCount={nameResult.StringCount}, nameListD={nameResult.NameListCount}, " +
+                $"clipRecords={nameResult.ClipRecordCount}, identifier={nameResult.IdentifierField}, " +
+                $"delta={nameResult.IdentifierDelta}, corroborated={nameResult.AlignmentMatches}.");
+
+            // Summarize the inventory in one line as well as the per-entry diagnostics above.
+            // A large table count is not the same as a large number of supported CompStream clips.
+            var parsedTypeCounts = animationClipArray
+                .Where(entry => entry.Animation != null)
+                .GroupBy(entry => (byte)entry.Animation.BaseInfo.Type)
+                .OrderBy(group => group.Key)
+                .Select(group => $"0x{group.Key:X2}={group.Count()}")
+                .ToList();
+
+            int compStreamPayloads = animationClipArray.Count(entry =>
+                entry.Animation != null &&
+                entry.Animation.BaseInfo.Type == CHPRAnimationDecoder.AnimType.CompStream);
+            int compStreamParsed = animationClipArray.Count(entry => entry.CompStreamClip != null);
+            int compStreamStructureFailed = animationClipArray.Count(entry =>
+                entry.Animation != null &&
+                entry.Animation.BaseInfo.Type == CHPRAnimationDecoder.AnimType.CompStream &&
+                entry.CompStreamClip == null);
+            int sequenceCount = animationClipArray.Count(entry =>
+                entry.Animation != null &&
+                entry.Animation.BaseInfo.Type == CHPRAnimationDecoder.AnimType.Sequence);
+            int gridCount = animationClipArray.Count(entry =>
+                entry.Animation != null &&
+                entry.Animation.BaseInfo.Type == CHPRAnimationDecoder.AnimType.Grid);
+
+            Console.WriteLine($"[CHPR] Animation reading finished: {successCount} succeeded, {failedCount} failed, {emptyCount} empty.");
+            Console.WriteLine($"[CHPR] Animation inventory: entries={animationClipArray.Count}, parsedTypes=[{string.Join(", ", parsedTypeCounts)}], " +
+                $"CompStream={compStreamPayloads} (parsed={compStreamParsed}, structureFailed={compStreamStructureFailed}), " +
+                $"Sequence={sequenceCount}, Grid={gridCount}.");
         }
         #endregion
 

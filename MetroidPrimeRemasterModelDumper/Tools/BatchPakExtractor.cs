@@ -147,48 +147,372 @@ namespace MetroidPrimeRemasterModelDumper
         {
             Console.WriteLine("Beginning Character Project extract on file: " + Entry.AssetEntry.FileID.ToString());
             Console.WriteLine("Character Project size: " + Entry.AssetEntry.Size.ToString("X8"));
+
             CHPR chpr = new CHPR(stream);
-            Console.WriteLine("Consumed a CHPR");
+            List<float[]> constantPools = BuildAnimationConstantPools(chpr);
+
+            Console.WriteLine($"[CHPR] Parsed CHPR: {chpr.animations.Count} animation entries, " +
+                $"{chpr.CharacterInfos.Count} character-info records, " +
+                $"{constantPools.Count} indexed constant pools.");
+
+            for (int i = 0; i < chpr.animations.Count; i++)
+            {
+                CHPR.AnimationArrayEntry entry = chpr.animations[i];
+                if (entry.CompStreamClip == null)
+                {
+                    if (!string.IsNullOrEmpty(entry.CompStreamParseError))
+                        Console.WriteLine($"[CHPR] Animation {i}: structural parse failed: {entry.CompStreamParseError}");
+                    continue;
+                }
+
+                try
+                {
+                    CHPRCompStreamAnimation.ParsedClip clip = entry.CompStreamClip;
+                    CHPRCompStreamAnimation.Player player = CHPRCompStreamAnimation.CreatePlayer(clip);
+                    float middleFrame = clip.FrameCount > 0 ? (clip.FrameCount - 1) / 2.0f : 0.0f;
+                    float lastFrame = clip.FrameCount > 0 ? clip.FrameCount - 1 : 0.0f;
+
+                    CHPRCompStreamAnimation.Pose first = player.Sample(0.0f, constantPools);
+                    CHPRCompStreamAnimation.Pose middle = player.Sample(middleFrame, constantPools);
+                    CHPRCompStreamAnimation.Pose last = player.Sample(lastFrame, constantPools);
+
+                    int changedToMiddle = CountChangedTransformAddresses(first, middle,
+                        out int changedComponentsToMiddle, out float maxDeltaToMiddle);
+                    int changedToLast = CountChangedTransformAddresses(first, last,
+                        out int changedComponentsToLast, out float maxDeltaToLast);
+
+                    Console.WriteLine($"[CHPR] Animation {i}: sampled frame 0 / {middleFrame:0.###} / {lastFrame:0.###}; " +
+                        $"pose outputs first={first.Transforms.Count} transforms, middle={middle.Transforms.Count}, last={last.Transforms.Count}; " +
+                        $"finite transform values first={CountFiniteTransformComponents(first)}, " +
+                        $"middle={CountFiniteTransformComponents(middle)}, last={CountFiniteTransformComponents(last)}; " +
+                        $"changed first->middle={changedToMiddle} transforms/{changedComponentsToMiddle} components (maxDelta={maxDeltaToMiddle:G6}), " +
+                        $"first->last={changedToLast} transforms/{changedComponentsToLast} components (maxDelta={maxDeltaToLast:G6}); " +
+                        $"float outputs={last.Floats.Count}, int outputs={last.Ints.Count}.");
+
+                    // The three-point comparison above can miss changes that occur
+                    // between samples, so sweep every integer frame with a fresh player.
+                    CHPRCompStreamAnimation.Player sweepPlayer = CHPRCompStreamAnimation.CreatePlayer(clip);
+                    CHPRCompStreamAnimation.Pose previousSweepPose = null;
+                    int transitionsWithChanges = 0;
+                    int changedTransformSamples = 0;
+                    int changedComponentSamples = 0;
+                    float maxAdjacentDelta = 0.0f;
+                    int firstChangedFrame = -1;
+                    int lastChangedFrame = -1;
+
+                    for (int frame = 0; frame < clip.FrameCount; frame++)
+                    {
+                        CHPRCompStreamAnimation.Pose currentSweepPose = sweepPlayer.Sample(frame, constantPools);
+                        if (previousSweepPose != null)
+                        {
+                            int changed = CountChangedTransformAddresses(
+                                previousSweepPose,
+                                currentSweepPose,
+                                out int changedComponents,
+                                out float frameMaxDelta);
+
+                            if (changed > 0)
+                            {
+                                transitionsWithChanges++;
+                                changedTransformSamples += changed;
+                                changedComponentSamples += changedComponents;
+                                if (firstChangedFrame < 0)
+                                    firstChangedFrame = frame;
+                                lastChangedFrame = frame;
+                                if (frameMaxDelta > maxAdjacentDelta)
+                                    maxAdjacentDelta = frameMaxDelta;
+                            }
+                        }
+
+                        previousSweepPose = currentSweepPose;
+                    }
+
+                    Console.WriteLine($"[CHPR] Animation {i}: full-frame scan changedTransitions={transitionsWithChanges}/{Math.Max(0, clip.FrameCount - 1)}, " +
+                        $"changedTransformSamples={changedTransformSamples}, changedComponentSamples={changedComponentSamples}, " +
+                        $"maxAdjacentDelta={maxAdjacentDelta:G6}, firstChangedFrame={firstChangedFrame}, lastChangedFrame={lastChangedFrame}.");
+
+                    if (transitionsWithChanges == 0)
+                    {
+                        foreach (CHPRCompStreamAnimation.StreamInfo streamInfo in clip.Streams)
+                        {
+                            string groupSummary = string.Join(",", streamInfo.Groups.Select(group =>
+                                $"g{group.Index}:t{group.Type}/c{group.ChannelCount}/{(group.Hold ? "hold" : "nonhold")}"));
+                            Console.WriteLine($"[CHPR] Animation {i} stream {streamInfo.Index}: " +
+                                $"bitstream=0x{streamInfo.BitstreamOffset:X}, sampling=0x{streamInfo.SamplingBytecodeOffset:X}, " +
+                                $"rateMultiplier={streamInfo.RateMultiplier}, lastFrame={streamInfo.LastFrame}, " +
+                                $"changedCountBits={streamInfo.ChangedChannelCountBits}, channels={streamInfo.ChannelCount}, " +
+                                $"hasConstants={streamInfo.HasConstants}, constantPool={streamInfo.ConstantPoolIndex}, " +
+                                $"groups=[{groupSummary}].");
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[CHPR] Animation {i}: sampling failed: {ex.GetType().Name}: {ex.Message}");
+                }
+            }
+
+            Console.WriteLine("[CHPR] Animation test pass finished.");
+        }
+
+        private static List<float[]> BuildAnimationConstantPools(CHPR chpr)
+        {
+            var pools = new List<float[]>();
+            if (chpr == null || chpr.CharacterInfos.Count == 0)
+                return pools;
+
+            // SConstPool.Unknown1 is retained as the pool index by the current
+            // CHPR reader. Preserve holes rather than shifting later pool IDs.
+            foreach (CHPR.SConstPool pool in chpr.CharacterInfos[0].ConstPools)
+            {
+                if (pool.Unknowns2 == null)
+                    continue;
+
+                while (pools.Count <= pool.Unknown1)
+                    pools.Add(null);
+
+                pools[pool.Unknown1] = pool.Unknowns2;
+            }
+
+            return pools;
+        }
+
+        private static int CountFiniteTransformComponents(CHPRCompStreamAnimation.Pose pose)
+        {
+            int count = 0;
+            foreach (float[] transform in pose.Transforms.Values)
+            {
+                foreach (float value in transform)
+                {
+                    if (float.IsFinite(value))
+                        count++;
+                }
+            }
+            return count;
+        }
+
+        private static int CountChangedTransformAddresses(
+            CHPRCompStreamAnimation.Pose from,
+            CHPRCompStreamAnimation.Pose to,
+            out int changedComponents,
+            out float maxAbsDelta)
+        {
+            const float epsilon = 1e-5f;
+            int changedAddresses = 0;
+            changedComponents = 0;
+            maxAbsDelta = 0.0f;
+
+            foreach (KeyValuePair<int, float[]> item in from.Transforms)
+            {
+                if (!to.Transforms.TryGetValue(item.Key, out float[] other))
+                    continue;
+
+                float[] original = item.Value;
+                int componentCount = Math.Min(original.Length, other.Length);
+                bool addressChanged = false;
+
+                for (int component = 0; component < componentCount; component++)
+                {
+                    float a = original[component];
+                    float b = other[component];
+                    if (!float.IsFinite(a) || !float.IsFinite(b))
+                        continue;
+
+                    float delta = Math.Abs(b - a);
+                    if (delta <= epsilon)
+                        continue;
+
+                    changedComponents++;
+                    addressChanged = true;
+                    if (delta > maxAbsDelta)
+                        maxAbsDelta = delta;
+                }
+
+                if (addressChanged)
+                    changedAddresses++;
+            }
+
+            return changedAddresses;
         }
 
         static void ExtractCharacterProject(Stream stream, FileEntry Entry, PAK pak)
+        {
+            string pakFolder = Path.GetFileNameWithoutExtension(pak.FileInfo.FilePath);
+            string projectName = "CHPR_" + Entry.AssetEntry.FileID;
+            string projectFolder = Path.Combine(pakFolder, projectName);
+            string logPath = Path.Combine(projectFolder, projectName + "_Export.log");
+
+            TextWriter originalOut = Console.Out;
+            TextWriter originalError = Console.Error;
+            StreamWriter logWriter;
+
+            try
+            {
+                Directory.CreateDirectory(projectFolder);
+                logWriter = new StreamWriter(logPath, append: false, encoding: new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: false))
+                {
+                    // Keep the log readable even if an export stalls or the process exits unexpectedly.
+                    AutoFlush = true
+                };
+            }
+            catch (Exception logOpenException)
+            {
+                originalOut.WriteLine($"[CHPR] Could not create the CHPR log at '{logPath}': " +
+                    $"{logOpenException.GetType().Name}: {logOpenException.Message}");
+                originalOut.WriteLine("[CHPR] Continuing with console output because log creation failed.");
+                ExtractCharacterProjectCore(stream, Entry, pak, projectFolder, projectName);
+                return;
+            }
+
+            bool completed = false;
+            string unhandledError = null;
+            using (logWriter)
+            {
+                originalOut.WriteLine($"[CHPR] Processing {Entry.AssetEntry.FileID}; detailed output is being written to:");
+                originalOut.WriteLine(Path.GetFullPath(logPath));
+
+                try
+                {
+                    // CHPR parsing and both exporters emit extensive diagnostics through
+                    // Console.WriteLine. Redirect that detail into this CHPR-specific log
+                    // so separate assets do not bury one another in the terminal output.
+                    Console.SetOut(logWriter);
+                    Console.SetError(logWriter);
+                    Console.WriteLine($"[CHPR] Detailed log: {Path.GetFullPath(logPath)}");
+                    completed = ExtractCharacterProjectCore(stream, Entry, pak, projectFolder, projectName);
+                }
+                catch (Exception ex)
+                {
+                    unhandledError = ex.ToString();
+                    logWriter.WriteLine("[CHPR] Unhandled exception escaping the export routine:");
+                    logWriter.WriteLine(unhandledError);
+                }
+                finally
+                {
+                    Console.SetOut(originalOut);
+                    Console.SetError(originalError);
+                }
+            }
+
+            if (!string.IsNullOrEmpty(unhandledError))
+            {
+                originalOut.WriteLine($"[CHPR] Export stopped unexpectedly for {Entry.AssetEntry.FileID}; see the log above.");
+            }
+            else
+            {
+                originalOut.WriteLine($"[CHPR] Export routine {(completed ? "finished" : "reported a failure")} for " +
+                    $"{Entry.AssetEntry.FileID}; see the CHPR log for details.");
+            }
+            originalOut.WriteLine($"[CHPR] Detailed log saved: {Path.GetFullPath(logPath)}");
+        }
+
+        private static bool ExtractCharacterProjectCore(
+            Stream stream,
+            FileEntry Entry,
+            PAK pak,
+            string projectFolder,
+            string projectName)
         {
             try
             {
                 Console.WriteLine("Beginning Character Project extract on file: " + Entry.AssetEntry.FileID.ToString());
                 Console.WriteLine("Character Project size: " + Entry.AssetEntry.Size.ToString("X8"));
-                //This will get overwritten, it's just so the "chpr" variable is set to SOMETHING before the try-catch block
+                Console.WriteLine($"[CHPR] Output folder: {Path.GetFullPath(projectFolder)}");
                 CHPR chpr = new CHPR(stream);
+
+                Directory.CreateDirectory(projectFolder);
+
+                int totalModels = chpr.CharacterInfos.Sum(info => info.ModelNodes.Count);
+                int processedModels = 0;
+                int exportedModels = 0;
+                int skippedModels = 0;
+                Console.WriteLine($"[CHPR] Exporting {totalModels} skin model reference(s) without duplicated animation tracks.");
+                Console.WriteLine("[CHPR] Individual skin glTFs omit animation channels. Standard glTF cannot link animation channels " +
+                    "from another glTF file; use the shared rig/animation asset as the common source when combining or reusing actions.");
 
                 foreach (var charInfo in chpr.CharacterInfos)
                 {
                     foreach (var model in charInfo.ModelNodes)
                     {
-                        FileEntry file = new FileEntry();
-                        file = SearchForFile(model.ModelFileGuid.ToString());
+                        processedModels++;
+                        string modelGuid = "(unresolved)";
+                        string modelName = "(unnamed)";
 
-                        // sub name
-                        string folder = "CHPR_" + Entry.AssetEntry.FileID.ToString();
-                        folder = Path.Combine(Path.GetFileNameWithoutExtension(pak.FileInfo.FilePath), folder, file.AssetEntry.FileID.ToString());
-                        if (!Directory.Exists(folder))
+                        // A single missing or malformed model reference must not abort the remaining
+                        // model exports. Asset lookup can also throw when a manifest entry points to
+                        // a missing/unreadable PAK, so keep the guard around the entire per-model path.
+                        try
+                        {
+                            modelGuid = model.ModelFileGuid.ToString();
+                            modelName = charInfo.NamePool.GetString(model.Name);
+                            Console.WriteLine($"[CHPR] Exporting skin model reference {processedModels}/{totalModels}: " +
+                                $"name=\"{modelName}\", asset={modelGuid}.");
+
+                            FileEntry file = SearchForFile(modelGuid);
+                            if (file?.FileData == null || file.AssetEntry == null)
+                            {
+                                skippedModels++;
+                                Console.WriteLine($"[CHPR] Skin model {processedModels}/{totalModels} could not be located: " +
+                                    $"name=\"{modelName}\", asset={modelGuid}; skipping this reference.");
+                                continue;
+                            }
+
+                            string folder = Path.Combine(projectFolder, file.AssetEntry.FileID.ToString());
                             Directory.CreateDirectory(folder);
 
-                        var cmdl = new CMDL(file.FileData);
-                        string modelName = charInfo.NamePool.GetString(model.Name);
+                            var cmdl = new CMDL(file.FileData);
+                            string modelPath = Path.Combine(folder, modelName);
 
-                        string path = Path.Combine(folder, modelName);
-                        CMDLExporter.Export(cmdl, path, chpr, saveLODs);
-                        Console.WriteLine("Exported file " + file.AssetEntry.FileID.ToString());
-                        Console.WriteLine("");
+                            // Keep each model's geometry, skin weights, and rig, but write the
+                            // CHPR's actual animation clips only once in the shared sidecar below.
+                            CMDLExporter.Export(cmdl, modelPath, chpr, saveLODs, appendAnimations: false);
+                            exportedModels++;
+                            Console.WriteLine($"[CHPR] Finished static skin model {processedModels}/{totalModels}: " +
+                                $"{modelName} (exported {exportedModels} successfully).");
+                        }
+                        catch (Exception modelEx)
+                        {
+                            skippedModels++;
+                            Console.WriteLine($"[CHPR] Skin model {processedModels}/{totalModels} failed; skipping this reference " +
+                                $"and continuing with the remaining models. name=\"{modelName}\", asset={modelGuid}; " +
+                                $"{modelEx.GetType().Name}: {modelEx.Message}");
+                        }
                     }
                 }
+
+                if (chpr.CharacterInfos.Count > 0)
+                {
+                    string sharedAnimationPath = Path.Combine(
+                        projectFolder,
+                        projectName + "_Animations");
+
+                    Console.WriteLine($"[CHPR] Building shared animation asset once for this CHPR: {sharedAnimationPath}.gltf");
+                    try
+                    {
+                        CMDLExporter.ExportRig(sharedAnimationPath, chpr);
+                        bool appended = CHPRAnimationExporter.AppendToGltf(
+                            sharedAnimationPath + ".gltf", chpr, out string animationReport);
+
+                        Console.WriteLine("[CHPR] Shared animation asset: " + animationReport);
+                        if (!appended)
+                            Console.WriteLine("[CHPR] Shared rig was exported, but no baked animation channels were added.");
+                    }
+                    catch (Exception animationEx)
+                    {
+                        Console.WriteLine("[CHPR] Shared animation export failed without invalidating the static skin exports: " +
+                            animationEx.GetType().Name + ": " + animationEx.Message);
+                    }
+                }
+
+                Console.WriteLine($"[CHPR] Character Project model export finished: exported={exportedModels}, " +
+                    $"skipped/failed={skippedModels}, total references={totalModels}.");
+                return true;
             }
             catch (Exception e)
             {
                 Console.WriteLine(e);
-                Console.WriteLine("An error occurred while attempting to export a model from a CHPR file. This will not");
-                Console.WriteLine("kill the tool. Press any key to continue.");
-                Console.ReadKey();
+                Console.WriteLine("[CHPR] An error occurred while exporting this character project. See the CHPR log for details.");
+                return false;
             }
         }
 
