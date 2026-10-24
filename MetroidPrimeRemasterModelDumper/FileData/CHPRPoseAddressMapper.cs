@@ -1,5 +1,4 @@
 using System;
-using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -47,7 +46,26 @@ namespace DKCTF
             public int PoseAddress;
         }
 
-        public static MappingResult Assign(byte[] bodyData, CHPR.CharacterInfo characterInfo)
+        public static MappingResult Assign(Stream source, long bodyOffset, int bodyLength, CHPR.CharacterInfo characterInfo)
+        {
+            if (source == null || !source.CanRead || !source.CanSeek)
+                return new MappingResult { Error = "The CHPR source stream is not readable and seekable." };
+
+            if (bodyOffset < 0 || bodyLength < 16 || bodyOffset > source.Length - bodyLength)
+                return new MappingResult { Error = "CHPR body is too short or outside the source stream." };
+
+            long originalPosition = source.Position;
+            try
+            {
+                return Assign(new CHPRBodyView(source, bodyOffset, bodyLength), characterInfo);
+            }
+            finally
+            {
+                source.Position = originalPosition;
+            }
+        }
+
+        private static MappingResult Assign(CHPRBodyView bodyData, CHPR.CharacterInfo characterInfo)
         {
             var result = new MappingResult();
             if (bodyData == null || bodyData.Length < 16)
@@ -157,7 +175,7 @@ namespace DKCTF
         }
 
         internal static bool TryFindStringTable(
-            byte[] data,
+            CHPRBodyView data,
             out int stringTableOffset,
             out int stringTableEnd,
             out List<string> strings)
@@ -240,7 +258,7 @@ namespace DKCTF
         /// bytes begin immediately after it. Offsets returned are relative to data[0].
         /// </summary>
         private static bool TryReadStringTableAt(
-            byte[] data,
+            CHPRBodyView data,
             int sizeFieldOffset,
             out int stringTableOffset,
             out int stringTableEnd,
@@ -263,7 +281,7 @@ namespace DKCTF
             if (data[contentOffset + count - 1] != 0)
                 return false;
 
-            string text = Encoding.Latin1.GetString(data, contentOffset, count);
+            string text = Encoding.Latin1.GetString(data.ReadBytes(contentOffset, count));
             string[] parts = text.Split('\0');
             var parsed = new List<string>(parts);
             if (parsed.Count > 0 && parsed[parsed.Count - 1].Length == 0)
@@ -279,7 +297,7 @@ namespace DKCTF
         }
 
         private static bool TryFindNodeNameList(
-            byte[] data,
+            CHPRBodyView data,
             int stringTableEnd,
             List<string> strings,
             Dictionary<uint, int> hashToIndex,
@@ -343,7 +361,7 @@ namespace DKCTF
         }
 
         private static bool TryFindNodeTable(
-            byte[] data,
+            CHPRBodyView data,
             int stringTableEnd,
             List<string> nodeNames,
             out Dictionary<int, string> jointNames,
@@ -394,7 +412,7 @@ namespace DKCTF
         }
 
         private static bool TryReadHierarchy(
-            byte[] data,
+            CHPRBodyView data,
             int stringTableEnd,
             out List<HierarchyEntry> entries,
             out int hierarchyOffset)
@@ -473,7 +491,7 @@ namespace DKCTF
             return entries.Count > 0;
         }
 
-        private static int CountSequentialRun(byte[] data, int offset, int initialIndex)
+        private static int CountSequentialRun(CHPRBodyView data, int offset, int initialIndex)
         {
             int count = 0;
             while (count < 40)
@@ -500,7 +518,7 @@ namespace DKCTF
             return count;
         }
 
-        private static int Resync(byte[] data, int offset, int next)
+        private static int Resync(CHPRBodyView data, int offset, int next)
         {
             for (int p = offset; p < offset + 48 && p + 18 < data.Length; p++)
             {
@@ -518,13 +536,13 @@ namespace DKCTF
             return -1;
         }
 
-        private static bool IsRecord(byte[] data, int offset)
+        private static bool IsRecord(CHPRBodyView data, int offset)
         {
             return offset >= 0 && offset < data.Length &&
                 (data[offset] == 4 || data[offset] == 5 || data[offset] == 7);
         }
 
-        private static int IndexOf(byte[] data, byte[] needle, int from)
+        private static int IndexOf(CHPRBodyView data, byte[] needle, int from)
         {
             for (int i = Math.Max(0, from); i <= data.Length - needle.Length; i++)
             {
@@ -550,14 +568,17 @@ namespace DKCTF
             return hash;
         }
 
-        private static ushort ReadUInt16(byte[] data, int offset)
+        private static ushort ReadUInt16(CHPRBodyView data, int offset)
         {
-            return BinaryPrimitives.ReadUInt16LittleEndian(data.AsSpan(offset, 2));
+            return (ushort)(data[offset] | (data[offset + 1] << 8));
         }
 
-        private static uint ReadUInt32(byte[] data, int offset)
+        private static uint ReadUInt32(CHPRBodyView data, int offset)
         {
-            return BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(offset, 4));
+            return (uint)(data[offset] |
+                (data[offset + 1] << 8) |
+                (data[offset + 2] << 16) |
+                (data[offset + 3] << 24));
         }
     }
 }

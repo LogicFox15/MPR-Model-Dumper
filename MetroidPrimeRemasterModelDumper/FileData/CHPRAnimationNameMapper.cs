@@ -1,5 +1,5 @@
 using System;
-using System.Buffers.Binary;
+using System.IO;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -42,7 +42,26 @@ namespace DKCTF
             public int InRange;
         }
 
-        public static MappingResult Assign(byte[] bodyData, IList<CHPR.AnimationArrayEntry> entries)
+        public static MappingResult Assign(Stream source, long bodyOffset, int bodyLength, IList<CHPR.AnimationArrayEntry> entries)
+        {
+            if (source == null || !source.CanRead || !source.CanSeek ||
+                bodyOffset < 0 || bodyLength < 16 || bodyOffset > source.Length - bodyLength)
+            {
+                return new MappingResult();
+            }
+
+            long originalPosition = source.Position;
+            try
+            {
+                return Assign(new CHPRBodyView(source, bodyOffset, bodyLength), entries);
+            }
+            finally
+            {
+                source.Position = originalPosition;
+            }
+        }
+
+        private static MappingResult Assign(CHPRBodyView bodyData, IList<CHPR.AnimationArrayEntry> entries)
         {
             var result = new MappingResult();
             if (entries == null)
@@ -324,7 +343,7 @@ namespace DKCTF
         }
 
         private static List<string> FindClipNameList(
-            byte[] data,
+            CHPRBodyView data,
             int stringTableEnd,
             List<string> strings,
             Dictionary<int, ClipRecord> clipRecords)
@@ -407,7 +426,7 @@ namespace DKCTF
         }
 
         private static Dictionary<int, ClipRecord> FindClipRecords(
-            byte[] data,
+            CHPRBodyView data,
             List<string> strings,
             List<string> clipNames)
         {
@@ -451,7 +470,7 @@ namespace DKCTF
             return records;
         }
 
-        private static int IndexOf(byte[] data, byte[] needle, int start)
+        private static int IndexOf(CHPRBodyView data, byte[] needle, int start)
         {
             for (int i = Math.Max(0, start); i <= data.Length - needle.Length; i++)
             {
@@ -478,14 +497,17 @@ namespace DKCTF
             return hash;
         }
 
-        private static ushort ReadUInt16(byte[] data, int offset)
+        private static ushort ReadUInt16(CHPRBodyView data, int offset)
         {
-            return BinaryPrimitives.ReadUInt16LittleEndian(data.AsSpan(offset, 2));
+            return (ushort)(data[offset] | (data[offset + 1] << 8));
         }
 
-        private static uint ReadUInt32(byte[] data, int offset)
+        private static uint ReadUInt32(CHPRBodyView data, int offset)
         {
-            return BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(offset, 4));
+            return (uint)(data[offset] |
+                (data[offset + 1] << 8) |
+                (data[offset + 2] << 16) |
+                (data[offset + 3] << 24));
         }
     }
 }
