@@ -69,8 +69,8 @@ namespace EvilWithin2Tool
 
             if (bonesWithAddresses.Count == 0)
             {
-                report = $"No CHPR bones received pose addresses during the initial parse. " +
-                    $"CharacterInfo bones={characterInfo.Bones.Count}; leaving glTF unchanged.";
+                report = "No pose-address mapping is available from the parsed game structures. " +
+                    "The exporter will not infer addresses from raw bytes or retry mapping; leaving glTF unchanged.";
                 return false;
             }
 
