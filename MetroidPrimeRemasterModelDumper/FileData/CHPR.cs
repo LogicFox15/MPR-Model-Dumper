@@ -332,39 +332,31 @@ namespace DKCTF
                     string boneName = NamePool.GetString(AbsContext.NodeSet.NameSet, i);
                     ushort parentID = AbsContext.Section5[i].Item1;
                     int parentIndex = AbsContext.NodeSet.FindIndex(parentID);
-
                     string parentName = "";
                     if (parentIndex >= 0)
                         parentName = NamePool.GetString(AbsContext.NodeSet.NameSet, parentIndex);
-
                     Bones.Add(new BoneData()
                     {
-                        Name = boneName,
-                        Parent = parentName,
+                        Name = boneName, Parent = parentName,
                         InverseTransform = Matrix4x4.Identity,
                         WorldTransform = Matrix4x4.Identity,
                         LocalTransform = Matrix4x4.Identity
                     });
                 }
 
-                // Preserve the original per-context / per-entry order for CMDL bone-index
-                // lookup, while applying all contexts to the same absolute skeleton.
+                // Preserve per-context / per-entry order for CMDL bone-index lookup.
                 HashSet<int> skinnedBoneIndices = new HashSet<int>();
                 for (int r = 0; r < RenderContexts.Count; r++)
                 {
                     SRenderContext renderContext = RenderContexts[r];
-
                     for (int i = 0; i < renderContext.SkinnedMatrixBoneIDs.Length; i++)
                     {
                         ushort boneID = renderContext.SkinnedMatrixBoneIDs[i];
                         int nodeIndex = AbsContext.NodeSet.FindIndex(boneID);
                         string boneName = NamePool.GetString(AbsContext.NodeSet.NameSet, nodeIndex);
-
                         SkinnedBones.Add(new SkinnedBoneData()
                         {
-                            Name = boneName,
-                            BoneID = boneID,
-                            NodeIDX = nodeIndex
+                            Name = boneName, BoneID = boneID, NodeIDX = nodeIndex
                         });
                     }
 
@@ -372,39 +364,31 @@ namespace DKCTF
                     {
                         ushort boneID = renderContext.SkinnedMatrixBoneIDs[i];
                         int nodeIndex = AbsContext.NodeSet.FindIndex(boneID);
-
                         if (nodeIndex < 0 || nodeIndex >= Bones.Count ||
                             i >= renderContext.SkinnedInverseMatrices.Length)
                             continue;
-
                         skinnedBoneIndices.Add(nodeIndex);
-                        Matrix4x4.Invert(
-                            Matrix4x4.Transpose(renderContext.SkinnedInverseMatrices[i]),
+                        Matrix4x4.Invert(Matrix4x4.Transpose(renderContext.SkinnedInverseMatrices[i]),
                             out Matrix4x4 worldSpace);
-
                         Bones[nodeIndex].InverseTransform = renderContext.SkinnedInverseMatrices[i];
-                        // Preserve render-context order if more than one context supplies this joint.
+                        // Later contexts remain authoritative if they supply the same joint.
                         Bones[nodeIndex].WorldTransform = worldSpace;
                     }
                 }
 
-                // The parsed context gives explicit transforms only for skinned bones. Retain
-                // the existing fallback for unskinned transforms, but execute it once on the
-                // shared skeleton rather than once per render context.
+                // Preserve the existing fallback for unskinned transforms, but run once for
+                // the shared skeleton rather than once per render context.
                 bool changed = true;
                 int iterations = 0;
                 while (changed && iterations < 3)
                 {
                     changed = false;
                     iterations++;
-
                     for (int i = 0; i < Bones.Count; i++)
                     {
                         if (skinnedBoneIndices.Contains(i)) continue;
-
                         List<Vector3> translations = new List<Vector3>();
                         List<Quaternion> rotations = new List<Quaternion>();
-
                         var parentBone = Bones.FirstOrDefault(b => b.Name == Bones[i].Parent);
                         if (parentBone != null && parentBone.WorldTransform != Matrix4x4.Identity)
                         {
@@ -414,49 +398,33 @@ namespace DKCTF
                                 rotations.Add(pRot);
                             }
                         }
-
                         var children = Bones.Where(b => b.Parent == Bones[i].Name).ToList();
                         foreach (var child in children)
                         {
-                            if (child.WorldTransform == Matrix4x4.Identity)
-                                continue;
-
+                            if (child.WorldTransform == Matrix4x4.Identity) continue;
                             if (Matrix4x4.Decompose(child.WorldTransform, out _, out Quaternion cRot, out Vector3 cTrans))
                             {
                                 translations.Add(cTrans);
-
                                 if (rotations.Count > 0 && Quaternion.Dot(rotations[0], cRot) < 0)
-                                    cRot = Quaternion.Inverse(cRot); // Preserve the existing hemisphere behavior.
-
+                                    cRot = Quaternion.Inverse(cRot);
                                 rotations.Add(cRot);
                             }
                         }
-
-                        if (translations.Count == 0)
-                            continue;
-
+                        if (translations.Count == 0) continue;
                         Vector3 avgPos = Vector3.Zero;
-                        foreach (Vector3 translation in translations)
-                            avgPos += translation;
+                        foreach (Vector3 translation in translations) avgPos += translation;
                         avgPos /= translations.Count;
-
                         Quaternion avgRot = rotations[0];
                         if (rotations.Count > 1)
                         {
-                            Vector4 accumulated = new Vector4(
-                                rotations[0].X, rotations[0].Y, rotations[0].Z, rotations[0].W);
+                            Vector4 accumulated = new Vector4(rotations[0].X, rotations[0].Y, rotations[0].Z, rotations[0].W);
                             for (int x = 1; x < rotations.Count; x++)
-                            {
-                                accumulated += new Vector4(
-                                    rotations[x].X, rotations[x].Y, rotations[x].Z, rotations[x].W);
-                            }
+                                accumulated += new Vector4(rotations[x].X, rotations[x].Y, rotations[x].Z, rotations[x].W);
                             accumulated /= rotations.Count;
                             avgRot = Quaternion.Normalize(new Quaternion(
                                 accumulated.X, accumulated.Y, accumulated.Z, accumulated.W));
                         }
-
-                        Matrix4x4 newWorld = Matrix4x4.CreateFromQuaternion(avgRot) *
-                            Matrix4x4.CreateTranslation(avgPos);
+                        Matrix4x4 newWorld = Matrix4x4.CreateFromQuaternion(avgRot) * Matrix4x4.CreateTranslation(avgPos);
                         if (Vector3.Distance(Bones[i].WorldTransform.Translation, avgPos) > 0.001f)
                         {
                             Bones[i].WorldTransform = newWorld;
@@ -465,7 +433,7 @@ namespace DKCTF
                     }
                 }
 
-                // Convert the completed world-space rig into local transforms once.
+                // Convert world transforms to local transforms once.
                 for (int i = 0; i < Bones.Count; i++)
                 {
                     if (!string.IsNullOrEmpty(Bones[i].Parent))
@@ -900,7 +868,6 @@ namespace DKCTF
 
                 // Base parse (FUN_7100594d24)
                 ReadCommon(reader);
-
                 // FUN_7100669b78 remainder
                 ValD = reader.ReadUInt32();
                 ValE = reader.ReadUInt32();
@@ -1892,3 +1859,16 @@ namespace DKCTF
             public uint additionalOffsetOrBoundary;
 
             public CCharInfoMetaDataLoaderTableEntry arrayAInitialEntry;
+            public CCharInfoMetaDataLoaderTableEntry arrayBInitialEntry;
+        }
+
+        public class CCharInfoMetaDataLoaderTableEntry
+        {
+            public uint field0;
+            public uint field4;
+            public uint field8;
+        }
+        #endregion
+
+    }
+}
