@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -61,23 +61,21 @@ namespace EvilWithin2Tool
 
             CHPR.CharacterInfo characterInfo = chpr.CharacterInfos[0];
 
-            // Normally CHPR assigns these addresses while parsing. Retry immediately before
-            // export if none survived, using the original CHPR body retained by the parser.
-            int recoveredAddressCount = chpr.EnsurePoseAddressMap();
+            // Never retry or infer a pose map by scanning raw CHPR bytes. Animation channels
+            // can only be attached when a parsed game structure has supplied bone addresses.
             var bonesWithAddresses = characterInfo.Bones
                 .Where(b => b.PoseAddress >= 0)
                 .ToList();
 
             if (bonesWithAddresses.Count == 0)
             {
-                report = $"No CHPR bones have a recovered pose address after retry. " +
-                    $"CharacterInfo bones={characterInfo.Bones.Count}, " +
-                    $"reported recovered addresses={recoveredAddressCount}; leaving glTF unchanged.";
+                report = "No pose-address mapping is available from the parsed game structures. " +
+                    "The exporter will not infer addresses from raw bytes or retry mapping; leaving glTF unchanged.";
                 return false;
             }
 
             Console.WriteLine($"[CHPR] Animation export pose map: bones={characterInfo.Bones.Count}, " +
-                $"bonesWithAddress={bonesWithAddresses.Count}, ensureResult={recoveredAddressCount}.");
+                $"bonesWithAddress={bonesWithAddresses.Count}.");
 
             List<float[]> constantPools = BuildConstantPools(characterInfo);
             Console.WriteLine($"[CHPR] Opening shared animation target: {gltfPath}");

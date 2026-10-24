@@ -17,10 +17,6 @@ namespace DKCTF
         private List<AnimationArrayEntry> animationClipArray = new List<AnimationArrayEntry>();
         public List<AnimationArrayEntry> animations => animationClipArray;
 
-        // Preserve the parsed CHPR body so pose-address mapping can be retried at export time
-        // if an exporter receives CharacterInfo bones without the addresses assigned at parse time.
-        private byte[] characterProjectBodyData = Array.Empty<byte>();
-
         #region Meta Data Variables
         public CCharInfoMetaData Meta;
         private uint arrayCount1;
@@ -117,27 +113,6 @@ namespace DKCTF
 
         private void ReadCharacterProject(FileReader reader, long bodyEnd, long payloadStart)
         {
-            if (bodyEnd < reader.Position || bodyEnd > reader.BaseStream.Length)
-            {
-                throw new InvalidDataException($"Invalid CHPR body boundary: 0x{bodyEnd:X}");
-            }
-
-            long bodyLengthLong = bodyEnd - payloadStart;
-            if (bodyLengthLong < 0 || bodyLengthLong > int.MaxValue)
-                throw new InvalidDataException($"CHPR body length is outside supported bounds: {bodyLengthLong}.");
-
-            byte[] bodyData;
-            using (reader.TemporarySeek(payloadStart, System.IO.SeekOrigin.Begin))
-                bodyData = reader.ReadBytes((int)bodyLengthLong);
-            characterProjectBodyData = bodyData;
-
-            long tableBytes = checked((long)arrayCount1 * 12L + (long)storedAnimationCount * 12L);
-
-            if (tableBytes > bodyEnd - reader.Position)
-            {
-                throw new InvalidDataException("CHPR partition tables extend beyond the body boundary.");
-            }
-
             for (int i = 0; i < arrayCount1; i++)
                 array1.Add(UnknownArrayEntry.Read(reader));
 
@@ -152,66 +127,8 @@ namespace DKCTF
             var characterInfo = new CharacterInfo(reader);
             CharacterInfos.Add(characterInfo);
 
-            ReportPoseAddressMap(characterInfo, retry: false);
-
             // Build Animations
             ReadAnimationPayloads(reader, payloadStart, bodyEnd);
-        }
-
-        /// <summary>
-        /// Ensures the primary CharacterInfo has pose addresses. The map is normally
-        /// assigned during parsing; this retries it only when an exporter sees none.
-        /// </summary>
-        public int EnsurePoseAddressMap()
-        {
-            if (CharacterInfos.Count == 0)
-                return 0;
-
-            CharacterInfo characterInfo = CharacterInfos[0];
-            int existingCount = 0;
-            foreach (BoneData bone in characterInfo.Bones)
-                if (bone.PoseAddress >= 0)
-                    existingCount++;
-
-            if (existingCount > 0)
-                return existingCount;
-
-            if (characterProjectBodyData == null || characterProjectBodyData.Length == 0)
-            {
-                Console.WriteLine("[CHPR] Pose-address map retry unavailable: original CHPR body was not retained.");
-                return 0;
-            }
-
-            ReportPoseAddressMap(characterInfo, retry: true);
-
-            int recoveredCount = 0;
-            foreach (BoneData bone in characterInfo.Bones)
-                if (bone.PoseAddress >= 0)
-                    recoveredCount++;
-
-            return recoveredCount;
-        }
-
-        private void ReportPoseAddressMap(CharacterInfo characterInfo, bool retry)
-        {
-            CHPRPoseAddressMapper.MappingResult poseAddressMap =
-                CHPRPoseAddressMapper.Assign(characterProjectBodyData, characterInfo);
-
-            string prefix = retry ? "[CHPR] Pose-address map retry" : "[CHPR] Pose-address map";
-            Console.WriteLine($"{prefix}: status={(poseAddressMap.Success ? "mapped" : "unavailable")}, " +
-                $"addressAssignments={poseAddressMap.AddressesAssigned}, " +
-                $"matchedType5Records={poseAddressMap.Type5Records}, " +
-                $"bonesWithFinalAddress={poseAddressMap.BonesWithFinalAddress}, " +
-                $"stringTable=0x{poseAddressMap.StringTableOffset:X}-0x{poseAddressMap.StringTableEnd:X}/" +
-                $"{poseAddressMap.StringCount} strings, " +
-                $"nameList=0x{poseAddressMap.NameListOffset:X}/" +
-                $"{poseAddressMap.NameListCount}, " +
-                $"nodeTable=0x{poseAddressMap.NodeTableOffset:X}, " +
-                $"hierarchy=0x{poseAddressMap.HierarchyOffset:X}, " +
-                $"records={poseAddressMap.HierarchyRecords}.");
-
-            if (!poseAddressMap.Success)
-                Console.WriteLine($"{prefix} warning: {poseAddressMap.Error}");
         }
 
         public class UnknownArrayEntry
@@ -246,8 +163,6 @@ namespace DKCTF
             public string GameAnimationName;
             public int GameAnimationNameIndex = -1;
 
-            // Original data is retained even if parsing fails.
-            public byte[] RawData = Array.Empty<byte>();
             // Number of bytes consumed by CAnim.
             public int BytesParsed;
             // Any remaining bytes after the parsed animation.
@@ -407,17 +322,43 @@ namespace DKCTF
                 }
                 */
 
+                // The Absolute Context defines one skeleton. Render contexts only provide
+                // skinned-bone subsets and matrices for that skeleton; they do not each
+                // define another complete rig.
+                for (int i = 0; i < AbsContext.NodeSet.NodeIDs.Length; i++)
+                {
+                    string boneName = NamePool.GetString(AbsContext.NodeSet.NameSet, i);
+                    ushort parentID = AbsContext.Section5[i].Item1;
+                    int parentIndex = AbsContext.NodeSet.FindIndex(parentID);
+
+                    string parentName = "";
+                    if (parentIndex >= 0)
+                        parentName = NamePool.GetString(AbsContext.NodeSet.NameSet, parentIndex);
+
+                    Bones.Add(new BoneData()
+                    {
+                        Name = boneName,
+                        Parent = parentName,
+                        InverseTransform = Matrix4x4.Identity,
+                        WorldTransform = Matrix4x4.Identity,
+                        LocalTransform = Matrix4x4.Identity
+                    });
+                }
+
+                // Preserve the original per-context / per-entry order for CMDL bone-index
+                // lookup, while applying all contexts to the same absolute skeleton.
+                HashSet<int> skinnedBoneIndices = new HashSet<int>();
                 for (int r = 0; r < RenderContexts.Count; r++)
                 {
-                    // Bone building?
-                    for (int i = 0; i < RenderContexts[r].SkinnedMatrixBoneIDs.Length; i++)
-                    {
-                        var boneID = RenderContexts[r].SkinnedMatrixBoneIDs[i];
-                        // Find the index where the node ID is located at
-                        var nodeIndex = AbsContext.NodeSet.FindIndex(boneID);
+                    SRenderContext renderContext = RenderContexts[r];
 
+                    for (int i = 0; i < renderContext.SkinnedMatrixBoneIDs.Length; i++)
+                    {
+                        ushort boneID = renderContext.SkinnedMatrixBoneIDs[i];
+                        int nodeIndex = AbsContext.NodeSet.FindIndex(boneID);
                         string boneName = NamePool.GetString(AbsContext.NodeSet.NameSet, nodeIndex);
-                        this.SkinnedBones.Add(new SkinnedBoneData()
+
+                        SkinnedBones.Add(new SkinnedBoneData()
                         {
                             Name = boneName,
                             BoneID = boneID,
@@ -425,155 +366,119 @@ namespace DKCTF
                         });
                     }
 
-                    // 1. Build the COMPLETE skeleton from the Absolute Context
-                    for (int i = 0; i < AbsContext.NodeSet.NodeIDs.Length; i++)
+                    for (int i = 0; i < renderContext.SkinnedMatrixBoneIDs.Length; i++)
                     {
-                        uint nodeID = AbsContext.NodeSet.NodeIDs[i];
-                        string boneName = NamePool.GetString(AbsContext.NodeSet.NameSet, i);
+                        ushort boneID = renderContext.SkinnedMatrixBoneIDs[i];
+                        int nodeIndex = AbsContext.NodeSet.FindIndex(boneID);
 
-                        // Section5 perfectly aligns with the global NodeSet for parenting info
-                        ushort parentID = AbsContext.Section5[i].Item1;
-                        int parentIndex = AbsContext.NodeSet.FindIndex(parentID);
+                        if (nodeIndex < 0 || nodeIndex >= Bones.Count ||
+                            i >= renderContext.SkinnedInverseMatrices.Length)
+                            continue;
 
-                        string parentName = "";
-                        if (parentIndex >= 0)
-                        {
-                            parentName = NamePool.GetString(AbsContext.NodeSet.NameSet, parentIndex);
-                        }
+                        skinnedBoneIndices.Add(nodeIndex);
+                        Matrix4x4.Invert(
+                            Matrix4x4.Transpose(renderContext.SkinnedInverseMatrices[i]),
+                            out Matrix4x4 worldSpace);
 
-                        Bones.Add(new BoneData()
-                        {
-                            Name = boneName,
-                            Parent = parentName,
-                            // Default matrices to Identity; we will overwrite the skinned ones below
-                            InverseTransform = Matrix4x4.Identity,
-                            WorldTransform = Matrix4x4.Identity,
-                            LocalTransform = Matrix4x4.Identity
-                        });
+                        Bones[nodeIndex].InverseTransform = renderContext.SkinnedInverseMatrices[i];
+                        // Preserve the previous render-context order: a later context may
+                        // provide the final matrix for a joint also listed by an earlier one.
+                        Bones[nodeIndex].WorldTransform = worldSpace;
                     }
+                }
 
-                    // 2. Assign Render Context matrices exclusively to the skinned subset
-                    HashSet<int> skinnedBoneIndices = new HashSet<int>(); // Track what we've solved
-                    for (int i = 0; i < RenderContexts[r].SkinnedMatrixBoneIDs.Length; i++)
-                    {
-                        var boneID = RenderContexts[r].SkinnedMatrixBoneIDs[i];
-                        var nodeIndex = AbsContext.NodeSet.FindIndex(boneID);
+                // The game data currently gives explicit transforms only for skinned bones.
+                // Keep the existing interpolation fallback, but perform it once over the
+                // single shared skeleton rather than repeatedly creating / revisiting rigs.
+                bool changed = true;
+                int iterations = 0;
+                while (changed && iterations < 3)
+                {
+                    changed = false;
+                    iterations++;
 
-                        if (nodeIndex >= 0 && nodeIndex < Bones.Count)
-                        {
-                            skinnedBoneIndices.Add(nodeIndex);
-                            Matrix4x4.Invert(Matrix4x4.Transpose(RenderContexts[r].SkinnedInverseMatrices[i]), out Matrix4x4 worldSpace);
-
-                            Bones[nodeIndex].InverseTransform = RenderContexts[r].SkinnedInverseMatrices[i];
-                            Bones[nodeIndex].WorldTransform = worldSpace;
-                            // LocalTransform is handled in the next step
-                        }
-                    }
-
-
-                    // This is here because Retro did not include the transforms of unskinned bones. Because of this,
-                    // if one wants the rigs to not fall apart immediately, we must average the positions and rotations
-                    // of the skinned bones between the neighbors. This is a temporary solution while we try to figure
-                    // out how Retro is doing it.
-                    bool changed = true;
-                    int iterations = 0;
-                    while (changed && iterations < 3)
-                    {
-                        changed = false;
-                        iterations++;
-
-                        for (int i = 0; i < Bones.Count; i++)
-                        {
-                            if (skinnedBoneIndices.Contains(i)) continue;
-
-                            List<Vector3> translations = new List<Vector3>();
-                            List<Quaternion> rotations = new List<Quaternion>();
-
-                            // 1. Collect Neighbor Data (Parent)
-                            var parentBone = Bones.FirstOrDefault(b => b.Name == Bones[i].Parent);
-                            if (parentBone != null && parentBone.WorldTransform != Matrix4x4.Identity)
-                            {
-                                if (Matrix4x4.Decompose(parentBone.WorldTransform, out _, out Quaternion pRot, out Vector3 pTrans))
-                                {
-                                    translations.Add(pTrans);
-                                    rotations.Add(pRot);
-                                }
-                            }
-
-                            // 2. Collect Neighbor Data (Children)
-                            var children = Bones.Where(b => b.Parent == Bones[i].Name).ToList();
-                            foreach (var child in children)
-                            {
-                                if (child.WorldTransform != Matrix4x4.Identity)
-                                {
-                                    if (Matrix4x4.Decompose(child.WorldTransform, out _, out Quaternion cRot, out Vector3 cTrans))
-                                    {
-                                        translations.Add(cTrans);
-
-                                        // Ensure the quaternion is in the same hemisphere as the first one to avoid "flipping"
-                                        if (rotations.Count > 0 && Quaternion.Dot(rotations[0], cRot) < 0)
-                                            cRot = Quaternion.Inverse(cRot); // Or -cRot depending on library version
-
-                                        rotations.Add(cRot);
-                                    }
-                                }
-                            }
-
-                            // 3. Average and Apply
-                            if (translations.Count > 0)
-                            {
-                                // Average Position
-                                Vector3 avgPos = Vector3.Zero;
-                                foreach (var t in translations) avgPos += t;
-                                avgPos /= translations.Count;
-
-                                // Average Rotation (Normalized Linear Interpolation)
-                                Quaternion avgRot = rotations[0];
-                                if (rotations.Count > 1)
-                                {
-                                    Vector4 acc = new Vector4(rotations[0].X, rotations[0].Y, rotations[0].Z, rotations[0].W);
-                                    for (int x = 1; x < rotations.Count; x++)
-                                    {
-                                        acc += new Vector4(rotations[x].X, rotations[x].Y, rotations[x].Z, rotations[x].W);
-                                    }
-                                    acc /= rotations.Count;
-                                    avgRot = Quaternion.Normalize(new Quaternion(acc.X, acc.Y, acc.Z, acc.W));
-                                }
-
-                                Matrix4x4 newWorld = Matrix4x4.CreateFromQuaternion(avgRot) * Matrix4x4.CreateTranslation(avgPos);
-
-                                if (Vector3.Distance(Bones[i].WorldTransform.Translation, avgPos) > 0.001f)
-                                {
-                                    Bones[i].WorldTransform = newWorld;
-                                    changed = true;
-                                }
-                            }
-                        }
-                    }
-
-                    // Convert world transforms into local transforms
                     for (int i = 0; i < Bones.Count; i++)
                     {
-                        if (!string.IsNullOrEmpty(Bones[i].Parent))
+                        if (skinnedBoneIndices.Contains(i)) continue;
+
+                        List<Vector3> translations = new List<Vector3>();
+                        List<Quaternion> rotations = new List<Quaternion>();
+
+                        var parentBone = Bones.FirstOrDefault(b => b.Name == Bones[i].Parent);
+                        if (parentBone != null && parentBone.WorldTransform != Matrix4x4.Identity)
                         {
-                            var parent =
-                                Bones.FirstOrDefault(x => x.Name == Bones[i].Parent);
-
-                            if (parent != null)
+                            if (Matrix4x4.Decompose(parentBone.WorldTransform, out _, out Quaternion pRot, out Vector3 pTrans))
                             {
-                                Matrix4x4.Invert(
-                                    parent.WorldTransform,
-                                    out Matrix4x4 parentInverse);
-
-                                Bones[i].LocalTransform =
-                                    Bones[i].WorldTransform * parentInverse;
+                                translations.Add(pTrans);
+                                rotations.Add(pRot);
                             }
                         }
-                        else
+
+                        var children = Bones.Where(b => b.Parent == Bones[i].Name).ToList();
+                        foreach (var child in children)
                         {
-                            // Root bone
-                            Bones[i].LocalTransform = Bones[i].WorldTransform;
+                            if (child.WorldTransform == Matrix4x4.Identity)
+                                continue;
+
+                            if (Matrix4x4.Decompose(child.WorldTransform, out _, out Quaternion cRot, out Vector3 cTrans))
+                            {
+                                translations.Add(cTrans);
+
+                                if (rotations.Count > 0 && Quaternion.Dot(rotations[0], cRot) < 0)
+                                    cRot = Quaternion.Inverse(cRot); // Preserve the existing hemisphere behavior.
+
+                                rotations.Add(cRot);
+                            }
                         }
+
+                        if (translations.Count == 0)
+                            continue;
+
+                        Vector3 avgPos = Vector3.Zero;
+                        foreach (Vector3 translation in translations)
+                            avgPos += translation;
+                        avgPos /= translations.Count;
+
+                        Quaternion avgRot = rotations[0];
+                        if (rotations.Count > 1)
+                        {
+                            Vector4 accumulated = new Vector4(
+                                rotations[0].X, rotations[0].Y, rotations[0].Z, rotations[0].W);
+                            for (int x = 1; x < rotations.Count; x++)
+                            {
+                                accumulated += new Vector4(
+                                    rotations[x].X, rotations[x].Y, rotations[x].Z, rotations[x].W);
+                            }
+                            accumulated /= rotations.Count;
+                            avgRot = Quaternion.Normalize(new Quaternion(
+                                accumulated.X, accumulated.Y, accumulated.Z, accumulated.W));
+                        }
+
+                        Matrix4x4 newWorld = Matrix4x4.CreateFromQuaternion(avgRot) *
+                            Matrix4x4.CreateTranslation(avgPos);
+                        if (Vector3.Distance(Bones[i].WorldTransform.Translation, avgPos) > 0.001f)
+                        {
+                            Bones[i].WorldTransform = newWorld;
+                            changed = true;
+                        }
+                    }
+                }
+
+                // Convert the completed world-space rig into local transforms once.
+                for (int i = 0; i < Bones.Count; i++)
+                {
+                    if (!string.IsNullOrEmpty(Bones[i].Parent))
+                    {
+                        var parent = Bones.FirstOrDefault(x => x.Name == Bones[i].Parent);
+                        if (parent != null)
+                        {
+                            Matrix4x4.Invert(parent.WorldTransform, out Matrix4x4 parentInverse);
+                            Bones[i].LocalTransform = Bones[i].WorldTransform * parentInverse;
+                        }
+                    }
+                    else
+                    {
+                        Bones[i].LocalTransform = Bones[i].WorldTransform;
                     }
                 }
 
@@ -1308,7 +1213,6 @@ namespace DKCTF
                 entry.Animation = null;
                 entry.CompStreamClip = null;
                 entry.CompStreamParseError = null;
-                entry.RawData = Array.Empty<byte>();
                 entry.TrailingData = Array.Empty<byte>();
                 entry.BytesParsed = 0;
                 entry.ParseError = null;
@@ -1356,7 +1260,6 @@ namespace DKCTF
                 if (animationBytes.Length != length)
                 {
                     entry.ParseError = $"Expected {length} bytes but read " + $"{animationBytes.Length} bytes.";
-                    entry.RawData = animationBytes;
                     failedCount++;
 
                     Console.WriteLine($"{label}: FAILED - {entry.ParseError}");
@@ -1364,7 +1267,6 @@ namespace DKCTF
                     continue;
                 }
 
-                entry.RawData = animationBytes;
 
                 try
                 {
@@ -1417,14 +1319,8 @@ namespace DKCTF
                 }
             }
 
-            // Resolve names after every payload has been parsed so the name mapper can
-            // compare known frame counts and infer this file's payload-id offset.
-            CHPRAnimationNameMapper.MappingResult nameResult =
-                CHPRAnimationNameMapper.Assign(characterProjectBodyData, animationClipArray);
-            Console.WriteLine($"[CHPR] Animation name mapping: resolved={nameResult.NamesAssigned}/{animationClipArray.Count}, " +
-                $"stringCount={nameResult.StringCount}, nameListD={nameResult.NameListCount}, " +
-                $"clipRecords={nameResult.ClipRecordCount}, identifier={nameResult.IdentifierField}, " +
-                $"delta={nameResult.IdentifierDelta}, corroborated={nameResult.AlignmentMatches}.");
+            // GameAnimationName remains unset unless a name is resolved through a parsed
+            // game structure. CHPRAnimationExporter will use the output slot as its fallback.
 
             // Summarize the inventory in one line as well as the per-entry diagnostics above.
             // A large table count is not the same as a large number of supported CompStream clips.
