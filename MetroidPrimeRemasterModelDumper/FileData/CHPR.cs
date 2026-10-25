@@ -3,6 +3,7 @@ using DKCTF;
 using System;
 using System.Numerics;
 using System.Reflection.Metadata.Ecma335;
+using System.Text;
 using System.Xml.Linq;
 #nullable disable
 
@@ -11,7 +12,6 @@ namespace DKCTF
     public class CHPR : FileForm
     {
         public List<CharacterInfo> CharacterInfos = new List<CharacterInfo>();
-        
 
         private List<UnknownArrayEntry> array1 = new List<UnknownArrayEntry>();
         private List<AnimationArrayEntry> animationClipArray = new List<AnimationArrayEntry>();
@@ -38,7 +38,7 @@ namespace DKCTF
 
             if (Meta?.loaderDescriptor == null)
             {
-                throw new InvalidDataException("CHPR metadata was not loaded. " + "Check whether the input stream contains a metadata footer.");
+                throw new InvalidDataException("CHPR metadata was not loaded. Check whether the input stream contains a metadata footer.");
             }
 
             ReadCharacterProject(reader, bodyEnd, payloadStart);
@@ -131,6 +131,7 @@ namespace DKCTF
             ReadAnimationPayloads(reader, payloadStart, bodyEnd);
         }
 
+        #region Header Arrays
         public class UnknownArrayEntry
         {
             public uint Offset;
@@ -170,7 +171,6 @@ namespace DKCTF
             // Diagnostic information if decoding fails.
             public string ParseError;
 
-
             public static AnimationArrayEntry Read(FileReader reader)
             {
                 AnimationArrayEntry part = new AnimationArrayEntry();
@@ -180,6 +180,7 @@ namespace DKCTF
                 return part;
             }
         }
+        #endregion
 
         public class CharacterInfo
         {
@@ -203,10 +204,10 @@ namespace DKCTF
             public ushort NumAnims;
             public ushort NumAnimParams;
 
-            public bool hasStreamFragDecodeData;
+            public bool HasStreamFragDecodeData;
             public List<SFragDecode> FragDecodes = new List<SFragDecode>();
 
-            public bool hasConstPool;
+            public bool HasConstPool;
             public List<SConstPool> ConstPools = new List<SConstPool>();
 
             public ushort Unk10;
@@ -214,14 +215,31 @@ namespace DKCTF
             public List<SAnchorInfo> AnchorInfos = new List<SAnchorInfo>();
             public List<SModelNode> ModelNodes = new List<SModelNode>();
 
-            public bool hasUnkContext6;
+            public bool HasUnkContext6;
             public SUnkContext6 UnkContext6;
             public SSubCharData SubCharData;
             public SUnkContext7 UnkContext7;
             public SUnkContext8 UnkContext8;
 
             public List<SAnimParamNode> AnimParamNodes = new List<SAnimParamNode>();
+            public List<byte[]> AnimDescriptorValues = new List<byte[]>();
+            public List<uint> AnimDescriptorWords = new List<uint>();
 
+            public bool HasCollisionPrimData;
+            public SAnimCollisionPrimData CollisionPrimData;
+            public bool HasEffectState;
+            public SEffectState EffectState;
+            public bool HasActionData;
+            public SActionData ActionData;
+            public bool HasEmbeddedAnimData;
+            public SEmbeddedAnimData EmbeddedAnimData;
+            public bool HasEventStreamDataSet;
+            public SEventStreamDataSet EventStreamDataSet;
+
+            public CObjectId FinalGuid1;
+            public CObjectId FinalGuid2;
+
+            public List<byte[]> FinalValues16 = new List<byte[]>();
 
             public List<BoneData> Bones = new List<BoneData>();
             public List<SkinnedBoneData> SkinnedBones = new List<SkinnedBoneData>();
@@ -234,7 +252,7 @@ namespace DKCTF
                 NamePool = new NamePool(reader); // Name pool
                 byte unk1 = reader.ReadByte();
                 byte unk2 = reader.ReadByte();
-                byte[] data = reader.ReadBytes((unk1 & 0x7F) + 7);
+                byte[] data = ReadExactBytes(reader, (unk1 & 0x7F) + 7, "CCharInfo pre-context block");
 
                 AnimContext = new SAnimContext(reader);  // animation context
                 AbsContext = new SAbsContext(reader);  // absolute context (bind info)
@@ -255,72 +273,107 @@ namespace DKCTF
                 byte numChannels = reader.ReadByte();
                 // Console.WriteLine("numChannels: " + numChannels.ToString());
                 for (int i = 0; i < numChannels; i++)
-                    Channels.Add(new SChannel(reader));
-
-
-                NumModels = reader.ReadByte();
-                // Console.WriteLine("NumModels: " + NumModels.ToString());
-                Unk4 = reader.ReadByte();
-                // Console.WriteLine("Unk4: " + Unk4.ToString());
-                NumAnchorInfos = reader.ReadByte();
-                // Console.WriteLine("NumAnchorInfos: " + NumAnchorInfos.ToString());
-                NumAnims = reader.ReadUInt16();
-                // Console.WriteLine("NumAnims: " + NumAnims.ToString());
-                NumAnimParams = reader.ReadUInt16();
-                // Console.WriteLine("NumAnimParams: " + NumAnimParams.ToString());
-
-                hasStreamFragDecodeData = reader.ReadBoolean();
-                if (hasStreamFragDecodeData)
                 {
-                    uint fragDecodeCount = reader.ReadUInt32();
-                    // Console.WriteLine("fragDecodeCount: " + fragDecodeCount.ToString());
-                    for (int i = 0; i < fragDecodeCount; i++)
-                        FragDecodes.Add(new SFragDecode(reader));
+                    Channels.Add(new SChannel(reader));
                 }
 
-                hasConstPool = reader.ReadBoolean();
-                if (hasConstPool)
+                NumModels = reader.ReadByte();
+                Unk4 = reader.ReadByte();
+                NumAnchorInfos = reader.ReadByte();
+                NumAnims = reader.ReadUInt16();
+                NumAnimParams = reader.ReadUInt16();
+
+                HasStreamFragDecodeData = reader.ReadBoolean();
+                if (HasStreamFragDecodeData)
+                {
+                    uint fragDecodeCount = reader.ReadUInt32();
+                    for (int i = 0; i < fragDecodeCount; i++)
+                    {
+                        FragDecodes.Add(new SFragDecode(reader));
+                    }
+                }
+
+                HasConstPool = reader.ReadBoolean();
+                if (HasConstPool)
                 {
                     uint constPoolCount = reader.ReadUInt32();
-                    //Console.WriteLine("constPoolCount: " + constPoolCount.ToString());
                     for (int i = 0; i < constPoolCount; i++)
+                    {
                         ConstPools.Add(new SConstPool(reader));
+                    }
                 }
                 ushort unk10 = reader.ReadUInt16();
                 if (NumAnchorInfos > 0)
                 {
                     for (int i = 0; i < NumAnchorInfos; i++)
+                    {
                         AnchorInfos.Add(new SAnchorInfo(reader));
+                    }
                 }
-
                 if (NumModels > 0)
                 {
                     for (int i = 0; i < NumModels; i++)
+                    {
                         ModelNodes.Add(new SModelNode(reader));
+                    }
                 }
 
-                /* Can't make these work for some reason
-                hasUnkContext6 = reader.ReadBoolean();
-                if (hasUnkContext6)
+                HasUnkContext6 = reader.ReadBoolean();
+                if (HasUnkContext6)
                 {
                     UnkContext6 = new SUnkContext6(reader);
                 }
 
                 SubCharData = new SSubCharData(reader);
-
                 UnkContext7 = new SUnkContext7(reader);
                 UnkContext8 = new SUnkContext8(reader);
 
-                Console.WriteLine("Reader Position after Unknown Context 8: " + reader.BaseStream.Position.ToString("X8"));
-
-                
-                // Native CCharInfo constructor: NumAnimParams entries.
-                // Each entry contains a 16-byte value, a uint, and a typed collection.
-                for (int i = 0; i < NumAnimParams; i++)
+                for(int i = 0; i < NumAnimParams; i++)
                 {
                     AnimParamNodes.Add(new SAnimParamNode(reader));
                 }
-                */
+                for(int i = 0; i < NumAnims; i++)
+                {
+                    AnimDescriptorValues.Add(ReadExactBytes(reader, 16, "animation descriptor 16-byte value"));
+                }
+                for (int i = 0; i < NumAnims; i++)
+                {
+                    AnimDescriptorWords.Add(reader.ReadUInt32());
+                }
+
+                HasCollisionPrimData = reader.ReadBoolean();
+                if (HasCollisionPrimData)
+                {
+                    CollisionPrimData = new SAnimCollisionPrimData(reader);
+                }
+
+                HasEffectState = reader.ReadBoolean();
+                if (HasEffectState)
+                {
+                    EffectState = new SEffectState(reader);
+                }
+
+                HasActionData = reader.ReadBoolean();
+                if (HasActionData)
+                {
+                    ActionData = new SActionData(reader);
+                }
+
+                HasEmbeddedAnimData = reader.ReadBoolean();
+                if (HasEmbeddedAnimData)
+                {
+                    EmbeddedAnimData = new SEmbeddedAnimData(reader);
+                }
+
+                HasEventStreamDataSet = reader.ReadBoolean();
+                if (HasEventStreamDataSet)
+                {
+                    EventStreamDataSet = new SEventStreamDataSet(reader);
+                }
+
+                FinalGuid1 = IOFileExtension.ReadID(reader);
+                FinalGuid2 = IOFileExtension.ReadID(reader);
+
 
                 // The Absolute Context defines one skeleton. Render contexts only provide
                 // skinned-bone subsets and matrices for that skeleton; they do not each
@@ -486,6 +539,7 @@ namespace DKCTF
             }
         }
 
+        #region Bones
         public class BoneData
         {
             public string Name;
@@ -508,6 +562,7 @@ namespace DKCTF
             public uint BoneID;
             public int NodeIDX;
         }
+        #endregion
 
         public class SNodeSet
         {
@@ -533,74 +588,199 @@ namespace DKCTF
             }
         }
 
+        #region Animation Context
         public class SAnimContext
         {
             public SNodeSet NodeSet;
+            public byte RecordCountA;
+            public byte RecordCountB;
+            public ushort Section2ByteSize;
+            public ushort Section3TotalSize;
+            public ushort Section4TotalSize;
+            public List<SAnimContextRecord> Section1Records = new List<SAnimContextRecord>();
+            public byte[] Section2Data = Array.Empty<byte>();
+            public ushort[] Section3Table = Array.Empty<ushort>();
+            public byte[] Section4Data = Array.Empty<byte>();
+            public ushort[] Section5Table = Array.Empty<ushort>();
+            public byte[] Section6Data = Array.Empty<byte>();
 
             public SAnimContext(FileReader reader)
             {
                 /* SAnimContext::Load  */
-
-                byte num1 = reader.ReadByte(); 
-                byte num2 = reader.ReadByte(); 
-                ushort num3 = reader.ReadUInt16(); 
-                ushort num4 = reader.ReadUInt16(); 
-                ushort num5 = reader.ReadUInt16(); 
+                RecordCountA = reader.ReadByte(); 
+                RecordCountB = reader.ReadByte(); 
+                ushort Section2ByteSize = reader.ReadUInt16(); 
+                ushort Section3TotalSize = reader.ReadUInt16(); 
+                ushort Section4TotalSize = reader.ReadUInt16(); 
 
                 /* SAnimContext::ReadIntoMemory */
+                for(int i = 0; i< RecordCountA; i++)
+                {
+                    Section1Records.Add(new SAnimContextRecord(reader));
+                }
+                Section2Data = ReadExactBytes(reader, Section2ByteSize, "SAnimContext section 2");
+                Section3Table = reader.ReadUInt16s(RecordCountB);
 
-                byte[] section1 = reader.ReadBytes(num1 * 6); // Animation descriptor entries?
-                byte[] section2 = reader.ReadBytes(num3); // Animation data block?
-                ushort[] section3 = reader.ReadUInt16s(num2); // Pointer table?
-                byte[] section4 = reader.ReadBytes(num4 - (num2 * 8)); // Auxiliary animation data?
-                ushort[] section5 = reader.ReadUInt16s(num1); // Metadata or second pointer table?
-                byte[] section6 = reader.ReadBytes(num5 - (num1 * 8)); // Final data segment?
+                int section4Size = Section3TotalSize - (RecordCountB * 8);
+                int section6Size = Section4TotalSize - (RecordCountA * 8);
+
+                if (section4Size < 0 || section6Size < 0)
+                {
+                    throw new InvalidDataException("SAnimContext section sizes are smaller than their associated tables.");
+                }
+
+                Section4Data = ReadExactBytes(reader, section4Size, "SAnimContext section 4");
+                Section5Table = reader.ReadUInt16s(RecordCountA);
+                Section6Data = ReadExactBytes(reader, section6Size, "SAnimContext section 6");
 
                 NodeSet = new SNodeSet(reader);
             }
         }
 
-        public class SAbsContext        // Works as intended
+        public class SAnimContextRecord
+        {
+            public ushort FieldA;
+            public ushort FieldB;
+            public ushort FieldC;
+
+            public SAnimContextRecord(FileReader reader)
+            {
+                FieldA = reader.ReadUInt16();
+                FieldB = reader.ReadUInt16();
+                FieldC = reader.ReadUInt16();
+            }
+        }
+        #endregion
+
+        #region Absolute Context
+        public class SAbsContext
         {
             public SNodeSet NodeSet;
-
             public (ushort, ushort)[] Section5;
 
-            public byte num1;
-            public ushort num2;
-            public ushort num3;
-            public ushort num4;
-            public ushort num5;
-            public ushort num6;
+            public byte Section1Count;
+            public ushort Section5EntryCount;
+            public ushort Section2ByteSize;
+            public ushort Section3ByteSize;
+            public ushort Section4ByteSize;
+            // Fifth header word: byte length of the block between Section4 and SNodeSet.
+            public ushort HeaderField5;
+            public byte TrailingFlag;
+
+            public List<SAbsContextRecord> Section1 = new List<SAbsContextRecord>();
+            public byte[] Section2 = Array.Empty<byte>();
+            public byte[] Section3 = Array.Empty<byte>();
+            public byte[] Section4 = Array.Empty<byte>();
+            // Native SAbsContext reads this size-delimited block after sections 2-4 and
+            // before the node set. Omitting it shifts the node set and every following
+            // field, eventually making SRenderContext.num5 look like an impossible size.
+            public byte[] Section5Data = Array.Empty<byte>();
+            public int FirstType5RecordIndex = -1;
+            public int FirstType5RecordCount;
 
             public SAbsContext(FileReader reader)
             {
-                /* SAbsContext::Load  */
+                // Native layout: one byte followed by five ushorts. Unlike SAnimContext,
+                // SAbsContext has no second leading byte.
+                Section1Count = reader.ReadByte();
+                Section5EntryCount = reader.ReadUInt16();
+                Section2ByteSize = reader.ReadUInt16();
+                Section3ByteSize = reader.ReadUInt16();
+                Section4ByteSize = reader.ReadUInt16();
+                HeaderField5 = reader.ReadUInt16();
 
-                num1 = reader.ReadByte(); //
-                num2 = reader.ReadUInt16();
-                num3 = reader.ReadUInt16();
-                num4 = reader.ReadUInt16();
-                num5 = reader.ReadUInt16();
-                num6 = reader.ReadUInt16(); // NEW
+                for (int i = 0; i < Section1Count; i++)
+                {
+                    Section1.Add(new SAbsContextRecord(reader));
+                }
 
-                /* SAbsContext::ReadIntoMemory */
+                // The native reader records the first contiguous run of type-5 records.
+                for (int i = 0; i < Section1.Count; i++)
+                {
+                    if (Section1[i].Type != 5)
+                    {
+                        continue;
+                    }
 
-                byte[] section1 = reader.ReadBytes(num1 * 6);
-                byte[] section2 = reader.ReadBytes(num3);
-                byte[] section3 = reader.ReadBytes(num4);
-                byte[] section4 = reader.ReadBytes(num5);
-                byte[] section6 = reader.ReadBytes(num6);
+                    FirstType5RecordIndex = i;
+                    for (int j = i; j < Section1.Count && Section1[j].Type == 5; j++)
+                    {
+                        FirstType5RecordCount++;
+                    }
+                    break;
+                }
 
+                Section2 = ReadExactBytes(reader, Section2ByteSize, "SAbsContext section 2");
+                Section3 = ReadExactBytes(reader, Section3ByteSize, "SAbsContext section 3");
+                Section4 = ReadExactBytes(reader, Section4ByteSize, "SAbsContext section 4");
+                Section5Data = ReadExactBytes(reader, HeaderField5, "SAbsContext section 5 data");
+
+                // FUN_7100692edc reads the node-set header and its uint32 entries here.
                 NodeSet = new SNodeSet(reader);
 
-                Section5 = new (ushort, ushort)[num2];
+                Section5 = new (ushort, ushort)[Section5EntryCount];
                 for (int i = 0; i < Section5.Length; i++)
+                {
                     Section5[i] = (reader.ReadUInt16(), reader.ReadUInt16());
+                }
 
-                byte unk7 = reader.ReadByte();
+                TrailingFlag = reader.ReadByte();
+            }
+
+            public int GetCumulativeRecordBlockOffset(int recordIndex)
+            {
+                if (FirstType5RecordIndex < 0 || recordIndex <= FirstType5RecordIndex)
+                {
+                    return 0;
+                }
+
+                int total = 0;
+                int end = Math.Min(recordIndex, Section1.Count);
+                for (int i = FirstType5RecordIndex; i < end; i++)
+                {
+                    total += Section1[i].TypeAndCount >> 5;
+                }
+                return total;
+            }
+
+            public bool TryFindPackedNodeCode(uint nameHash, NamePool namePool, out uint packedCode)
+            {
+                packedCode = 0xFFFFFFFF;
+                if (NodeSet == null || namePool == null || NodeSet.NameSet >= namePool.HashLists.Count)
+                {
+                    return false;
+                }
+
+                HashList hashList = namePool.HashLists[NodeSet.NameSet];
+                int count = Math.Min(hashList.Hashes.Length, NodeSet.NodeIDs.Length);
+                for (int i = 0; i < count; i++)
+                {
+                    if (hashList.Hashes[i] == nameHash)
+                    {
+                        packedCode = NodeSet.NodeIDs[i];
+                        return true;
+                    }
+                }
+                return false;
             }
         }
+
+        public class SAbsContextRecord
+        {
+            public ushort TypeAndCount;
+            public ushort Field1;
+            public ushort Field2;
+            public int Type => TypeAndCount & 0x1F;
+            public int Count => TypeAndCount >> 5;
+
+            public SAbsContextRecord(FileReader reader)
+            {
+                TypeAndCount = reader.ReadUInt16();
+                Field1 = reader.ReadUInt16();
+                Field2 = reader.ReadUInt16();
+            }
+        }
+        #endregion
 
         public class SRenderContext         // Works as intended
         {
@@ -641,7 +821,7 @@ namespace DKCTF
 
                 SkinnedInverseMatrices = reader.ReadMatrix3x4s(num1 + 1);
                 InverseMatrixBoneIds = reader.ReadUInt32s((int)num4); // Is always 0 in Prime 4
-                section4 = reader.ReadBytes(checked((int)num5));
+                section4 = ReadExactBytes(reader, checked((int)num5), "SRenderContext section 4");
 
                 HasSubContext = reader.ReadBoolean(); // New sub context
                 if (HasSubContext)
@@ -674,9 +854,7 @@ namespace DKCTF
                 {
                     return renderlist;
                 }
-
             }
-
         }
 
         #region Unknown Context 5
@@ -1169,7 +1347,7 @@ namespace DKCTF
                 Unk2 = reader.ReadUInt16();
                 FlagsA = reader.ReadByte();
                 FlagsB = reader.ReadByte();
-                Guid = IOFileExtension.ReadID(reader); // instead of GUID
+                Guid = IOFileExtension.ReadID(reader);
             }
         }
 
@@ -1267,7 +1445,6 @@ namespace DKCTF
                     continue;
                 }
 
-
                 try
                 {
                     // Parse the common header and type-specific animation data.
@@ -1279,11 +1456,8 @@ namespace DKCTF
 
                     successCount++;
 
-                    Console.WriteLine($"{label}: SUCCESS - " +
-                        $"type={entry.Animation.BaseInfo.Type}, " +
-                        $"index={entry.Animation.BaseInfo.Index}, " +
-                        $"parsed={entry.BytesParsed}/{length} bytes, " +
-                        $"trailing={entry.TrailingData.Length} bytes.");
+                    Console.WriteLine($"{label}: SUCCESS - type={entry.Animation.BaseInfo.Type}, index={entry.Animation.BaseInfo.Index}, " +
+                        $"parsed={entry.BytesParsed}/{length} bytes, trailing={entry.TrailingData.Length} bytes.");
 
                     // CompStream parsing is intentionally separate: a new or not-yet-
                     // understood stream format must not invalidate the outer CAnim parse.
@@ -1292,12 +1466,9 @@ namespace DKCTF
                         try
                         {
                             entry.CompStreamClip = CHPRCompStreamAnimation.ParseAnimationPayload(animationBytes, entry.Animation);
-                            Console.WriteLine($"[CHPR] Animation {i + 1}: CompStream structure parsed - " +
-                                $"streams={entry.CompStreamClip.Streams.Count}, " +
-                                $"descriptorCommands={entry.CompStreamClip.DescriptorCommands.Count}, " +
-                                $"descriptorTerminated={entry.CompStreamClip.DescriptorTerminated}, " +
-                                $"frameCount={entry.CompStreamClip.FrameCount}, " +
-                                $"rate={entry.CompStreamClip.Rate}.");
+                            Console.WriteLine($"[CHPR] Animation {i + 1}: CompStream structure parsed - streams={entry.CompStreamClip.Streams.Count}, " +
+                                $"descriptorCommands={entry.CompStreamClip.DescriptorCommands.Count}, descriptorTerminated={entry.CompStreamClip.DescriptorTerminated}, " +
+                                $"frameCount={entry.CompStreamClip.FrameCount}, rate={entry.CompStreamClip.Rate}.");
                         }
                         catch (Exception streamEx)
                         {
@@ -1324,27 +1495,13 @@ namespace DKCTF
 
             // Summarize the inventory in one line as well as the per-entry diagnostics above.
             // A large table count is not the same as a large number of supported CompStream clips.
-            var parsedTypeCounts = animationClipArray
-                .Where(entry => entry.Animation != null)
-                .GroupBy(entry => (byte)entry.Animation.BaseInfo.Type)
-                .OrderBy(group => group.Key)
-                .Select(group => $"0x{group.Key:X2}={group.Count()}")
-                .ToList();
+            var parsedTypeCounts = animationClipArray.Where(entry => entry.Animation != null).GroupBy(entry => (byte)entry.Animation.BaseInfo.Type).OrderBy(group => group.Key).Select(group => $"0x{group.Key:X2}={group.Count()}").ToList();
 
-            int compStreamPayloads = animationClipArray.Count(entry =>
-                entry.Animation != null &&
-                entry.Animation.BaseInfo.Type == CHPRAnimationDecoder.AnimType.CompStream);
+            int compStreamPayloads = animationClipArray.Count(entry => entry.Animation != null && entry.Animation.BaseInfo.Type == CHPRAnimationDecoder.AnimType.CompStream);
             int compStreamParsed = animationClipArray.Count(entry => entry.CompStreamClip != null);
-            int compStreamStructureFailed = animationClipArray.Count(entry =>
-                entry.Animation != null &&
-                entry.Animation.BaseInfo.Type == CHPRAnimationDecoder.AnimType.CompStream &&
-                entry.CompStreamClip == null);
-            int sequenceCount = animationClipArray.Count(entry =>
-                entry.Animation != null &&
-                entry.Animation.BaseInfo.Type == CHPRAnimationDecoder.AnimType.Sequence);
-            int gridCount = animationClipArray.Count(entry =>
-                entry.Animation != null &&
-                entry.Animation.BaseInfo.Type == CHPRAnimationDecoder.AnimType.Grid);
+            int compStreamStructureFailed = animationClipArray.Count(entry => entry.Animation != null && entry.Animation.BaseInfo.Type == CHPRAnimationDecoder.AnimType.CompStream && entry.CompStreamClip == null);
+            int sequenceCount = animationClipArray.Count(entry => entry.Animation != null && entry.Animation.BaseInfo.Type == CHPRAnimationDecoder.AnimType.Sequence);
+            int gridCount = animationClipArray.Count(entry => entry.Animation != null && entry.Animation.BaseInfo.Type == CHPRAnimationDecoder.AnimType.Grid);
 
             Console.WriteLine($"[CHPR] Animation reading finished: {successCount} succeeded, {failedCount} failed, {emptyCount} empty.");
             Console.WriteLine($"[CHPR] Animation inventory: entries={animationClipArray.Count}, parsedTypes=[{string.Join(", ", parsedTypeCounts)}], " +
@@ -1369,16 +1526,16 @@ namespace DKCTF
             }
         }
 
-        public class SModelNode // Add more stuff
+        public class SModelNode
         {
             public CPooledName Name;
             public uint Unk1;
             public uint Unk2;
-            public uint Unk3;           // Missing
-            public ushort Unk4;         // Missing
-            public bool Unk5;           // Missing
-            public CObjectId Guid;      
-            public uint Unk6;           // Missing
+            public uint Unk3;
+            public ushort Unk4;
+            public bool Unk5;
+            public CObjectId Guid;
+            public uint Unk6;
             public CObjectId ModelFileGuid; 
 
             public SModelNode(FileReader reader)
@@ -1442,6 +1599,7 @@ namespace DKCTF
         }
         #endregion
 
+        #region Sub Character
         public class SSubChar
         {
             public bool HasReference;
@@ -1458,10 +1616,11 @@ namespace DKCTF
                 HasReference = reader.ReadByte() != 0;
 
                 if (HasReference)
+                {
                     PackedReference = reader.ReadUInt32();
+                }
 
                 Guid = IOFileExtension.ReadID(reader);
-
                 SubRecordCount = reader.ReadByte();
 
                 // The native code casts the entry size to a signed short.
@@ -1476,7 +1635,7 @@ namespace DKCTF
 
                 if (firstSize < 0)
                 {
-                    throw new InvalidDataException($"Invalid sub-character payload size: " + $"{dataSize} bytes for {SubRecordCount} sub-records.");
+                    throw new InvalidDataException($"Invalid sub-character payload size: {dataSize} bytes for {SubRecordCount} sub-records.");
                 }
 
                 Unk1 = reader.ReadBytes(firstSize);
@@ -1509,6 +1668,7 @@ namespace DKCTF
                 }
             }
         }
+        #endregion
 
         #region Unknown Context 7
         public class SUnkContext7
@@ -1528,8 +1688,8 @@ namespace DKCTF
                 Console.WriteLine("Unknown Context 7 Count: " + Count.ToString());
                 PayloadSize = reader.ReadUInt16();
 
-                EntryData = reader.ReadBytes(checked((int)Count * 4));
-                Payload = reader.ReadBytes(PayloadSize);
+                EntryData = ReadExactBytes(reader, checked((int)Count * 4), "SUnkContext7 entries");
+                Payload = ReadExactBytes(reader, PayloadSize, "SUnkContext7 payload");
             }
         }
         #endregion
@@ -1538,41 +1698,30 @@ namespace DKCTF
         public class SUnkContext8
         {
             public uint EntryCount;
-
-            // The native code tests the sign bit of this value.
             public uint SizeWord;
-
             public uint ConditionalDataSize;
-
-            // Each entry occupies 8 bytes in the native parser.
             public byte[] EntryData = Array.Empty<byte>();
-
-            public byte[] ConditionalDataA = Array.Empty<byte>();
-            public byte[] ConditionalDataB = Array.Empty<byte>();
+            public byte[] ConditionalData = Array.Empty<byte>();
+            public byte[] Payload = Array.Empty<byte>();
 
             public SUnkContext8(FileReader reader)
             {
                 EntryCount = reader.ReadUInt32();
-                Console.WriteLine("Unknown Context 8 Count: " + EntryCount.ToString());
                 SizeWord = reader.ReadUInt32();
-
-                // Native code reads an extra size only when the high bit is set.
                 if ((SizeWord & 0x80000000u) != 0)
                 {
                     ConditionalDataSize = reader.ReadUInt32();
                 }
 
-                // Preserve the low 31 bits without assigning them a meaning.
-                SizeWord &= 0x7FFFFFFFu;
+                uint payloadSize = SizeWord & 0x7FFFFFFFu;
+                int entryBytes = checked((int)((long)EntryCount * 8));
+                EntryData = ReadExactBytes(reader, entryBytes, "SUnkContext8 entries");
 
-                EntryData = reader.ReadBytes(checked((int)((long)EntryCount * 8)));
-
-                if (ConditionalDataSize != 0)
+                if (ConditionalDataSize > 0)
                 {
-                    int dataSize = checked((int)ConditionalDataSize);
-                    ConditionalDataA = reader.ReadBytes(dataSize);
-                    ConditionalDataB = reader.ReadBytes(dataSize);
+                    ConditionalData = ReadExactBytes(reader, CheckedByteLength(ConditionalDataSize, "SUnkContext8 conditional data"), "SUnkContext8 conditional data");
                 }
+                Payload = ReadExactBytes(reader, CheckedByteLength(payloadSize, "SUnkContext8 payload"), "SUnkContext8 payload");
             }
         }
         #endregion
@@ -1580,10 +1729,7 @@ namespace DKCTF
         #region Animation Parameters
         public class SAnimParamNode
         {
-            // Read by FUN_710034dbb8. Keep raw until the helper is fully identified.
             public byte[] Value16 = Array.Empty<byte>();
-
-            // A 32-bit field immediately following Value16 in the stream.
             public uint ParameterWord;
 
             public SAnimParamMap Parameters;
@@ -1619,7 +1765,7 @@ namespace DKCTF
 
                 if (FormatTag == PAS4)
                 {
-                    ExtraHeaderBytes = reader.ReadBytes(4);
+                    ExtraHeaderBytes = ReadExactBytes(reader, 4, "PAS4 animation-parameter header bytes");
                 }
 
                 for (int i = 0; i < count; i++)
@@ -1633,8 +1779,7 @@ namespace DKCTF
                 // Sanity limit to prevent corrupt counts from allocating enormous lists.
                 if (count > 1_000_000)
                 {
-                    throw new InvalidDataException(
-                        $"Unreasonable {label} count: {count}");
+                    throw new InvalidDataException($"Unreasonable {label} count: {count}");
                 }
 
                 return checked((int)count);
@@ -1658,22 +1803,18 @@ namespace DKCTF
                 DescriptorCount = reader.ReadUInt32();
                 ValueRecordCount = reader.ReadUInt32();
 
-                int descriptorCount = SAnimParamMap.ReadCount(
-                    DescriptorCount, "field descriptor");
+                int descriptorCount = SAnimParamMap.ReadCount(DescriptorCount, "field descriptor");
 
-                int valueRecordCount = SAnimParamMap.ReadCount(
-                    ValueRecordCount, "parameter value record");
+                int valueRecordCount = SAnimParamMap.ReadCount(ValueRecordCount, "parameter value record");
 
                 for (int i = 0; i < descriptorCount; i++)
                 {
-                    Descriptors.Add(
-                        new SAnimParamFieldDescriptor(reader, formatTag));
+                    Descriptors.Add(new SAnimParamFieldDescriptor(reader, formatTag));
                 }
 
                 for (int i = 0; i < valueRecordCount; i++)
                 {
-                    ValueRecords.Add(
-                        new SAnimParamValueRecord(reader, Descriptors));
+                    ValueRecords.Add(new SAnimParamValueRecord(reader, Descriptors));
                 }
             }
         }
@@ -1710,9 +1851,9 @@ namespace DKCTF
                 switch (TypeCode)
                 {
                     case 0:
-                        // FUN_710058aec0 reads 16-bit values.
-                        ExtraValue0 = reader.ReadUInt16();
-                        ExtraValue1 = reader.ReadUInt16();
+                        // FUN_710058aec0 reads 32-bit values.
+                        ExtraValue0 = reader.ReadUInt32();
+                        ExtraValue1 = reader.ReadUInt32();
                         break;
                     case 1:
                     case 2:
@@ -1742,9 +1883,7 @@ namespace DKCTF
 
             public List<SAnimParamValue> Values = new List<SAnimParamValue>();
 
-            public SAnimParamValueRecord(
-                FileReader reader,
-                IReadOnlyList<SAnimParamFieldDescriptor> descriptors)
+            public SAnimParamValueRecord(FileReader reader, IReadOnlyList<SAnimParamFieldDescriptor> descriptors)
             {
                 Key = reader.ReadUInt32();
 
@@ -1793,6 +1932,457 @@ namespace DKCTF
         }
         #endregion
 
+        #region Animation Collision Primitive Data
+        public class SAnimCollisionPrimData
+        {
+            public uint EntryCount;
+            public List<SAnimCollisionPrimEntry> Entries = new List<SAnimCollisionPrimEntry>();
+            public uint GroupCount;
+            public List<SAnimCollisionPrimGroup> Groups = new List<SAnimCollisionPrimGroup>();
+            public uint ObjectIdCount;
+            public List<CObjectId> ObjectIds = new List<CObjectId>();
+
+            public SAnimCollisionPrimData(FileReader reader)
+            {
+                EntryCount = reader.ReadUInt32();
+                int count = CheckedCount(EntryCount, "collision-primitive entry");
+                for (int i = 0; i < count; i++)
+                {
+                    Entries.Add(new SAnimCollisionPrimEntry(reader));
+                }
+
+                GroupCount = reader.ReadUInt32();
+                int groupCount = CheckedCount(GroupCount, "collision-primitive group");
+                for (int i = 0; i < groupCount; i++)
+                {
+                    Groups.Add(new SAnimCollisionPrimGroup(reader));
+                }
+
+                ObjectIdCount = reader.ReadUInt32();
+                int objectIdCount = CheckedCount(ObjectIdCount, "collision-primitive object ID");
+                for (int i = 0; i < objectIdCount; i++)
+                {
+                    ObjectIds.Add(IOFileExtension.ReadID(reader));
+                }
+            }
+        }
+
+        public class SAnimCollisionPrimEntry
+        {
+            public uint PayloadSize;
+            public string Name = string.Empty;
+            public uint FieldA;
+            public uint FieldB;
+            public CObjectId ObjectId;
+            public byte[] Payload = Array.Empty<byte>();
+
+            public SAnimCollisionPrimEntry(FileReader reader)
+            {
+                PayloadSize = reader.ReadUInt32();
+                Name = ReadLengthPrefixedString(reader, "collision-primitive name");
+                FieldA = reader.ReadUInt32();
+                FieldB = reader.ReadUInt32();
+                ObjectId = IOFileExtension.ReadID(reader);
+                // The native routine transforms selected fields after reading these bytes.
+                // Preserve the serialized payload unchanged for now.
+                Payload = ReadExactBytes(reader, CHPR.CheckedByteLength(PayloadSize, "collision-primitive payload"), "collision-primitive payload");
+            }
+        }
+
+        public class SAnimCollisionPrimGroup
+        {
+            public string Name = string.Empty;
+            public uint ChildCount;
+            public List<string> ChildNames = new List<string>();
+
+            public SAnimCollisionPrimGroup(FileReader reader)
+            {
+                Name = ReadLengthPrefixedString(reader, "collision-primitive group name");
+                ChildCount = reader.ReadUInt32();
+                int count = CheckedCount(ChildCount, "collision-primitive child name");
+                for (int i = 0; i < count; i++)
+                {
+                    ChildNames.Add(ReadLengthPrefixedString(reader, "collision-primitive child name"));
+                }
+            }
+        }
+        #endregion
+
+        #region Effect State
+        public class SEffectState
+        {
+            public ushort EntryCountA;
+            public ushort EntryCountB;
+            public bool HasBitfield;
+            public List<SEffectStateEntryA> EntriesA = new List<SEffectStateEntryA>();
+            public List<SEffectStateEntryB> EntriesB = new List<SEffectStateEntryB>();
+            public List<uint> BitfieldWords = new List<uint>();
+
+            public SEffectState(FileReader reader)
+            {
+                EntryCountA = reader.ReadUInt16();
+                EntryCountB = reader.ReadUInt16();
+                HasBitfield = reader.ReadByte() != 0;
+
+                for (int i = 0; i < EntryCountA; i++)
+                {
+                    EntriesA.Add(new SEffectStateEntryA(reader));
+                }
+                for (int i = 0; i < EntryCountB; i++)
+                {
+                    EntriesB.Add(new SEffectStateEntryB(reader));
+                }
+
+                if (HasBitfield && EntryCountA > 0)
+                {
+                    int wordCount = Math.Max(1, (EntryCountA + 31) / 32);
+                    for (int i = 0; i < wordCount; i++)
+                    {
+                        BitfieldWords.Add(reader.ReadUInt32());
+                    }
+                }
+            }
+        }
+
+        public class SEffectStateEntryA
+        {
+            public uint Word;
+            public byte[] Value16 = Array.Empty<byte>();
+
+            public SEffectStateEntryA(FileReader reader)
+            {
+                Word = reader.ReadUInt32();
+                Value16 = ReadExactBytes(reader, 16, "effect-state 16-byte value");
+            }
+        }
+
+        public class SEffectStateEntryB
+        {
+            public uint PackedLengthAndCount;
+            public uint ByteLength;
+            public uint Metadata;
+            public byte[] FourByteItems = Array.Empty<byte>();
+            public byte[] Bytes = Array.Empty<byte>();
+
+            public SEffectStateEntryB(FileReader reader)
+            {
+                uint countAndFlags = reader.ReadUInt32();
+                uint byteLength = reader.ReadUInt32();
+                Metadata = reader.ReadUInt32();
+
+                uint fourByteCount = countAndFlags & 0xFu;
+                PackedLengthAndCount = countAndFlags;
+                ByteLength = byteLength;
+                FourByteItems = ReadExactBytes(reader, checked((int)(fourByteCount * 4)), "effect-state four-byte items");
+                Bytes = ReadExactBytes(reader, CheckedByteLength(byteLength, "effect-state record"), "effect-state record");
+            }
+        }
+        #endregion
+
+        #region Action Data
+        public class SActionData
+        {
+            public uint StreamCount;
+            public ushort EventCount;
+            public uint ModeCount;
+            public uint TrackCount;
+            public uint StringBlobSize;
+            public bool[] Flags = new bool[4];
+            public List<SActionStream> Streams = new List<SActionStream>();
+            public List<(ushort First, ushort Second)> StreamPairs = new List<(ushort, ushort)>();
+            public List<uint> Modes = new List<uint>();
+            public List<SActionEvent> Events = new List<SActionEvent>();
+            public byte[] TrackData = Array.Empty<byte>();
+            public byte[] StringBlob = Array.Empty<byte>();
+
+            public SActionData(FileReader reader)
+            {
+                StreamCount = reader.ReadUInt32();
+                EventCount = reader.ReadUInt16();
+                ModeCount = reader.ReadUInt32();
+                TrackCount = reader.ReadUInt32();
+                StringBlobSize = reader.ReadUInt32();
+
+                for (int i = 0; i < Flags.Length; i++)
+                {
+                    Flags[i] = reader.ReadByte() != 0;
+                }
+
+                int streamCount = CheckedCount(StreamCount, "action stream");
+                int modeCount = CheckedCount(ModeCount, "action mode");
+                int trackCount = CheckedCount(TrackCount, "action track");
+                int stringBlobSize = CheckedByteLength(StringBlobSize, "action string blob");
+
+                for (int i = 0; i < streamCount; i++)
+                {
+                    Streams.Add(new SActionStream(reader));
+                }
+                for (int i = 0; i < streamCount; i++)
+                {
+                    StreamPairs.Add((reader.ReadUInt16(), reader.ReadUInt16()));
+                }
+                for (int i = 0; i < modeCount; i++)
+                {
+                    Modes.Add(reader.ReadUInt32());
+                }
+                for (int i = 0; i < EventCount; i++)
+                {
+                    Events.Add(new SActionEvent(reader));
+                }
+
+                if (TrackCount != 0)
+                {
+                    TrackData = ReadExactBytes(reader, checked(trackCount * 4), "action track data");
+                    StringBlob = ReadExactBytes(reader, stringBlobSize, "action string blob");
+                }
+            }
+        }
+
+        public class SActionStream
+        {
+            public ushort DataSize;
+            public byte FlagA;
+            public byte FlagB;
+            public byte[] Data = Array.Empty<byte>();
+
+            public SActionStream(FileReader reader)
+            {
+                DataSize = reader.ReadUInt16();
+                FlagA = reader.ReadByte();
+                FlagB = reader.ReadByte();
+                Data = ReadExactBytes(reader, DataSize, "action stream payload");
+            }
+        }
+
+        public class SActionEvent
+        {
+            public uint Address;
+            public uint Value;
+
+            public SActionEvent(FileReader reader)
+            {
+                Address = reader.ReadUInt32();
+                Value = reader.ReadUInt32();
+            }
+        }
+        #endregion
+
+        #region Embedded Animation Data
+        public class SEmbeddedAnimData
+        {
+            public ushort TypeRecordCount;
+            public ushort Record12ByteCount;
+            public ushort LinkRecordCount;
+            public ushort Record6ByteCount;
+            public ushort HeaderValueA;
+            public ushort HeaderValueB;
+            public ushort UIntRecordCount;
+            public ushort Value16RecordCount;
+            public List<SEmbeddedTypedRecord> TypedRecords = new List<SEmbeddedTypedRecord>();
+            public List<SEmbeddedRecord12> Records12 = new List<SEmbeddedRecord12>();
+            public List<SEmbeddedLinkRecord> LinkRecords = new List<SEmbeddedLinkRecord>();
+            public List<SEmbeddedRecord6> Records6 = new List<SEmbeddedRecord6>();
+            public List<uint> UIntRecords = new List<uint>();
+            public List<byte[]> Value16Records = new List<byte[]>();
+
+            public SEmbeddedAnimData(FileReader reader)
+            {
+                // Native order: uVar18, uVar33, uVar28, uVar41, uVar44, uVar46, uVar50, uVar47.
+                TypeRecordCount = reader.ReadUInt16();
+                Record12ByteCount = reader.ReadUInt16();
+                LinkRecordCount = reader.ReadUInt16();
+                Record6ByteCount = reader.ReadUInt16();
+                HeaderValueA = reader.ReadUInt16();
+                HeaderValueB = reader.ReadUInt16();
+                UIntRecordCount = reader.ReadUInt16();
+                Value16RecordCount = reader.ReadUInt16();
+
+                for (int i = 0; i < TypeRecordCount; i++)
+                {
+                    TypedRecords.Add(new SEmbeddedTypedRecord(reader));
+                }
+                for (int i = 0; i < Record12ByteCount; i++)
+                {
+                    Records12.Add(new SEmbeddedRecord12(reader));
+                }
+                for (int i = 0; i < LinkRecordCount; i++)
+                {
+                    LinkRecords.Add(new SEmbeddedLinkRecord(reader));
+                }
+                for (int i = 0; i < Record6ByteCount; i++)
+                {
+                    Records6.Add(new SEmbeddedRecord6(reader));
+                }
+                for (int i = 0; i < UIntRecordCount; i++)
+                {
+                    UIntRecords.Add(reader.ReadUInt32());
+                }
+                for (int i = 0; i < Value16RecordCount; i++)
+                {
+                    Value16Records.Add(ReadExactBytes(reader, 16, "embedded animation 16-byte record"));
+                }
+            }
+        }
+
+        public class SEmbeddedTypedRecord
+        {
+            public byte Type;
+            public uint WordA;
+            public uint WordB;
+            public uint Count;
+            public uint[] ArrayA = Array.Empty<uint>();
+            public uint[] ArrayB = Array.Empty<uint>();
+
+            public SEmbeddedTypedRecord(FileReader reader)
+            {
+                Type = reader.ReadByte();
+                switch (Type)
+                {
+                    case 1:
+                        WordA = reader.ReadUInt32();
+                        WordB = reader.ReadUInt32();
+                        break;
+                    case 2:
+                        WordA = reader.ReadUInt32();
+                        break;
+                    case 4:
+                        Count = reader.ReadUInt32();
+                        int count = CheckedCount(Count, "embedded typed-record array");
+                        ArrayA = new uint[count];
+                        ArrayB = new uint[count];
+                        for (int i = 0; i < count; i++) ArrayA[i] = reader.ReadUInt32();
+                        for (int i = 0; i < count; i++) ArrayB[i] = reader.ReadUInt32();
+                        break;
+                        // Native type 0 has no payload; type 3 has no switch case and consumes none.
+                }
+            }
+        }
+
+        public class SEmbeddedRecord12
+        {
+            public uint A;
+            public uint B;
+            public uint C;
+
+            public SEmbeddedRecord12(FileReader reader)
+            {
+                A = reader.ReadUInt32();
+                B = reader.ReadUInt32();
+                C = reader.ReadUInt32();
+            }
+        }
+
+        public class SEmbeddedLinkRecord
+        {
+            public uint FieldA;
+            public ushort FieldB;
+            public bool FlagA;
+            public bool FlagB;
+            public ushort LinkCount;
+            public List<SEmbeddedLink> Links = new List<SEmbeddedLink>();
+
+            public SEmbeddedLinkRecord(FileReader reader)
+            {
+                long recordStart = reader.BaseStream.Position;
+
+                // FUN_7100ba9a5c reads this exact serialized order:
+                // uint32 field, ushort link count, two one-byte flags, then links.
+                // FieldB is the serialized count; it must not be read a second time
+                // after the flags (that would consume the first link's A field).
+                FieldA = reader.ReadUInt32();
+                FieldB = reader.ReadUInt16();
+                LinkCount = FieldB;
+                FlagA = reader.ReadByte() != 0;
+                FlagB = reader.ReadByte() != 0;
+
+                // Each serialized child link consumes 9 bytes: four ushorts and a byte.
+                // Native storage packs that final byte into a flag bit, but the byte is
+                // still present in the file. Fail here with context if counts/position
+                // are inconsistent instead of eventually throwing at an arbitrary field.
+                long remainingBytes = reader.BaseStream.Length - reader.BaseStream.Position;
+                long requiredLinkBytes = (long)LinkCount * 9;
+                if (requiredLinkBytes > remainingBytes)
+                {
+                    throw new InvalidDataException($"Embedded animation link record at 0x{recordStart:X8} declares {LinkCount} links ({requiredLinkBytes} bytes), but only {remainingBytes} bytes remain in the stream.");
+                }
+
+                for (int i = 0; i < LinkCount; i++)
+                {
+                    Links.Add(new SEmbeddedLink(reader));
+                }
+            }
+        }
+
+        public class SEmbeddedLink
+        {
+            public ushort A;
+            public ushort B;
+            public ushort C;
+            public ushort D;
+            public byte Flag;
+
+            public SEmbeddedLink(FileReader reader)
+            {
+                A = reader.ReadUInt16();
+                B = reader.ReadUInt16();
+                C = reader.ReadUInt16();
+                D = reader.ReadUInt16();
+                Flag = reader.ReadByte();
+            }
+        }
+
+        public class SEmbeddedRecord6
+        {
+            public ushort A;
+            public ushort B;
+            public ushort C;
+
+            public SEmbeddedRecord6(FileReader reader)
+            {
+                A = reader.ReadUInt16();
+                B = reader.ReadUInt16();
+                C = reader.ReadUInt16();
+            }
+        }
+        #endregion
+
+        #region Event Stream Data
+        public class SEventStreamDataSet
+        {
+            public uint EntryCount;
+            public List<SEventStreamEntry> Entries = new List<SEventStreamEntry>();
+
+            public SEventStreamDataSet(FileReader reader)
+            {
+                EntryCount = reader.ReadUInt32();
+                int count = CheckedCount(EntryCount, "event-stream entry");
+                for (int i = 0; i < count; i++)
+                {
+                    Entries.Add(new SEventStreamEntry(reader));
+                }
+            }
+        }
+
+        public class SEventStreamEntry
+        {
+            public ushort Type;
+            public ushort Size;
+            public byte[] Data = Array.Empty<byte>();
+
+            public SEventStreamEntry(FileReader reader)
+            {
+                Type = reader.ReadUInt16();
+                Size = reader.ReadUInt16();
+                if (Size > short.MaxValue)
+                {
+                    throw new InvalidDataException($"Event-stream payload size exceeds the native signed-short range: {Size}.");
+                }
+                Data = ReadExactBytes(reader, Size, "event-stream entry payload");
+            }
+        }
+        #endregion
+
+        #region Name Pool
         public class CPooledName
         {
             public bool HasName;
@@ -1802,54 +2392,180 @@ namespace DKCTF
             {
                 HasName = reader.ReadByte() != 0; // currently errors here
                 if (HasName)
+                {
                     NameID = reader.ReadUInt32();
+                }  
             }
         }
 
         public class NamePool
         {
             public List<string> Strings = new List<string>();
+            public List<byte[]> StringBytes = new List<byte[]>();
+            public List<NameGroup> StringGroups = new List<NameGroup>();
             public List<HashList> HashLists = new List<HashList>();
-
+            // These first two tables are capacities used by the native allocator. Actual counts
+            // are serialized afterward, separately for each string group and hash list.
             public uint[] StringGroupCounts;
+            public uint[] HashListCapacityCounts;
+            public uint[] StringGroupEntryCounts;
 
             public NamePool(FileReader reader)
             {
-                // String list
                 uint stringTableSize = reader.ReadUInt32();
-                var pos =  reader.Position;
-
-                while (reader.BaseStream.Position < pos + stringTableSize)
+                byte[] stringTable = ReadExactBytes(reader, CheckedByteLength(stringTableSize, "NamePool string table"), "NamePool string table");
+                int stringOffset = 0;
+                while (stringOffset < stringTable.Length)
                 {
-                    string temp = (reader.ReadStringZeroTerminated());
-                    //Console.WriteLine("String found: " + temp);
-                    Strings.Add(temp);
+                    int terminator = Array.IndexOf(stringTable, (byte)0, stringOffset);
+                    if (terminator < 0)
+                    {
+                        throw new InvalidDataException("A CHPR NamePool string is not NUL-terminated within the declared string table.");
+                    }
+                        
+                    int stringLength = terminator - stringOffset;
+                    byte[] rawString = new byte[stringLength];
+                    Array.Copy(stringTable, stringOffset, rawString, 0, stringLength);
+                    StringBytes.Add(rawString);
+                    Strings.Add(Encoding.UTF8.GetString(rawString));
+                    stringOffset = terminator + 1;
                 }
-
-                reader.SeekBegin(pos + stringTableSize);
 
                 ushort groupCount = reader.ReadUInt16();
                 ushort hashCount = reader.ReadUInt16();
                 StringGroupCounts = reader.ReadUInt32s(groupCount);
-                uint[] nameHashCounts = reader.ReadUInt32s(hashCount);
-                uint numTotalStrings = reader.ReadUInt32();
+                HashListCapacityCounts = reader.ReadUInt32s(hashCount);
+                StringGroupEntryCounts = new uint[groupCount];
+
+                int stringIndex = 0;
+                for (int groupIndex = 0; groupIndex < groupCount; groupIndex++)
+                {
+                    uint entryCount = reader.ReadUInt32();
+                    StringGroupEntryCounts[groupIndex] = entryCount;
+                    int count = CheckedCount(entryCount, "NamePool string-group entry");
+                    var group = new NameGroup();
+
+                    for (int entryIndex = 0; entryIndex < count; entryIndex++)
+                    {
+                        if (stringIndex >= Strings.Count)
+                        {
+                            throw new InvalidDataException("NamePool string-group counts exceed the number of strings in the string table.");
+                        }
+
+                        string value = Strings[stringIndex++];
+                        group.Entries.Add(new NameGroupEntry
+                        {
+                            StringIndex = (uint)(stringIndex - 1),
+                            Value = value,
+                            Hash = ComputeFNV1a(StringBytes[stringIndex - 1]),
+                            PackedReference = ((uint)groupIndex << 28) | (uint)entryIndex
+                        });
+                    }
+
+                    StringGroups.Add(group);
+                }
 
                 for (int i = 0; i < hashCount; i++)
+                {
                     HashLists.Add(new HashList(reader));
+                }
             }
 
             public string GetString(int set, int index)
             {
-                var stringIdx = HashLists[set].StringIDs[index];
-                return this.Strings[(int)stringIdx];
+                if (set < 0 || set >= HashLists.Count || index < 0 || index >= HashLists[set].StringIDs.Length)
+                {
+                    return string.Empty;
+                }
+
+                // NamePool hash-list values are packed (group << 28) | entryIndex
+                // references, not flat indices into the original string blob.
+                uint packedReference = HashLists[set].StringIDs[index];
+                NameGroupEntry entry = Resolve(packedReference);
+                return entry?.Value ?? string.Empty;
             }
 
             public string GetString(CPooledName name)
             {
-                if (name.HasName)
-                    return this.Strings[(int)name.NameID];
-                return "";
+                if (name == null || !name.HasName)
+                {
+                    return string.Empty;
+                }
+                NameGroupEntry entry = Resolve(name.NameID);
+                return entry?.Value ?? string.Empty;
             }
+
+            public uint GetHash(CPooledName name)
+            {
+                if (name == null || !name.HasName)
+                {
+                    return 0;
+                }
+                NameGroupEntry entry = Resolve(name.NameID);
+                return entry?.Hash ?? 0;
+            }
+
+            public bool TryGetStringHashFromHashList(ushort set, int index, out uint hash)
+            {
+                hash = 0;
+                if (set >= HashLists.Count || index < 0 || index >= HashLists[set].Hashes.Length)
+                {
+                    return false;
+                }
+                hash = HashLists[set].Hashes[index];
+                return true;
+            }
+
+            private NameGroupEntry Resolve(uint packedReference)
+            {
+                uint groupIndex = packedReference >> 28;
+                uint entryIndex = packedReference & 0x0FFFFFFFu;
+                if (groupIndex >= StringGroups.Count || entryIndex >= StringGroups[(int)groupIndex].Entries.Count)
+                {
+                    return null;
+                }
+                return StringGroups[(int)groupIndex].Entries[(int)entryIndex];
+            }
+
+            private static int CheckedCount(uint count, string label)
+            {
+                if (count > 1_000_000)
+                {
+                    throw new InvalidDataException($"Unreasonable {label} count: {count}.");
+                }
+                return checked((int)count);
+            }
+
+            public static uint ComputeFNV1a(string value)
+            {
+                return ComputeFNV1a(Encoding.UTF8.GetBytes(value ?? string.Empty));
+            }
+
+            public static uint ComputeFNV1a(byte[] valueBytes)
+            {
+                uint hash = 0x811C9DC5;
+                if (valueBytes != null)
+                {
+                    foreach (byte b in valueBytes)
+                    {
+                        hash = unchecked((hash ^ b) * 0x01000193);
+                    }
+                }
+                return hash;
+            }
+        }
+
+        public class NameGroup
+        {
+            public List<NameGroupEntry> Entries = new List<NameGroupEntry>();
+        }
+
+        public class NameGroupEntry
+        {
+            public uint StringIndex;
+            public string Value;
+            public uint Hash;
+            public uint PackedReference;
         }
 
         public class HashList
@@ -1860,17 +2576,58 @@ namespace DKCTF
             public HashList(FileReader reader)
             {
                 uint count = reader.ReadUInt32();
+                if (count > 1_000_000)
+                {
+                    throw new InvalidDataException($"Unreasonable CHPR NamePool hash-list count: {count}.");
+                }
                 Hashes = reader.ReadUInt32s((int)count);
                 StringIDs = reader.ReadUInt32s((int)count);
             }
 
             public void Write(FileWriter writer)
             {
-                writer.Write(this.Hashes.Length);
-                writer.Write(this.Hashes);
-                writer.Write(this.StringIDs);
+                writer.Write((uint)Hashes.Length);
+                writer.Write(Hashes);
+                writer.Write(StringIDs);
             }
         }
+        #endregion
+
+        #region Helpers
+        private static string ReadLengthPrefixedString(FileReader reader, string label)
+        {
+            uint byteCount = reader.ReadUInt32();
+            int count = CheckedByteLength(byteCount, label);
+            return Encoding.UTF8.GetString(ReadExactBytes(reader, count, label));
+        }
+        #endregion
+
+        #region Helpers for debugging
+        private static byte[] ReadExactBytes(FileReader reader, int length, string label)
+        {
+            if (length < 0)
+                throw new InvalidDataException($"Negative byte count while reading {label}: {length}.");
+
+            byte[] bytes = reader.ReadBytes(length);
+            if (bytes.Length != length)
+                throw new EndOfStreamException($"Unexpected end of stream while reading {label}.");
+            return bytes;
+        }
+
+        private static int CheckedCount(uint count, string label, uint maximum = 1_000_000)
+        {
+            if (count > maximum)
+                throw new InvalidDataException($"Unreasonable {label} count: {count}.");
+            return checked((int)count);
+        }
+
+        private static int CheckedByteLength(uint length, string label, uint maximum = 64 * 1024 * 1024)
+        {
+            if (length > maximum)
+                throw new InvalidDataException($"Unreasonable {label} byte length: {length}.");
+            return checked((int)length);
+        }
+        #endregion
 
         #region CHPR Meta Data
         public class CCharInfoMetaData

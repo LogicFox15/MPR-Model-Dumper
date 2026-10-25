@@ -50,7 +50,7 @@ namespace MetroidPrimeRemasterModelDumper
                 Console.WriteLine("    TERR = Dump TERR (Sol Valley Terrain Resource)");
                 Console.WriteLine("    TECM = Dump TECM (Sol Valley Clip Map Resource)");
                 Console.WriteLine("    ROOM = Dump ROOM and several related files");
-                Console.WriteLine("    ANIM = Anim Test");
+                Console.WriteLine("    TEST = CHPR File Test");
                 Console.WriteLine("");
                 Console.WriteLine("WARNING: LOD identification is still buggy. Also, there are still");
                 Console.WriteLine("issues with the UV maps. Dumps may not be 100% accurate.");
@@ -118,10 +118,10 @@ namespace MetroidPrimeRemasterModelDumper
                                 ProcessRoomTest(fileInfo.FileData, fileInfo, pak);
                             savedMode = "ROOM";
                             break;
-                        case "ANIM":
+                        case "TEST":
                             if (fileInfo.AssetEntry.Type == "CHPR")
-                                ExtractAnimationTest(fileInfo.FileData, fileInfo, pak);
-                            savedMode = "ANIM";
+                                ExtractCharacterProjectTest(fileInfo.FileData, fileInfo, pak);
+                            savedMode = "TEST";
                             break;
                             /*
                         case "MCON":
@@ -138,121 +138,30 @@ namespace MetroidPrimeRemasterModelDumper
                     Console.WriteLine("Pak Name: " + pakFile);
                     throw;
                 }
-
             }
         }
 
         #region Model Making
-        static void ExtractAnimationTest(Stream stream, FileEntry Entry, PAK pak)
+        static void ExtractCharacterProjectTest(Stream stream, FileEntry Entry, PAK pak)
         {
-            Console.WriteLine("Beginning Character Project extract on file: " + Entry.AssetEntry.FileID.ToString());
-            Console.WriteLine("Character Project size: " + Entry.AssetEntry.Size.ToString("X8"));
-
-            CHPR chpr = new CHPR(stream);
-            List<float[]> constantPools = BuildAnimationConstantPools(chpr);
-
-            Console.WriteLine($"[CHPR] Parsed CHPR: {chpr.animations.Count} animation entries, " +
-                $"{chpr.CharacterInfos.Count} character-info records, " +
-                $"{constantPools.Count} indexed constant pools.");
-
-            for (int i = 0; i < chpr.animations.Count; i++)
+            try
             {
-                CHPR.AnimationArrayEntry entry = chpr.animations[i];
-                if (entry.CompStreamClip == null)
-                {
-                    if (!string.IsNullOrEmpty(entry.CompStreamParseError))
-                        Console.WriteLine($"[CHPR] Animation {i}: structural parse failed: {entry.CompStreamParseError}");
-                    continue;
-                }
+                CHPR chpr = new CHPR(stream);
+            }
+            catch (Exception e)
+            {
 
-                try
-                {
-                    CHPRCompStreamAnimation.ParsedClip clip = entry.CompStreamClip;
-                    CHPRCompStreamAnimation.Player player = CHPRCompStreamAnimation.CreatePlayer(clip);
-                    float middleFrame = clip.FrameCount > 0 ? (clip.FrameCount - 1) / 2.0f : 0.0f;
-                    float lastFrame = clip.FrameCount > 0 ? clip.FrameCount - 1 : 0.0f;
+                Console.WriteLine(e.ToString());
 
-                    CHPRCompStreamAnimation.Pose first = player.Sample(0.0f, constantPools);
-                    CHPRCompStreamAnimation.Pose middle = player.Sample(middleFrame, constantPools);
-                    CHPRCompStreamAnimation.Pose last = player.Sample(lastFrame, constantPools);
+                Console.Write("CHPR parse failed. Press any key to continue");
+                Console.ReadKey();
 
-                    int changedToMiddle = CountChangedTransformAddresses(first, middle,
-                        out int changedComponentsToMiddle, out float maxDeltaToMiddle);
-                    int changedToLast = CountChangedTransformAddresses(first, last,
-                        out int changedComponentsToLast, out float maxDeltaToLast);
-
-                    Console.WriteLine($"[CHPR] Animation {i}: sampled frame 0 / {middleFrame:0.###} / {lastFrame:0.###}; " +
-                        $"pose outputs first={first.Transforms.Count} transforms, middle={middle.Transforms.Count}, last={last.Transforms.Count}; " +
-                        $"finite transform values first={CountFiniteTransformComponents(first)}, " +
-                        $"middle={CountFiniteTransformComponents(middle)}, last={CountFiniteTransformComponents(last)}; " +
-                        $"changed first->middle={changedToMiddle} transforms/{changedComponentsToMiddle} components (maxDelta={maxDeltaToMiddle:G6}), " +
-                        $"first->last={changedToLast} transforms/{changedComponentsToLast} components (maxDelta={maxDeltaToLast:G6}); " +
-                        $"float outputs={last.Floats.Count}, int outputs={last.Ints.Count}.");
-
-                    // The three-point comparison above can miss changes that occur
-                    // between samples, so sweep every integer frame with a fresh player.
-                    CHPRCompStreamAnimation.Player sweepPlayer = CHPRCompStreamAnimation.CreatePlayer(clip);
-                    CHPRCompStreamAnimation.Pose previousSweepPose = null;
-                    int transitionsWithChanges = 0;
-                    int changedTransformSamples = 0;
-                    int changedComponentSamples = 0;
-                    float maxAdjacentDelta = 0.0f;
-                    int firstChangedFrame = -1;
-                    int lastChangedFrame = -1;
-
-                    for (int frame = 0; frame < clip.FrameCount; frame++)
-                    {
-                        CHPRCompStreamAnimation.Pose currentSweepPose = sweepPlayer.Sample(frame, constantPools);
-                        if (previousSweepPose != null)
-                        {
-                            int changed = CountChangedTransformAddresses(
-                                previousSweepPose,
-                                currentSweepPose,
-                                out int changedComponents,
-                                out float frameMaxDelta);
-
-                            if (changed > 0)
-                            {
-                                transitionsWithChanges++;
-                                changedTransformSamples += changed;
-                                changedComponentSamples += changedComponents;
-                                if (firstChangedFrame < 0)
-                                    firstChangedFrame = frame;
-                                lastChangedFrame = frame;
-                                if (frameMaxDelta > maxAdjacentDelta)
-                                    maxAdjacentDelta = frameMaxDelta;
-                            }
-                        }
-
-                        previousSweepPose = currentSweepPose;
-                    }
-
-                    Console.WriteLine($"[CHPR] Animation {i}: full-frame scan changedTransitions={transitionsWithChanges}/{Math.Max(0, clip.FrameCount - 1)}, " +
-                        $"changedTransformSamples={changedTransformSamples}, changedComponentSamples={changedComponentSamples}, " +
-                        $"maxAdjacentDelta={maxAdjacentDelta:G6}, firstChangedFrame={firstChangedFrame}, lastChangedFrame={lastChangedFrame}.");
-
-                    if (transitionsWithChanges == 0)
-                    {
-                        foreach (CHPRCompStreamAnimation.StreamInfo streamInfo in clip.Streams)
-                        {
-                            string groupSummary = string.Join(",", streamInfo.Groups.Select(group =>
-                                $"g{group.Index}:t{group.Type}/c{group.ChannelCount}/{(group.Hold ? "hold" : "nonhold")}"));
-                            Console.WriteLine($"[CHPR] Animation {i} stream {streamInfo.Index}: " +
-                                $"bitstream=0x{streamInfo.BitstreamOffset:X}, sampling=0x{streamInfo.SamplingBytecodeOffset:X}, " +
-                                $"rateMultiplier={streamInfo.RateMultiplier}, lastFrame={streamInfo.LastFrame}, " +
-                                $"changedCountBits={streamInfo.ChangedChannelCountBits}, channels={streamInfo.ChannelCount}, " +
-                                $"hasConstants={streamInfo.HasConstants}, constantPool={streamInfo.ConstantPoolIndex}, " +
-                                $"groups=[{groupSummary}].");
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"[CHPR] Animation {i}: sampling failed: {ex.GetType().Name}: {ex.Message}");
-                }
+                throw;
             }
 
-            Console.WriteLine("[CHPR] Animation test pass finished.");
+            Console.Write("Successfully consumed a CHPR");
+            //Console.ReadKey();
+
         }
 
         private static List<float[]> BuildAnimationConstantPools(CHPR chpr)
@@ -291,11 +200,7 @@ namespace MetroidPrimeRemasterModelDumper
             return count;
         }
 
-        private static int CountChangedTransformAddresses(
-            CHPRCompStreamAnimation.Pose from,
-            CHPRCompStreamAnimation.Pose to,
-            out int changedComponents,
-            out float maxAbsDelta)
+        private static int CountChangedTransformAddresses(CHPRCompStreamAnimation.Pose from,CHPRCompStreamAnimation.Pose to, out int changedComponents,out float maxAbsDelta)
         {
             const float epsilon = 1e-5f;
             int changedAddresses = 0;
@@ -357,8 +262,7 @@ namespace MetroidPrimeRemasterModelDumper
             }
             catch (Exception logOpenException)
             {
-                originalOut.WriteLine($"[CHPR] Could not create the CHPR log at '{logPath}': " +
-                    $"{logOpenException.GetType().Name}: {logOpenException.Message}");
+                originalOut.WriteLine($"[CHPR] Could not create the CHPR log at '{logPath}': {logOpenException.GetType().Name}: {logOpenException.Message}");
                 originalOut.WriteLine("[CHPR] Continuing with console output because log creation failed.");
                 ExtractCharacterProjectCore(stream, Entry, pak, projectFolder, projectName);
                 return;
@@ -406,12 +310,7 @@ namespace MetroidPrimeRemasterModelDumper
             originalOut.WriteLine($"[CHPR] Detailed log saved: {Path.GetFullPath(logPath)}");
         }
 
-        private static bool ExtractCharacterProjectCore(
-            Stream stream,
-            FileEntry Entry,
-            PAK pak,
-            string projectFolder,
-            string projectName)
+        private static bool ExtractCharacterProjectCore(Stream stream, FileEntry Entry, PAK pak, string projectFolder, string projectName)
         {
             try
             {
@@ -438,22 +337,19 @@ namespace MetroidPrimeRemasterModelDumper
                         string modelGuid = "(unresolved)";
                         string modelName = "(unnamed)";
 
-                        // A single missing or malformed model reference must not abort the remaining
-                        // model exports. Asset lookup can also throw when a manifest entry points to
-                        // a missing/unreadable PAK, so keep the guard around the entire per-model path.
+                        // A single missing or malformed model reference must not abort the remaining model exports. Asset lookup can also
+                        // throw when a manifest entry points to a missing/unreadable PAK, so keep the guard around the entire per-model path.
                         try
                         {
                             modelGuid = model.ModelFileGuid.ToString();
                             modelName = charInfo.NamePool.GetString(model.Name);
-                            Console.WriteLine($"[CHPR] Exporting skin model reference {processedModels}/{totalModels}: " +
-                                $"name=\"{modelName}\", asset={modelGuid}.");
+                            Console.WriteLine($"[CHPR] Exporting skin model reference {processedModels}/{totalModels}: name=\"{modelName}\", asset={modelGuid}.");
 
                             FileEntry file = SearchForFile(modelGuid);
                             if (file?.FileData == null || file.AssetEntry == null)
                             {
                                 skippedModels++;
-                                Console.WriteLine($"[CHPR] Skin model {processedModels}/{totalModels} could not be located: " +
-                                    $"name=\"{modelName}\", asset={modelGuid}; skipping this reference.");
+                                Console.WriteLine($"[CHPR] Skin model {processedModels}/{totalModels} could not be located: name=\"{modelName}\", asset={modelGuid}; skipping this reference.");
                                 continue;
                             }
 
@@ -467,45 +363,39 @@ namespace MetroidPrimeRemasterModelDumper
                             // CHPR's actual animation clips only once in the shared sidecar below.
                             CMDLExporter.Export(cmdl, modelPath, chpr, saveLODs, appendAnimations: false);
                             exportedModels++;
-                            Console.WriteLine($"[CHPR] Finished static skin model {processedModels}/{totalModels}: " +
-                                $"{modelName} (exported {exportedModels} successfully).");
+                            Console.WriteLine($"[CHPR] Finished static skin model {processedModels}/{totalModels}: {modelName} (exported {exportedModels} successfully).");
                         }
                         catch (Exception modelEx)
                         {
                             skippedModels++;
-                            Console.WriteLine($"[CHPR] Skin model {processedModels}/{totalModels} failed; skipping this reference " +
-                                $"and continuing with the remaining models. name=\"{modelName}\", asset={modelGuid}; " +
-                                $"{modelEx.GetType().Name}: {modelEx.Message}");
+                            Console.WriteLine($"[CHPR] Skin model {processedModels}/{totalModels} failed; skipping this reference and continuing with the remaining models. name=\"{modelName}\", asset={modelGuid}; {modelEx.GetType().Name}: {modelEx.Message}");
                         }
                     }
                 }
 
                 if (chpr.CharacterInfos.Count > 0)
                 {
-                    string sharedAnimationPath = Path.Combine(
-                        projectFolder,
-                        projectName + "_Animations");
+                    string sharedAnimationPath = Path.Combine(projectFolder, projectName + "_Animations");
 
                     Console.WriteLine($"[CHPR] Building shared animation asset once for this CHPR: {sharedAnimationPath}.gltf");
                     try
                     {
                         CMDLExporter.ExportRig(sharedAnimationPath, chpr);
-                        bool appended = CHPRAnimationExporter.AppendToGltf(
-                            sharedAnimationPath + ".gltf", chpr, out string animationReport);
+                        bool appended = CHPRAnimationExporter.AppendToGltf( sharedAnimationPath + ".gltf", chpr, out string animationReport);
 
                         Console.WriteLine("[CHPR] Shared animation asset: " + animationReport);
                         if (!appended)
+                        {
                             Console.WriteLine("[CHPR] Shared rig was exported, but no baked animation channels were added.");
+                        }
                     }
                     catch (Exception animationEx)
                     {
-                        Console.WriteLine("[CHPR] Shared animation export failed without invalidating the static skin exports: " +
-                            animationEx.GetType().Name + ": " + animationEx.Message);
+                        Console.WriteLine("[CHPR] Shared animation export failed without invalidating the static skin exports: " + animationEx.GetType().Name + ": " + animationEx.Message);
                     }
                 }
 
-                Console.WriteLine($"[CHPR] Character Project model export finished: exported={exportedModels}, " +
-                    $"skipped/failed={skippedModels}, total references={totalModels}.");
+                Console.WriteLine($"[CHPR] Character Project model export finished: exported={exportedModels}, skipped/failed={skippedModels}, total references={totalModels}.");
                 return true;
             }
             catch (Exception e)
@@ -544,9 +434,7 @@ namespace MetroidPrimeRemasterModelDumper
 
             bool isCubemap = txtr.TextureHeader.Type == 3;
 
-            bool isLightmap =
-                txtr.TextureHeader.Format == 81 ||
-                txtr.TextureHeader.Format == 82;
+            bool isLightmap = txtr.TextureHeader.Format == 81 || txtr.TextureHeader.Format == 82;
 
             bool useDds = isCubemap || isLightmap;
 
@@ -562,7 +450,7 @@ namespace MetroidPrimeRemasterModelDumper
 
             try
             {
-                Console.WriteLine($"Exporting {textureName} " + $"Format={txtr.TextureHeader.Format} " + $"Type={txtr.TextureHeader.Type} " + $"Layers={txtr.TextureHeader.Depth} " + $"Cubemap={isCubemap} " + $"Lightmap={isLightmap} " + $"Output={extension}");
+                Console.WriteLine($"Exporting {textureName} Format={txtr.TextureHeader.Format} Type={txtr.TextureHeader.Type} Layers={txtr.TextureHeader.Depth} Cubemap={isCubemap} Lightmap={isLightmap} Output={extension}");
                 if (useDds)
                 {
                     DdsTextureExporter.Export(txtr, outputPath, true);
@@ -574,7 +462,7 @@ namespace MetroidPrimeRemasterModelDumper
             }
             catch (Exception ex)
             {
-                string errorText = $"{textureName}     " + $"Format: {txtr.TextureHeader.Format}     " + $"Type: {txtr.TextureHeader.Type}     " + $"Depth/Layers: {txtr.TextureHeader.Depth}{Environment.NewLine}" + ex + Environment.NewLine;
+                string errorText = $"{textureName}     Format: {txtr.TextureHeader.Format}     Type: {txtr.TextureHeader.Type}     Depth/Layers: {txtr.TextureHeader.Depth}{Environment.NewLine}" + ex + Environment.NewLine;
 
                 File.AppendAllText(AppContext.BaseDirectory + "/ErroredTextures.txt", errorText);
 
@@ -583,9 +471,7 @@ namespace MetroidPrimeRemasterModelDumper
                 Console.WriteLine(ex);
                 Console.WriteLine();
 
-                File.WriteAllBytes(
-                    Path.Combine(folder, $"{textureName}.bin"),
-                    txtr.BufferData ?? Array.Empty<byte>());
+                File.WriteAllBytes(Path.Combine(folder, $"{textureName}.bin"), txtr.BufferData ?? Array.Empty<byte>());
             }
         }
 
@@ -651,7 +537,9 @@ namespace MetroidPrimeRemasterModelDumper
             string folder = Path.Combine(Path.GetFileNameWithoutExtension(pak.FileInfo.FilePath), "ClipMaps", fileName);
 
             if (!Directory.Exists(folder))
+            {
                 Directory.CreateDirectory(folder);
+            }
 
             int gridDimX = (int)tecm.Header.Dimensions[0].X;
             int gridDimY = (int)tecm.Header.Dimensions[0].Y;
@@ -805,7 +693,9 @@ namespace MetroidPrimeRemasterModelDumper
             string folder = Path.Combine(Path.GetFileNameWithoutExtension(pak.FileInfo.FilePath), "ClipMaps", fileName, "Cells");
 
             if (!Directory.Exists(folder))
+            {
                 Directory.CreateDirectory(folder);
+            }
 
             int gridDimX = (int)tecm.Header.Dimensions[0].X;
             int gridDimY = (int)tecm.Header.Dimensions[0].Y;
@@ -856,9 +746,13 @@ namespace MetroidPrimeRemasterModelDumper
 
                 // FourCC format
                 if (formatType == 2)
+                {
                     bw.Write(0x31545844); // "DXT1" / BC1
+                }
                 else
+                {
                     bw.Write(0x35545844); // "DXT5" / BC3
+                }
 
                 for (int i = 0; i < 5; i++) bw.Write(0); // RGB masks
 
