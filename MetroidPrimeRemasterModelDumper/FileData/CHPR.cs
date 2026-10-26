@@ -1,6 +1,9 @@
 ﻿using AvaloniaToolbox.Core.IO;
 using DKCTF;
 using System;
+using System.Linq;
+using System.IO;
+using System.Collections.Generic;
 using System.Numerics;
 using System.Reflection.Metadata.Ecma335;
 using System.Text;
@@ -396,6 +399,8 @@ namespace DKCTF
                     {
                         SkeletonIndex = i,
                         NativeNodeID = AbsContext.NodeSet.NodeIDs[i],
+                        NativeTransformFragment = GetNativeTransformFragment(AbsContext.NodeSet.NodeIDs[i]),
+                        NativeTransformOffset = GetNativeTransformOffset(AbsContext.NodeSet.NodeIDs[i]),
 
                         Name = boneName,
                         Parent = parentName,
@@ -455,9 +460,14 @@ namespace DKCTF
                     }
                 }
 
-                // The game data currently gives explicit transforms only for skinned bones.
-                // Keep the existing interpolation fallback, but perform it once over the
-                // single shared skeleton rather than repeatedly creating / revisiting rigs.
+                // Remastered's native sAbsFuncSet encodes destination/parent transform offsets in its absolute-operation stream. Prime 4's stream layout has an
+                // extra context block, so the decoder validates the stream before using it. When enough relationships map cleanly to this skeleton, prefer those
+                // operation-derived parent links over the provisional table-based links.
+                LogNativeRelativeOperationStream();
+                ApplyNativeAbsOperationHierarchy();
+
+                // Keep the current fallback for unskinned transforms while the complete relative-fragment evaluator is being established. It now uses the best
+                // validated parent hierarchy available above.
                 bool changed = true;
                 int iterations = 0;
                 while (changed && iterations < 3)
@@ -475,7 +485,7 @@ namespace DKCTF
                         List<Vector3> translations = new List<Vector3>();
                         List<Quaternion> rotations = new List<Quaternion>();
 
-                        var parentBone = Bones.FirstOrDefault(b => b.Name == Bones[i].Parent);
+                        BoneData parentBone = Bones[i].ParentIndex != uint.MaxValue && Bones[i].ParentIndex < (uint)Bones.Count ? Bones[(int)Bones[i].ParentIndex] : null;
                         if (parentBone != null && parentBone.WorldTransform != Matrix4x4.Identity)
                         {
                             if (Matrix4x4.Decompose(parentBone.WorldTransform, out _, out Quaternion pRot, out Vector3 pTrans))
@@ -485,7 +495,7 @@ namespace DKCTF
                             }
                         }
 
-                        var children = Bones.Where(b => b.Parent == Bones[i].Name).ToList();
+                        var children = Bones.Where(b => b.ParentIndex == (uint)i).ToList();
                         foreach (var child in children)
                         {
                             if (child.WorldTransform == Matrix4x4.Identity)
@@ -546,14 +556,11 @@ namespace DKCTF
                 // Convert the completed world-space rig into local transforms once.
                 for (int i = 0; i < Bones.Count; i++)
                 {
-                    if (!string.IsNullOrEmpty(Bones[i].Parent))
+                    uint parentIndex = Bones[i].ParentIndex;
+                    if (parentIndex != uint.MaxValue && parentIndex < (uint)Bones.Count &&
+                        Matrix4x4.Invert(Bones[(int)parentIndex].WorldTransform, out Matrix4x4 parentInverse))
                     {
-                        var parent = Bones.FirstOrDefault(x => x.Name == Bones[i].Parent);
-                        if (parent != null)
-                        {
-                            Matrix4x4.Invert(parent.WorldTransform, out Matrix4x4 parentInverse);
-                            Bones[i].LocalTransform = Bones[i].WorldTransform * parentInverse;
-                        }
+                        Bones[i].LocalTransform = Bones[i].WorldTransform * parentInverse;
                     }
                     else
                     {
@@ -565,6 +572,576 @@ namespace DKCTF
                 // CActionData event addresses through the packed code in SAbsContext's node
                 // table. Do this only after all of those native structures have been parsed.
                 BuildNativePoseAddressMap();
+            }
+
+            private sealed class NativeAbsOperationScan
+            {
+                public string StreamName;
+                public int ByteLength;
+                public int InstructionCount;
+                public int RelationInstructionCount;
+                public int MappedRelationInstructionCount;
+                public int UnmappedDestinationCount;
+                public int UnmappedParentCount;
+                public int RootInstructionCount;
+                public int MappedRootInstructionCount;
+                public int UnmappedRootCount;
+                public int UnsupportedOpcodeCount;
+                public int TrailingByteCount;
+                public bool Terminated;
+                public string Error;
+                public readonly Dictionary<int, HashSet<int>> ParentCandidates = new Dictionary<int, HashSet<int>>();
+                public readonly HashSet<int> RootCandidates = new HashSet<int>();
+                public readonly List<string> SampledRelationships = new List<string>();
+                public readonly List<string> InstructionTrace = new List<string>();
+                public readonly Dictionary<int, int> OpcodeCounts = new Dictionary<int, int>();
+
+                public int UniqueParentCandidateCount => ParentCandidates.Count(pair => pair.Value.Count == 1);
+                public int ConflictingParentCandidateCount => ParentCandidates.Count(pair => pair.Value.Count != 1);
+                public int UniqueNodeCandidates => ParentCandidates.Keys.Union(RootCandidates).Distinct().Count();
+
+                public bool IsCredible(int skeletonCount)
+                {
+                    int minimumEdges = Math.Min(12, Math.Max(8, skeletonCount / 40));
+                    if (!Terminated || RelationInstructionCount < minimumEdges || MappedRelationInstructionCount < minimumEdges || UniqueParentCandidateCount < minimumEdges)
+                    {
+                        return false;
+                    }
+
+                    // A valid stream should map a substantial fraction of its bone-composition
+                    // instructions. This guards against interpreting arbitrary section bytes as opcodes.
+                    return MappedRelationInstructionCount * 3 >= RelationInstructionCount;
+                }
+            }
+
+            private static int GetNativeTransformFragment(uint packedNodeID)
+            {
+                // NAnimOp::dst_transform selects the fragment with nodeID & 0x1F.
+                return (int)(packedNodeID & 0x1Fu);
+            }
+
+            private static int GetNativeTransformOffset(uint packedNodeID)
+            {
+                // NAnimOp::dst_transform addresses ((nodeID >> 2) & 0x3FF8) bytes
+                // inside that fragment. Convert to 8-byte units: (low16 >> 5) & 0x7FF.
+                ushort low = (ushort)(packedNodeID & 0xFFFFu);
+                return (low >> 5) & 0x7FF;
+            }
+
+            private static int MakeNativeTransformKey(int fragmentIndex, int offset)
+            {
+                // Absolute op instructions select their output/parent fragment separately
+                // with abs_context_frag_ptrs, then address a transform within that fragment.
+                if (fragmentIndex < 0 || fragmentIndex > 0x1F || offset < 0 || offset > 0x7FF)
+                {
+                    return -1;
+                }
+                return (fragmentIndex << 11) | offset;
+            }
+
+            private static ushort ReadNativeOpU16(byte[] bytes, int offset)
+            {
+                // The native handlers dereference ushort operands directly from the bytecode
+                // buffer, so these operands use the console's native little-endian layout.
+                return (ushort)(bytes[offset] | (bytes[offset + 1] << 8));
+            }
+
+            private static string GetAbsOpcodeName(byte opcode)
+            {
+                switch (opcode)
+                {
+                    case 0x00: return "frag_ptr_std";
+                    case 0x01: return "frag_ptr_base";
+                    case 0x02: return "context_base_rel_ptr";
+                    case 0x03: return "abs_context_frag_ptrs";
+                    case 0x04: return "abs_bone_rel";
+                    case 0x05: return "abs_bone_rel_base";
+                    case 0x06: return "abs_bone_rel_inv_scale";
+                    case 0x07: return "abs_bone_rel_inv_scale_base";
+                    case 0x08: return "abs_bone_rel_extract_inv_scale";
+                    case 0x09: return "abs_bone_rel_extract_inv_scale_base";
+                    case 0x0A: return "abs_bone_root";
+                    case 0x0B: return "abs_blend_space";
+                    case 0x0C: return "abs_bone_root_base";
+                    case 0x0D: return "abs_anchor";
+                    case 0x0E: return "frag_copy_std";
+                    case 0x0F: return "frag_copy_base";
+                    case 0x10: return "done_func";
+                    default: return "unknown";
+                }
+            }
+
+            private NativeAbsOperationScan ScanNativeAbsOperationStream(byte[] stream, string streamName)
+            {
+                var result = new NativeAbsOperationScan
+                {
+                    StreamName = streamName,
+                    ByteLength = stream?.Length ?? 0
+                };
+
+                if (stream == null || stream.Length == 0)
+                {
+                    result.Error = "stream is empty";
+                    return result;
+                }
+
+                var boneIndicesByTransformKey = new Dictionary<int, int>();
+                var ambiguousKeys = new HashSet<int>();
+                for (int i = 0; i < Bones.Count; i++)
+                {
+                    int key = MakeNativeTransformKey(Bones[i].NativeTransformFragment, Bones[i].NativeTransformOffset);
+                    if (key < 0)
+                    {
+                        continue;
+                    }
+
+                    if (boneIndicesByTransformKey.ContainsKey(key))
+                    {
+                        ambiguousKeys.Add(key);
+                        boneIndicesByTransformKey.Remove(key);
+                        continue;
+                    }
+
+                    if (!ambiguousKeys.Contains(key))
+                    {
+                        boneIndicesByTransformKey.Add(key, i);
+                    }
+                }
+
+                // Opcode 0x03 changes the fragment pair used by following bone operations.
+                // The destination and parent operands are offsets within these selected
+                // fragments, not globally unique bone IDs.
+                int destinationFragment = -1;
+                int parentFragment = -1;
+                int cursor = 0;
+                const int maxInstructions = 100000;
+                const int maxTraceEntries = 64;
+                while (cursor < stream.Length && result.InstructionCount < maxInstructions)
+                {
+                    int opcodeOffset = cursor;
+                    byte opcode = stream[cursor++];
+                    result.InstructionCount++;
+                    result.OpcodeCounts.TryGetValue(opcode, out int opcodeCount);
+                    result.OpcodeCounts[opcode] = opcodeCount + 1;
+
+                    int operandBytes;
+                    switch (opcode)
+                    {
+                        case 0x00: // frag_ptr_std
+                        case 0x01: // frag_ptr_base
+                        case 0x03: // abs_context_frag_ptrs
+                        case 0x0B: // abs_blend_space
+                        case 0x0E: // frag_copy_std
+                        case 0x0F: // frag_copy_base
+                            operandBytes = 2;
+                            break;
+                        case 0x02: // context_base_rel_ptr
+                            operandBytes = 1;
+                            break;
+                        case 0x04: // abs_bone_rel
+                        case 0x05: // abs_bone_rel_base
+                        case 0x08: // abs_bone_rel_extract_inv_scale
+                        case 0x09: // abs_bone_rel_extract_inv_scale_base
+                            operandBytes = 6;
+                            break;
+                        case 0x06: // abs_bone_rel_inv_scale: dest, parent, local ref, scale ref
+                        case 0x07: // abs_bone_rel_inv_scale_base: dest, parent, base offset, scale ref
+                            operandBytes = 8;
+                            break;
+                        case 0x0A: // abs_bone_root
+                        case 0x0C: // abs_bone_root_base
+                        case 0x0D: // abs_anchor
+                            operandBytes = 4;
+                            break;
+                        case 0x10: // done_func
+                            result.Terminated = true;
+                            result.TrailingByteCount = stream.Length - cursor;
+                            if (result.InstructionTrace.Count < maxTraceEntries)
+                            {
+                                result.InstructionTrace.Add($"0x{opcodeOffset:X4}: 0x{opcode:X2} {GetAbsOpcodeName(opcode)}");
+                            }
+                            cursor = stream.Length;
+                            continue;
+                        default:
+                            result.UnsupportedOpcodeCount++;
+                            result.Error = $"unsupported opcode 0x{opcode:X2} at 0x{opcodeOffset:X}";
+                            return result;
+                    }
+
+                    if (cursor > stream.Length - operandBytes)
+                    {
+                        result.Error = $"truncated opcode 0x{opcode:X2} at 0x{opcodeOffset:X}; needs {operandBytes} operand byte(s), has {stream.Length - cursor}";
+                        return result;
+                    }
+
+                    if (result.InstructionTrace.Count < maxTraceEntries)
+                    {
+                        string operands = operandBytes == 0 ? string.Empty : BitConverter.ToString(stream, cursor, operandBytes).Replace('-', ' ');
+                        result.InstructionTrace.Add($"0x{opcodeOffset:X4}: 0x{opcode:X2} {GetAbsOpcodeName(opcode)} [{operands}]");
+                    }
+
+                    if (opcode == 0x03)
+                    {
+                        // Native abs_context_frag_ptrs selects the destination and parent
+                        // fragment pointers used by subsequent opcodes 0x04 through 0x09.
+                        destinationFragment = stream[cursor];
+                        parentFragment = stream[cursor + 1];
+                    }
+                    else if (opcode >= 0x04 && opcode <= 0x09)
+                    {
+                        // Native handlers use destination and parent offsets within the
+                        // fragments most recently selected by abs_context_frag_ptrs, followed
+                        // by a packed local-transform reference (and scale ref for 0x06/0x07).
+                        ushort destinationOffset = ReadNativeOpU16(stream, cursor);
+                        ushort parentOffset = ReadNativeOpU16(stream, cursor + 2);
+                        ushort sourceReference = ReadNativeOpU16(stream, cursor + 4);
+                        ushort scaleReference = (opcode == 0x06 || opcode == 0x07) ? ReadNativeOpU16(stream, cursor + 6) : (ushort)0;
+                        result.RelationInstructionCount++;
+
+                        int destinationKey = MakeNativeTransformKey(destinationFragment, destinationOffset);
+                        int parentKey = MakeNativeTransformKey(parentFragment, parentOffset);
+                        int childIndex = -1;
+                        int parentIndex = -1;
+                        bool destinationFound = destinationKey >= 0 && boneIndicesByTransformKey.TryGetValue(destinationKey, out childIndex);
+                        bool parentFound = parentKey >= 0 && boneIndicesByTransformKey.TryGetValue(parentKey, out parentIndex);
+
+                        if (!destinationFound)
+                        {
+                            result.UnmappedDestinationCount++;
+                        }
+
+                        if (!parentFound)
+                        {
+                            result.UnmappedParentCount++;
+                        }
+
+                        if (destinationFound && parentFound && childIndex != parentIndex)
+                        {
+                            if (!result.ParentCandidates.TryGetValue(childIndex, out HashSet<int> candidates))
+                            {
+                                candidates = new HashSet<int>();
+                                result.ParentCandidates.Add(childIndex, candidates);
+                            }
+
+                            candidates.Add(parentIndex);
+                            result.MappedRelationInstructionCount++;
+                            if (result.SampledRelationships.Count < 32)
+                            {
+                                result.SampledRelationships.Add($"op=0x{opcode:X2} destFragment={destinationFragment} destOffset=0x{destinationOffset:X4} child=\"{Bones[childIndex].Name}\" " +
+                                    $"parentFragment={parentFragment} parentOffset=0x{parentOffset:X4} parent=\"{Bones[parentIndex].Name}\" source=0x{sourceReference:X4}" +
+                                    ((opcode == 0x06 || opcode == 0x07) ? $" scaleSource=0x{scaleReference:X4}" : string.Empty));
+                            }
+                        }
+                    }
+                    else if (opcode == 0x0A || opcode == 0x0C)
+                    {
+                        // Root variants use the currently selected destination fragment and
+                        // a destination offset in their second ushort.
+                        result.RootInstructionCount++;
+                        ushort destinationOffset = ReadNativeOpU16(stream, cursor + 2);
+                        int destinationKey = MakeNativeTransformKey(destinationFragment, destinationOffset);
+                        if (destinationKey >= 0 && boneIndicesByTransformKey.TryGetValue(destinationKey, out int rootIndex))
+                        {
+                            result.RootCandidates.Add(rootIndex);
+                            result.MappedRootInstructionCount++;
+                        }
+                        else
+                        {
+                            result.UnmappedRootCount++;
+                        }
+                    }
+
+                    cursor += operandBytes;
+                }
+
+                if (!result.Terminated && string.IsNullOrEmpty(result.Error))
+                {
+                    result.Error = result.InstructionCount >= maxInstructions ? $"instruction count exceeded {maxInstructions}" : "no done_func terminator was found";
+                }
+
+                return result;
+            }
+
+            private sealed class NativeRelOperationScan
+            {
+                public int ByteLength;
+                public int InstructionCount;
+                public int RelativeBoneInstructionCount;
+                public int UnsupportedOpcodeCount;
+                public int TrailingByteCount;
+                public bool Terminated;
+                public string Error;
+                public readonly Dictionary<int, int> OpcodeCounts = new Dictionary<int, int>();
+                public readonly List<string> InstructionTrace = new List<string>();
+            }
+
+            private NativeRelOperationScan ScanNativeRelativeOperationStream(byte[] stream)
+            {
+                var result = new NativeRelOperationScan { ByteLength = stream?.Length ?? 0 };
+                if (stream == null || stream.Length == 0)
+                {
+                    result.Error = "stream is empty";
+                    return result;
+                }
+
+                int cursor = 0;
+                const int maxInstructions = 100000;
+                const int maxTraceEntries = 64;
+                while (cursor < stream.Length && result.InstructionCount < maxInstructions)
+                {
+                    int opcodeOffset = cursor;
+                    byte opcode = stream[cursor++];
+                    result.InstructionCount++;
+                    result.OpcodeCounts.TryGetValue(opcode, out int count);
+                    result.OpcodeCounts[opcode] = count + 1;
+
+                    int operandBytes;
+                    string name;
+                    switch (opcode)
+                    {
+                        case 0x00: name = "context_base_rel_ptr"; operandBytes = 1; break;
+                        case 0x01: name = "frag_ptr_std"; operandBytes = 2; break;
+                        case 0x02: name = "rel_bone_std"; operandBytes = 4; result.RelativeBoneInstructionCount++; break;
+                        case 0x03: name = "rel_bone_no_scale"; operandBytes = 4; result.RelativeBoneInstructionCount++; break;
+                        case 0x04:
+                            name = "done_func";
+                            result.Terminated = true;
+                            result.TrailingByteCount = stream.Length - cursor;
+                            if (result.InstructionTrace.Count < maxTraceEntries)
+                            {
+                                result.InstructionTrace.Add($"0x{opcodeOffset:X4}: 0x{opcode:X2} {name}");
+                            }
+                            cursor = stream.Length;
+                            continue;
+                        default:
+                            result.UnsupportedOpcodeCount++;
+                            result.Error = $"unsupported opcode 0x{opcode:X2} at 0x{opcodeOffset:X}";
+                            return result;
+                    }
+
+                    if (cursor > stream.Length - operandBytes)
+                    {
+                        result.Error = $"truncated opcode 0x{opcode:X2} at 0x{opcodeOffset:X}; needs {operandBytes} operand byte(s), has {stream.Length - cursor}";
+                        return result;
+                    }
+
+                    if (result.InstructionTrace.Count < maxTraceEntries)
+                    {
+                        string operands = operandBytes == 0 ? string.Empty : BitConverter.ToString(stream, cursor, operandBytes).Replace('-', ' ');
+                        result.InstructionTrace.Add($"0x{opcodeOffset:X4}: 0x{opcode:X2} {name} [{operands}]");
+                    }
+                    cursor += operandBytes;
+                }
+
+                if (!result.Terminated && string.IsNullOrEmpty(result.Error))
+                {
+                    result.Error = result.InstructionCount >= maxInstructions ? $"instruction count exceeded {maxInstructions}" : "no done_func terminator was found";
+                }
+                return result;
+            }
+
+            private void LogNativeRelativeOperationStream()
+            {
+                NativeRelOperationScan scan = ScanNativeRelativeOperationStream(AnimContext?.Section2Data);
+                Console.WriteLine($"[CHPR] Native relative-op stream: bytes={scan.ByteLength}, instructions={scan.InstructionCount}, relativeBoneOps={scan.RelativeBoneInstructionCount}, " +
+                    $"terminated={scan.Terminated}, trailingBytes={scan.TrailingByteCount}, opcodeCounts=[{string.Join(", ", scan.OpcodeCounts.OrderBy(kv => kv.Key).Select(kv => $"0x{kv.Key:X2}:{kv.Value}"))}], " +
+                    $"error={scan.Error ?? "none"}.");
+                foreach (string line in scan.InstructionTrace)
+                {
+                    Console.WriteLine($"[CHPR] Native relative-op: {line}.");
+                }
+            }
+
+            private void ApplyNativeAbsOperationHierarchy()
+            {
+                // In the Remastered native layout, SAbsContext.Section2 is the primary
+                // absolute-operation stream and Section4 is the optional additional stream.
+                // Prime 4 has an extra opaque block (Section5Data); do not mistake that block
+                // for an operation stream merely because a byte pattern happens to parse.
+                var candidateScans = new List<NativeAbsOperationScan>();
+                var rawScans = new List<NativeAbsOperationScan>();
+
+                if (AbsContext?.Section2 != null && AbsContext.Section2.Length > 0)
+                {
+                    rawScans.Add(ScanNativeAbsOperationStream(AbsContext.Section2, "AbsContext.Section2"));
+                }
+                if (AbsContext?.Section4 != null && AbsContext.Section4.Length > 0)
+                {
+                    rawScans.Add(ScanNativeAbsOperationStream(AbsContext.Section4, "AbsContext.Section4"));
+                }
+
+                foreach (NativeAbsOperationScan streamScan in rawScans)
+                {
+                    Console.WriteLine($"[CHPR] Native absolute-op stream: name={streamScan.StreamName}, bytes={streamScan.ByteLength}, instructions={streamScan.InstructionCount}, " +
+                        $"terminated={streamScan.Terminated}, relationOps={streamScan.MappedRelationInstructionCount}/{streamScan.RelationInstructionCount}, rootOps={streamScan.MappedRootInstructionCount}/" +
+                        $"{streamScan.RootInstructionCount}, trailingBytes={streamScan.TrailingByteCount}, opcodeCounts=[{string.Join(", ", streamScan.OpcodeCounts.OrderBy(kv => kv.Key).Select(kv => $"0x{kv.Key:X2}:{kv.Value}"))}], " +
+                        $"error={streamScan.Error ?? "none"}.");
+                    foreach (string line in streamScan.InstructionTrace)
+                        Console.WriteLine($"[CHPR] Native absolute-op: {streamScan.StreamName} {line}.");
+
+                    // Only whole, terminated streams are trusted. A partially decoded byte
+                    // sequence must not contribute guessed parent links to the rig.
+                    if (streamScan.Terminated && string.IsNullOrEmpty(streamScan.Error))
+                        candidateScans.Add(streamScan);
+                }
+
+                if (candidateScans.Count == 0)
+                {
+                    Console.WriteLine( $"[CHPR] Native abs-op hierarchy not applied: neither Section2 nor Section4 " +
+                        $"validated as a terminated sAbsFuncSet stream. Section5Data remains opaque " +
+                        $"({AbsContext?.Section5Data?.Length ?? 0} bytes). Keeping the existing parent table for this test.");
+                    return;
+                }
+
+                var scan = new NativeAbsOperationScan
+                {
+                    StreamName = string.Join("+", candidateScans.Select(s => s.StreamName)),
+                    ByteLength = candidateScans.Sum(s => s.ByteLength),
+                    Terminated = true
+                };
+
+                foreach (NativeAbsOperationScan source in candidateScans)
+                {
+                    scan.InstructionCount += source.InstructionCount;
+                    scan.RelationInstructionCount += source.RelationInstructionCount;
+                    scan.MappedRelationInstructionCount += source.MappedRelationInstructionCount;
+                    scan.UnmappedDestinationCount += source.UnmappedDestinationCount;
+                    scan.UnmappedParentCount += source.UnmappedParentCount;
+                    scan.RootInstructionCount += source.RootInstructionCount;
+                    scan.MappedRootInstructionCount += source.MappedRootInstructionCount;
+                    scan.UnmappedRootCount += source.UnmappedRootCount;
+                    scan.TrailingByteCount += source.TrailingByteCount;
+
+                    foreach (var opcodeCount in source.OpcodeCounts)
+                    {
+                        scan.OpcodeCounts.TryGetValue(opcodeCount.Key, out int previous);
+                        scan.OpcodeCounts[opcodeCount.Key] = previous + opcodeCount.Value;
+                    }
+
+                    foreach (var parent in source.ParentCandidates)
+                    {
+                        if (!scan.ParentCandidates.TryGetValue(parent.Key, out HashSet<int> candidates))
+                        {
+                            candidates = new HashSet<int>();
+                            scan.ParentCandidates.Add(parent.Key, candidates);
+                        }
+                        foreach (int parentIndex in parent.Value)
+                        {
+                            candidates.Add(parentIndex);
+                        }
+                    }
+
+                    foreach (int root in source.RootCandidates)
+                    {
+                        scan.RootCandidates.Add(root);
+                    }
+
+                    foreach (string relationship in source.SampledRelationships)
+                    {
+                        if (scan.SampledRelationships.Count < 64)
+                        {
+                            scan.SampledRelationships.Add($"{source.StreamName}: {relationship}");
+                        }
+                    }
+                }
+
+                if (!scan.IsCredible(Bones.Count))
+                {
+                    Console.WriteLine($"[CHPR] Native abs-op hierarchy not applied: combined streams={scan.StreamName}, bytes={scan.ByteLength}, instructions={scan.InstructionCount}, " +
+                        $"mappedRelations={scan.MappedRelationInstructionCount}/{scan.RelationInstructionCount}, uniqueParentCandidates={scan.UniqueParentCandidateCount}, terminated={scan.Terminated}. " +
+                        "The streams did not meet the conservative mapping threshold; keeping the existing parent table.");
+                    return;
+                }
+
+                int conflictingChildren = 0;
+                int appliedParents = 0;
+                int replacedParentEntries = 0;
+                int appliedRoots = 0;
+                int skippedRootParentConflicts = 0;
+                int parentCyclesSkipped = 0;
+
+                foreach (var entry in scan.ParentCandidates)
+                {
+                    int childIndex = entry.Key;
+                    HashSet<int> candidates = entry.Value;
+                    bool isRoot = scan.RootCandidates.Contains(childIndex);
+
+                    if (candidates.Count != 1 || isRoot)
+                    {
+                        conflictingChildren++;
+                        if (isRoot)
+                        {
+                            skippedRootParentConflicts++;
+                        }
+                        continue;
+                    }
+
+                    int parentIndex = candidates.First();
+                    if (childIndex == parentIndex || childIndex < 0 || childIndex >= Bones.Count || parentIndex < 0 || parentIndex >= Bones.Count)
+                    {
+                        conflictingChildren++;
+                        continue;
+                    }
+
+                    // Reject an edge if it would create a cycle in the currently accepted graph.
+                    int ancestor = parentIndex;
+                    bool cycle = false;
+                    for (int depth = 0; depth <= Bones.Count; depth++)
+                    {
+                        if (ancestor == childIndex)
+                        {
+                            cycle = true;
+                            break;
+                        }
+                        uint next = Bones[ancestor].ParentIndex;
+                        if (next == uint.MaxValue || next >= (uint)Bones.Count)
+                        {
+                            break;
+                        }
+                        ancestor = (int)next;
+                    }
+                    if (cycle)
+                    {
+                        parentCyclesSkipped++;
+                        continue;
+                    }
+
+                    if (Bones[childIndex].ParentIndex != (uint)parentIndex)
+                    {
+                        replacedParentEntries++;
+                    }
+                    Bones[childIndex].ParentIndex = (uint)parentIndex;
+                    Bones[childIndex].Parent = Bones[parentIndex].Name ?? string.Empty;
+                    appliedParents++;
+                }
+
+                foreach (int rootIndex in scan.RootCandidates)
+                {
+                    if (scan.ParentCandidates.ContainsKey(rootIndex) || rootIndex < 0 || rootIndex >= Bones.Count)
+                    {
+                        skippedRootParentConflicts++;
+                        continue;
+                    }
+
+                    if (Bones[rootIndex].ParentIndex != uint.MaxValue)
+                    {
+                        replacedParentEntries++;
+                    }
+                    Bones[rootIndex].ParentIndex = uint.MaxValue;
+                    Bones[rootIndex].Parent = string.Empty;
+                    appliedRoots++;
+                }
+
+                Console.WriteLine($"[CHPR] Native abs-op hierarchy applied: streams={scan.StreamName}, bytes={scan.ByteLength}, instructions={scan.InstructionCount}, " +
+                    $"mappedParentOps={scan.MappedRelationInstructionCount}/{scan.RelationInstructionCount}, uniqueParentCandidates={scan.UniqueParentCandidateCount}, " +
+                    $"appliedParents={appliedParents}, appliedRoots={appliedRoots}, replacedParentEntries={replacedParentEntries}, conflictingChildren={conflictingChildren}, " +
+                    $"rootParentConflicts={skippedRootParentConflicts}, parentCyclesSkipped={parentCyclesSkipped}, unmappedParents={scan.UnmappedParentCount}, " +
+                    $"opaqueSection5DataBytes={AbsContext?.Section5Data?.Length ?? 0}.");
+
+                foreach (string relationship in scan.SampledRelationships)
+                {
+                    Console.WriteLine($"[CHPR] Native abs-op parent: {relationship}.");
+                }
             }
 
             private void BuildNativePoseAddressMap()
@@ -661,10 +1238,8 @@ namespace DKCTF
                 }
 
                 int duplicateAddressGroups = addressCounts.Count(pair => pair.Value > 1);
-                Console.WriteLine($"[CHPR] Native pose-address map: bones={Bones.Count}, candidates={candidateCount}, " +
-                    $"type5RecordMatches={type5RecordMatches}, mapped={mappedCount}, missingPackedCodes={missingPackedCodes}, " +
-                    $"invalidRecordIndices={invalidRecordIndices}, nonType5RecordCodes={nonType5RecordCodes}, " +
-                    $"invalidEntryIndices={invalidEntryIndices}, invalidEventIndices={invalidEventIndices}, " +
+                Console.WriteLine($"[CHPR] Native pose-address map: bones={Bones.Count}, candidates={candidateCount}, type5RecordMatches={type5RecordMatches}, mapped={mappedCount}, missingPackedCodes={missingPackedCodes}, " +
+                    $"invalidRecordIndices={invalidRecordIndices}, nonType5RecordCodes={nonType5RecordCodes}, invalidEntryIndices={invalidEntryIndices}, invalidEventIndices={invalidEventIndices}, " +
                     $"invalidAddresses={invalidAddress}, duplicateAddressGroups={duplicateAddressGroups}.");
             }
         }
@@ -677,6 +1252,11 @@ namespace DKCTF
 
             // Original native node ID from AbsContext.NodeSet.
             public uint NativeNodeID;
+
+            // Offset in the native absolute-transform array, measured in 8-byte units,
+            // decoded from the packed low 16 bits of the absolute-context node ID.
+            public int NativeTransformFragment = -1;
+            public int NativeTransformOffset = -1;
 
             public string Name;
             public string Parent;
