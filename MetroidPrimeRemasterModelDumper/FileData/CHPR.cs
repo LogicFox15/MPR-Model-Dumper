@@ -195,7 +195,7 @@ namespace DKCTF
 
             public bool HasUnkContext5;
             public SUnkContext5 UnkContext5;
-            
+
             public List<SChannel> Channels = new List<SChannel>();
 
             public byte NumModels;
@@ -328,11 +328,11 @@ namespace DKCTF
                 UnkContext7 = new SUnkContext7(reader);
                 UnkContext8 = new SUnkContext8(reader);
 
-                for(int i = 0; i < NumAnimParams; i++)
+                for (int i = 0; i < NumAnimParams; i++)
                 {
                     AnimParamNodes.Add(new SAnimParamNode(reader));
                 }
-                for(int i = 0; i < NumAnims; i++)
+                for (int i = 0; i < NumAnims; i++)
                 {
                     AnimDescriptorValues.Add(ReadExactBytes(reader, 16, "animation descriptor 16-byte value"));
                 }
@@ -535,7 +535,117 @@ namespace DKCTF
                     }
                 }
 
-                
+                // The native animation builder connects type-5 animation-context nodes to
+                // CActionData event addresses through the packed code in SAbsContext's node
+                // table. Do this only after all of those native structures have been parsed.
+                BuildNativePoseAddressMap();
+            }
+
+            private void BuildNativePoseAddressMap()
+            {
+                // The name-hash lookup in FUN_7100e548e0 returns the packed code from
+                // SAbsContext. That packed code selects a type-5 absolute-context record
+                // and an entry within that record. It is NOT an animation-context node ID.
+                // The earlier implementation incorrectly searched AnimContext.NodeSet using
+                // packedCode & 0xFFFF, which rejected almost every bone in the test log.
+                if (AbsContext?.NodeSet?.NodeIDs == null ||
+                    NamePool == null ||
+                    ActionData?.Events == null || ActionData.Events.Count == 0)
+                {
+                    Console.WriteLine("[CHPR] Native pose-address map unavailable: absolute-context node data, names, or action-event data is absent.");
+                    return;
+                }
+
+                if (AbsContext.FirstType5RecordIndex < 0 || AbsContext.FirstType5RecordCount <= 0)
+                {
+                    Console.WriteLine("[CHPR] Native pose-address map unavailable: SAbsContext has no type-5 record range.");
+                    return;
+                }
+
+                int candidateCount = Math.Min(Bones.Count, AbsContext.NodeSet.NodeIDs.Length);
+                int type5RecordMatches = 0;
+                int mappedCount = 0;
+                int missingPackedCodes = 0;
+                int invalidRecordIndices = 0;
+                int nonType5RecordCodes = 0;
+                int invalidEntryIndices = 0;
+                int invalidEventIndices = 0;
+                int invalidAddress = 0;
+                var addressCounts = new Dictionary<int, int>();
+
+                for (int boneIndex = 0; boneIndex < candidateCount; boneIndex++)
+                {
+                    // Bones are created in SAbsContext.NodeSet order, so this hash-list
+                    // index corresponds to the current bone. FUN_7100e548e0 performs the
+                    // reverse name-hash lookup in the native implementation.
+                    if (!NamePool.TryGetStringHashFromHashList(
+                        AbsContext.NodeSet.NameSet, boneIndex, out uint nameHash) ||
+                        !AbsContext.TryFindPackedNodeCode(nameHash, NamePool, out uint packedCode))
+                    {
+                        missingPackedCodes++;
+                        continue;
+                    }
+
+                    int recordIndex = (int)(packedCode & 0x3Fu);
+                    int entryWithinRecord = (int)((packedCode >> 6) & 0x3FFu);
+
+                    if (recordIndex < 0 || recordIndex >= AbsContext.Section1.Count)
+                    {
+                        invalidRecordIndices++;
+                        continue;
+                    }
+
+                    // FUN_7100e5497c computes a prefix sum over the contiguous type-5
+                    // records. Only codes pointing into that run can safely index the
+                    // native event-address table this way.
+                    int type5Start = AbsContext.FirstType5RecordIndex;
+                    int type5EndExclusive = type5Start + AbsContext.FirstType5RecordCount;
+                    if (recordIndex < type5Start || recordIndex >= type5EndExclusive ||
+                        AbsContext.Section1[recordIndex].Type != 5)
+                    {
+                        nonType5RecordCodes++;
+                        continue;
+                    }
+
+                    type5RecordMatches++;
+
+                    if (entryWithinRecord >= AbsContext.Section1[recordIndex].Count)
+                    {
+                        invalidEntryIndices++;
+                        continue;
+                    }
+
+                    int eventIndex = AbsContext.GetCumulativeRecordBlockOffset(recordIndex) + entryWithinRecord;
+                    if (eventIndex < 0 || eventIndex >= ActionData.Events.Count)
+                    {
+                        invalidEventIndices++;
+                        continue;
+                    }
+
+                    // FUN_7100e51a58 takes the first uint32 of the selected CActionData
+                    // event and masks it to the native 26-bit pose address.
+                    int poseAddress = (int)(ActionData.Events[eventIndex].Address & 0x03FFFFFFu);
+                    if (poseAddress == 0x03FFFFFF)
+                    {
+                        invalidAddress++;
+                        continue;
+                    }
+
+                    Bones[boneIndex].PoseAddress = poseAddress;
+                    Bones[boneIndex].PoseAddressRecordType = 5;
+                    mappedCount++;
+
+                    addressCounts.TryGetValue(poseAddress, out int previousCount);
+                    addressCounts[poseAddress] = previousCount + 1;
+                }
+
+                int duplicateAddressGroups = addressCounts.Count(pair => pair.Value > 1);
+                Console.WriteLine(
+                    $"[CHPR] Native pose-address map: bones={Bones.Count}, candidates={candidateCount}, " +
+                    $"type5RecordMatches={type5RecordMatches}, mapped={mappedCount}, missingPackedCodes={missingPackedCodes}, " +
+                    $"invalidRecordIndices={invalidRecordIndices}, nonType5RecordCodes={nonType5RecordCodes}, " +
+                    $"invalidEntryIndices={invalidEntryIndices}, invalidEventIndices={invalidEventIndices}, " +
+                    $"invalidAddresses={invalidAddress}, duplicateAddressGroups={duplicateAddressGroups}.");
             }
         }
 
@@ -607,14 +717,14 @@ namespace DKCTF
             public SAnimContext(FileReader reader)
             {
                 /* SAnimContext::Load  */
-                RecordCountA = reader.ReadByte(); 
-                RecordCountB = reader.ReadByte(); 
-                ushort Section2ByteSize = reader.ReadUInt16(); 
-                ushort Section3TotalSize = reader.ReadUInt16(); 
-                ushort Section4TotalSize = reader.ReadUInt16(); 
+                RecordCountA = reader.ReadByte();
+                RecordCountB = reader.ReadByte();
+                ushort Section2ByteSize = reader.ReadUInt16();
+                ushort Section3TotalSize = reader.ReadUInt16();
+                ushort Section4TotalSize = reader.ReadUInt16();
 
                 /* SAnimContext::ReadIntoMemory */
-                for(int i = 0; i< RecordCountA; i++)
+                for (int i = 0; i < RecordCountA; i++)
                 {
                     Section1Records.Add(new SAnimContextRecord(reader));
                 }
@@ -1536,7 +1646,7 @@ namespace DKCTF
             public bool Unk5;
             public CObjectId Guid;
             public uint Unk6;
-            public CObjectId ModelFileGuid; 
+            public CObjectId ModelFileGuid;
 
             public SModelNode(FileReader reader)
             {
@@ -1754,7 +1864,7 @@ namespace DKCTF
             // PAS4 has a four-byte value which the native reader skips.
             public byte[] ExtraHeaderBytes = Array.Empty<byte>();
 
-            public List<SAnimParamMapEntry> Entries =new List<SAnimParamMapEntry>();
+            public List<SAnimParamMapEntry> Entries = new List<SAnimParamMapEntry>();
 
             public SAnimParamMap(FileReader reader)
             {
@@ -1851,7 +1961,7 @@ namespace DKCTF
                 switch (TypeCode)
                 {
                     case 0:
-                        // FUN_710058aec0 reads 32-bit values.
+                        // FUN_710058aec0 reads a 32-bit value each time.
                         ExtraValue0 = reader.ReadUInt32();
                         ExtraValue1 = reader.ReadUInt32();
                         break;
@@ -1937,8 +2047,12 @@ namespace DKCTF
         {
             public uint EntryCount;
             public List<SAnimCollisionPrimEntry> Entries = new List<SAnimCollisionPrimEntry>();
+
             public uint GroupCount;
             public List<SAnimCollisionPrimGroup> Groups = new List<SAnimCollisionPrimGroup>();
+
+            // The native CAnimCollisionPrimData constructor reads a third array
+            // after the named groups. Each entry is a serialized CObjectId.
             public uint ObjectIdCount;
             public List<CObjectId> ObjectIds = new List<CObjectId>();
 
@@ -1958,6 +2072,9 @@ namespace DKCTF
                     Groups.Add(new SAnimCollisionPrimGroup(reader));
                 }
 
+                // FUN_7100498f84 reads this count and then calls
+                // CObjectId::CObjectId once per entry. Omitting this array
+                // shifts the following HasEffectState flag and all later fields.
                 ObjectIdCount = reader.ReadUInt32();
                 int objectIdCount = CheckedCount(ObjectIdCount, "collision-primitive object ID");
                 for (int i = 0; i < objectIdCount; i++)
@@ -2303,7 +2420,10 @@ namespace DKCTF
                 long requiredLinkBytes = (long)LinkCount * 9;
                 if (requiredLinkBytes > remainingBytes)
                 {
-                    throw new InvalidDataException($"Embedded animation link record at 0x{recordStart:X8} declares {LinkCount} links ({requiredLinkBytes} bytes), but only {remainingBytes} bytes remain in the stream.");
+                    throw new InvalidDataException(
+                        $"Embedded animation link record at 0x{recordStart:X8} declares " +
+                        $"{LinkCount} links ({requiredLinkBytes} bytes), but only " +
+                        $"{remainingBytes} bytes remain in the stream.");
                 }
 
                 for (int i = 0; i < LinkCount; i++)
@@ -2394,7 +2514,7 @@ namespace DKCTF
                 if (HasName)
                 {
                     NameID = reader.ReadUInt32();
-                }  
+                }
             }
         }
 
@@ -2422,7 +2542,7 @@ namespace DKCTF
                     {
                         throw new InvalidDataException("A CHPR NamePool string is not NUL-terminated within the declared string table.");
                     }
-                        
+
                     int stringLength = terminator - stringOffset;
                     byte[] rawString = new byte[stringLength];
                     Array.Copy(stringTable, stringOffset, rawString, 0, stringLength);

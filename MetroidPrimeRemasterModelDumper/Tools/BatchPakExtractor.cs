@@ -138,6 +138,7 @@ namespace MetroidPrimeRemasterModelDumper
                     Console.WriteLine("Pak Name: " + pakFile);
                     throw;
                 }
+
             }
         }
 
@@ -160,7 +161,7 @@ namespace MetroidPrimeRemasterModelDumper
             }
 
             Console.Write("Successfully consumed a CHPR");
-            //Console.ReadKey();
+            Console.ReadKey();
 
         }
 
@@ -337,8 +338,9 @@ namespace MetroidPrimeRemasterModelDumper
                         string modelGuid = "(unresolved)";
                         string modelName = "(unnamed)";
 
-                        // A single missing or malformed model reference must not abort the remaining model exports. Asset lookup can also
-                        // throw when a manifest entry points to a missing/unreadable PAK, so keep the guard around the entire per-model path.
+                        // A single missing or malformed model reference must not abort the remaining
+                        // model exports. Asset lookup can also throw when a manifest entry points to
+                        // a missing/unreadable PAK, so keep the guard around the entire per-model path.
                         try
                         {
                             modelGuid = model.ModelFileGuid.ToString();

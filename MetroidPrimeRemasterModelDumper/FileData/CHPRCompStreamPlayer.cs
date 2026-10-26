@@ -342,28 +342,83 @@ namespace DKCTF
             {
                 StreamInfo stream = clip.Streams[streamIndex];
                 byte[] data = clip.RawCompStream;
-                int q = stream.SamplingBytecodeOffset;
+                int start = stream.SamplingBytecodeOffset;
 
-                if (q < 0 || q >= data.Length || data[q] != 1)
+                if (data == null || start < 0 || start >= data.Length)
                     return;
-                q += 3;
 
-                while (q < data.Length)
+                RunSamplingBytecodeRange(streamIndex, time, pool, output, start, data.Length, 0);
+            }
+
+            private void RunSamplingBytecodeRange(int streamIndex, float time, float[] pool, Pose output, int start, int end, int depth)
+            {
+                const int MaxInstructions = 100000;
+                const int MaxNestedBlocks = 16;
+                if (depth > MaxNestedBlocks)
+                    throw new InvalidDataException($"Nested sampling-bytecode blocks exceeded {MaxNestedBlocks} levels in stream {streamIndex}.");
+
+                StreamInfo stream = clip.Streams[streamIndex];
+                byte[] data = clip.RawCompStream;
+                int q = start;
+
+                for (int instructionIndex = 0; instructionIndex < MaxInstructions && q < end; instructionIndex++)
                 {
                     int op = data[q];
                     if (op == 0)
+                        return; // Native FUN_7100e56cb0: stop this dispatch pass.
+
+                    if (op == 1)
+                    {
+                        // Native FUN_71000615d0: after the opcode is a uint16 byte length,
+                        // followed by a nested stream of sampling instructions. When the native
+                        // cache misses it evaluates that stream and returns null to stop this pass.
+                        // Pose is rebuilt for each Sample call, so we reevaluate the nested body.
+                        if (q > end - 3)
+                            throw new InvalidDataException($"Truncated opcode-1 header in stream {streamIndex} at 0x{q:X}.");
+
+                        int payloadLength = CHPRCompStreamAnimation.ReadUInt16(data, q + 1);
+                        int bodyStart = q + 3;
+                        int bodyEnd = checked(bodyStart + payloadLength);
+                        if (bodyEnd > end)
+                            throw new InvalidDataException($"Opcode-1 block in stream {streamIndex} at 0x{q:X} extends past its containing bytecode range.");
+
+                        RunSamplingBytecodeRange(streamIndex, time, pool, output, bodyStart, bodyEnd, depth + 1);
                         return;
-                    if (q + 4 > data.Length)
-                        throw new InvalidDataException($"Truncated sampling bytecode in stream {streamIndex} at 0x{q:X}.");
+                    }
+
+                    if (op == 4)
+                    {
+                        // Native FUN_7100e58e10 consumes {count, descriptor-group byte, uint16 targets...}
+                        // and updates auxiliary output bitfields. The current Pose model does not yet
+                        // represent that output storage; preserve the native instruction advance safely.
+                        if (q > end - 3)
+                            throw new InvalidDataException($"Truncated opcode-4 header in stream {streamIndex} at 0x{q:X}.");
+                        int bitfieldCount = data[q + 1];
+                        int bitfieldBytes = checked(bitfieldCount * 2);
+                        RequireSamplingBytecodeRange(data, q + 3, bitfieldBytes, end, "bitfield sampling entries", streamIndex, q);
+                        q += 3 + bitfieldBytes;
+                        continue;
+                    }
+
+                    if (op == 5)
+                    {
+                        // Native FUN_710006edd0 has no inline payload, but updates external action/event
+                        // structures. That side effect is intentionally not fabricated as a transform.
+                        q += 1;
+                        continue;
+                    }
+
+                    if (q > end - 4)
+                        throw new InvalidDataException($"Truncated sampling-bytecode instruction in stream {streamIndex} at 0x{q:X}.");
 
                     int count = data[q + 1];
                     int destination = CHPRCompStreamAnimation.ReadUInt16(data, q + 2);
-
                     switch (op)
                     {
                         case 2:
                             {
-                                RequireRange(data, q + 4, checked(count * 6), "transform sampling entries");
+                                int bytes = checked(count * 6);
+                                RequireSamplingBytecodeRange(data, q + 4, bytes, end, "transform sampling entries", streamIndex, q);
                                 for (int i = 0; i < count; i++)
                                 {
                                     int entry = q + 4 + 6 * i;
@@ -393,6 +448,7 @@ namespace DKCTF
                                         DecodeVector(streamIndex, scaleRef, time, transform, 4);
                                     }
 
+                                    // Native FUN_710021dfd0 adds one to each decoded scale component.
                                     transform[4] += 1.0f;
                                     transform[5] += 1.0f;
                                     transform[6] += 1.0f;
@@ -405,12 +461,13 @@ namespace DKCTF
 
                                     output.Transforms[AdvanceDestination(destination, 5 * i)] = transform;
                                 }
-                                q += 4 + 6 * count;
+                                q += 4 + bytes;
                                 break;
                             }
                         case 3:
                             {
-                                RequireRange(data, q + 4, checked(count * 4), "rotation/translation sampling entries");
+                                int bytes = checked(count * 4);
+                                RequireSamplingBytecodeRange(data, q + 4, bytes, end, "rotation/translation sampling entries", streamIndex, q);
                                 for (int i = 0; i < count; i++)
                                 {
                                     int entry = q + 4 + 4 * i;
@@ -425,18 +482,13 @@ namespace DKCTF
 
                                     output.Transforms[AdvanceDestination(destination, 7 * i)] = transform;
                                 }
-                                q += 4 + 4 * count;
+                                q += 4 + bytes;
                                 break;
                             }
-                        case 4:
-                            q += 3 + 2 * count;
-                            break;
-                        case 5:
-                            q += 1;
-                            break;
                         case 6:
                             {
-                                RequireRange(data, q + 4, checked(count * 2), "scalar sampling entries");
+                                int bytes = checked(count * 2);
+                                RequireSamplingBytecodeRange(data, q + 4, bytes, end, "scalar sampling entries", streamIndex, q);
                                 for (int i = 0; i < count; i++)
                                 {
                                     int reference = CHPRCompStreamAnimation.ReadUInt16(data, q + 4 + 2 * i);
@@ -447,12 +499,13 @@ namespace DKCTF
                                         value = DecodeScalar(streamIndex, reference, time);
                                     output.Floats[AdvanceDestination(destination, i)] = value;
                                 }
-                                q += 4 + 2 * count;
+                                q += 4 + bytes;
                                 break;
                             }
                         case 7:
                             {
-                                RequireRange(data, q + 4, checked(count * 2), "integer sampling entries");
+                                int bytes = checked(count * 2);
+                                RequireSamplingBytecodeRange(data, q + 4, bytes, end, "integer sampling entries", streamIndex, q);
                                 for (int i = 0; i < count; i++)
                                 {
                                     int reference = CHPRCompStreamAnimation.ReadUInt16(data, q + 4 + 2 * i);
@@ -473,15 +526,25 @@ namespace DKCTF
                                         output.Ints[AdvanceDestination(destination, i)] = BitConverter.SingleToInt32Bits(pool[reference & 0x3FFF]);
                                     }
                                 }
-                                q += 4 + 2 * count;
+                                q += 4 + bytes;
                                 break;
                             }
                         default:
-                            // The game bytecode dispatcher returns on unknown opcodes;
-                            // preserve that behavior instead of guessing an instruction size.
+                            // The native dispatch table only has handlers for opcodes 0 through 7.
+                            // Don't guess an instruction size for any other value.
                             return;
                     }
                 }
+
+                if (q >= end)
+                    return;
+                throw new InvalidDataException($"Sampling bytecode in stream {streamIndex} exceeded {MaxInstructions} instructions without termination.");
+            }
+
+            private static void RequireSamplingBytecodeRange(byte[] data, int offset, int count, int end, string context, int streamIndex, int instructionOffset)
+            {
+                if (data == null || offset < 0 || count < 0 || end < 0 || end > data.Length || offset > end - count)
+                    throw new InvalidDataException($"Truncated CompStream {context} in stream {streamIndex} at 0x{instructionOffset:X} (range end 0x{end:X}).");
             }
 
             private void DecodeRotation(int streamIndex, int reference, float time, float[] pool, float[] output, int outputOffset)
@@ -576,8 +639,9 @@ namespace DKCTF
                 float x = ReadInt32(data, offset) * scale;
                 float y = ReadInt32(data, offset + 4) * scale;
                 float z = ReadInt32(data, offset + 8) * scale;
-                float wSquared = 1.0f - (x * x + y * y + z * z);
-                float w = MathF.Sqrt(MathF.Max(0.0f, wSquared));
+                float wSquared = 1.0f - (y * y + x * x + z * z);
+                // Native FUN_710021dfd0 / FUN_7100ba8af0 sqrt this value without clamping.
+                float w = MathF.Sqrt(wSquared);
                 if (negativeW)
                     w = -w;
                 return new[] { w, x, y, z };
@@ -586,14 +650,15 @@ namespace DKCTF
             private static float[] NormalizedLinearBlend(float[] a, float[] b, float amount)
             {
                 float[] result = new float[4];
-                float lengthSquared = 0.0f;
                 for (int i = 0; i < 4; i++)
-                {
                     result[i] = a[i] + amount * (b[i] - a[i]);
-                    lengthSquared += result[i] * result[i];
-                }
 
-                float inverseLength = 1.0f / MathF.Sqrt(MathF.Max(lengthSquared, 1.0e-30f));
+                // Native source accumulates quaternion length as component 1, then 0, 2, 3.
+                float lengthSquared = result[1] * result[1] + result[0] * result[0] +
+                                      result[2] * result[2] + result[3] * result[3];
+
+                // Native code performs reciprocal square-root directly, without an epsilon clamp.
+                float inverseLength = 1.0f / MathF.Sqrt(lengthSquared);
                 for (int i = 0; i < 4; i++)
                     result[i] *= inverseLength;
                 return result;
@@ -601,16 +666,20 @@ namespace DKCTF
 
             private static float[] TwoStepQuaternionBlend(float[] a, float[] b, float amount)
             {
-                float dot = a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3];
-                if (dot < -1.0f / 512.0f)
+                // Preserve FUN_710021e5c0's accumulation order: component 1, then 0, 2, 3.
+                float dot = a[1] * b[1] + b[0] * a[0] + b[2] * a[2] + b[3] * a[3];
+                if (dot < -0.001953125f)
                     b = new[] { -b[0], -b[1], -b[2], -b[3] };
 
                 float[] midpoint = NormalizedLinearBlend(a, b, 0.5f);
                 if (amount < 0.5f)
-                    return NormalizedLinearBlend(a, midpoint, 2.0f * amount);
-                if (amount > 0.5f)
-                    return NormalizedLinearBlend(midpoint, b, 2.0f * (amount - 0.5f));
-                return midpoint;
+                    return NormalizedLinearBlend(a, midpoint, amount + amount);
+                if (amount <= 0.5f)
+                    return midpoint;
+
+                // Keep the native left-to-right arithmetic order from FUN_710021e5c0.
+                float secondHalfAmount = amount - 0.5f + amount - 0.5f;
+                return NormalizedLinearBlend(midpoint, b, secondHalfAmount);
             }
 
             private GroupInfo GetSamplingGroup(StreamInfo stream, int groupIndex)
