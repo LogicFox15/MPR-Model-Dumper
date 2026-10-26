@@ -51,9 +51,7 @@ namespace EvilWithin2Tool
                     model.Skeleton.RootBones.Add(bone);
             }
 
-            string outputFile = path.EndsWith(".gltf", StringComparison.OrdinalIgnoreCase)
-                ? path
-                : path + ".gltf";
+            string outputFile = path.EndsWith(".gltf", StringComparison.OrdinalIgnoreCase) ? path : path + ".gltf";
             string outputDirectory = Path.GetDirectoryName(Path.GetFullPath(outputFile));
             if (!string.IsNullOrEmpty(outputDirectory))
                 Directory.CreateDirectory(outputDirectory);
@@ -228,7 +226,25 @@ namespace EvilWithin2Tool
                             continue;
 
                         var boneIdx = (int)vert.BoneIndices[j];
-                        var boneName = charProject.CharacterInfos[0].SkinnedBones[boneIdx].Name;
+
+                        var skinnedBones = charProject.CharacterInfos[0].SkinnedBones;
+
+                        if (boneIdx < 0 || boneIdx >= skinnedBones.Count)
+                        {
+                            Console.WriteLine($"[CMDL] WARNING: Vertex {vertnum}, influence {j} references invalid skin bone index {boneIdx}. Available entries: {skinnedBones.Count}.");
+                            continue;
+                        }
+
+                        var skinBone = skinnedBones[boneIdx];
+
+                        if (skinBone.NodeIDX < 0 || skinBone.NodeIDX >= charProject.CharacterInfos[0].Bones.Count)
+                        {
+                            Console.WriteLine($"[CMDL] WARNING: Skin bone index {boneIdx} (native ID 0x{skinBone.BoneID:X4}) does not resolve to a valid absolute-skeleton node.");
+
+                            continue;
+                        }
+
+                        var boneName = skinBone.Name;
 
                         iovertex.Envelope.Weights.Add(new IOBoneWeight()
                         {

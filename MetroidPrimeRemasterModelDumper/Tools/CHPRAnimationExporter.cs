@@ -66,12 +66,8 @@ namespace EvilWithin2Tool
             }
 
             string outputDirectory = Path.GetDirectoryName(gltfPath) ?? string.Empty;
-            string diagnosticsPath = Path.Combine(
-                outputDirectory,
-                Path.GetFileNameWithoutExtension(gltfPath) + "_Diagnostics.txt");
-            string rawDiagnosticsDirectory = Path.Combine(
-                outputDirectory,
-                Path.GetFileNameWithoutExtension(gltfPath) + "_RawDiagnostics");
+            string diagnosticsPath = Path.Combine(outputDirectory, Path.GetFileNameWithoutExtension(gltfPath) + "_Diagnostics.txt");
+            string rawDiagnosticsDirectory = Path.Combine(outputDirectory, Path.GetFileNameWithoutExtension(gltfPath) + "_RawDiagnostics");
             var diagnostics = new StringBuilder();
             diagnostics.AppendLine("CHPR CompStream Animation Diagnostics");
             diagnostics.AppendLine($"GeneratedUtc: {DateTime.UtcNow:O}");
@@ -84,25 +80,40 @@ namespace EvilWithin2Tool
 
             CHPR.CharacterInfo characterInfo = chpr.CharacterInfos[0];
 
-            // Never retry or infer a pose map by scanning raw CHPR bytes. Animation channels
-            // can only be attached when a parsed game structure has supplied bone addresses.
+            // Keep the legacy PoseAddress list for diagnostics only.
+            // CompStream destination mapping will use AnimContext.NodeSet instead.
             var bonesWithAddresses = characterInfo.Bones
                 .Where(b => b.PoseAddress >= 0)
                 .ToList();
 
-            if (bonesWithAddresses.Count == 0)
+            CHPR.SNodeSet animationNodeSet = characterInfo.AnimContext?.NodeSet;
+
+            if (animationNodeSet?.NodeIDs == null ||
+                animationNodeSet.NodeIDs.Length == 0 ||
+                characterInfo.NamePool == null)
             {
-                diagnostics.AppendLine($"SkeletonBones={characterInfo.Bones.Count}; BonesWithPoseAddress=0.");
-                diagnostics.AppendLine("No pose-address mappings were available from the parsed game structures.");
+                diagnostics.AppendLine(
+                    $"SkeletonBones={characterInfo.Bones.Count}; " +
+                    $"BonesWithPoseAddress={bonesWithAddresses.Count}; " +
+                    $"AnimContextNodeIDs={animationNodeSet?.NodeIDs?.Length ?? 0}; " +
+                    $"HasNamePool={characterInfo.NamePool != null}.");
+
+                diagnostics.AppendLine(
+                    "Cannot map CompStream destinations: AnimContext.NodeSet or NamePool is unavailable.");
+
                 SaveDiagnosticsFile(diagnosticsPath, diagnostics);
-                report = "No pose-address mapping is available from the parsed game structures. " +
-                    "The exporter will not infer addresses from raw bytes or retry mapping; leaving glTF unchanged. " +
+
+                report = "Cannot map CompStream animation destinations because the parsed " +
+                    "AnimContext.NodeSet or NamePool is unavailable. " +
                     $"Diagnostics: {diagnosticsPath}";
+
                 return false;
             }
 
-            Console.WriteLine($"[CHPR] Animation export pose map: bones={characterInfo.Bones.Count}, " +
-                $"bonesWithAddress={bonesWithAddresses.Count}.");
+            Console.WriteLine(
+                $"[CHPR] Animation export node set: skeletonBones={characterInfo.Bones.Count}, " +
+                $"legacyPoseAddresses={bonesWithAddresses.Count}, " +
+                $"animNodeSetEntries={animationNodeSet.NodeIDs.Length}.");
 
             List<float[]> constantPools = BuildConstantPools(characterInfo);
             Console.WriteLine($"[CHPR] Opening shared animation target: {gltfPath}");
@@ -124,54 +135,7 @@ namespace EvilWithin2Tool
                 return false;
             }
 
-            var nodesByName = new Dictionary<string, Node>(StringComparer.Ordinal);
-            foreach (Node node in model.LogicalNodes)
-            {
-                if (!string.IsNullOrWhiteSpace(node.Name) && !nodesByName.ContainsKey(node.Name))
-                    nodesByName.Add(node.Name, node);
-            }
-
-            var tracksByAddress = new Dictionary<int, List<BoneTrack>>();
-            int nodeMatches = 0;
-            foreach (CHPR.BoneData bone in bonesWithAddresses)
-            {
-                if (string.IsNullOrWhiteSpace(bone.Name) || !nodesByName.TryGetValue(bone.Name, out Node node))
-                    continue;
-
-                if (!tracksByAddress.TryGetValue(bone.PoseAddress, out List<BoneTrack> addressTracks))
-                {
-                    addressTracks = new List<BoneTrack>();
-                    tracksByAddress.Add(bone.PoseAddress, addressTracks);
-                }
-
-                if (!Matrix4x4.Decompose(bone.LocalTransform, out Vector3 bindScale, out Quaternion bindRotation, out Vector3 bindTranslation))
-                {
-                    bindScale = Vector3.One;
-                    bindRotation = Quaternion.Identity;
-                    bindTranslation = Vector3.Zero;
-                }
-
-                addressTracks.Add(new BoneTrack
-                {
-                    Bone = bone,
-                    Node = node,
-                    BindTranslation = bindTranslation,
-                    BindRotation = SafeNormalize(bindRotation, Quaternion.Identity),
-                    BindScale = bindScale
-                });
-                nodeMatches++;
-            }
-
-            try
-            {
-                AppendBoneAddressDiagnostics(diagnostics, characterInfo.Bones, bonesWithAddresses,
-                    nodesByName, tracksByAddress, nodeMatches);
-            }
-            catch (Exception diagnosticsEx)
-            {
-                diagnostics.AppendLine($"Bone-map diagnostics failed without affecting export: {diagnosticsEx.GetType().Name}: {diagnosticsEx.Message}");
-                Console.WriteLine($"[CHPR] Bone-map diagnostics failed; continuing export: {diagnosticsEx.GetType().Name}: {diagnosticsEx.Message}");
-            }
+            var tracksByAddress = BuildAnimationNodeSetTracks(characterInfo, model.LogicalNodes, diagnostics, out int nodeMatches);
 
             if (nodeMatches == 0)
             {
@@ -259,13 +223,24 @@ namespace EvilWithin2Tool
                     TryAppendSampledOutputValueDiagnostics(diagnostics, 0, firstPose);
                     try
                     {
-                        AppendSampledPoseDiagnostics(diagnostics, firstPose,
-                            bytecodeDestinationsByStream, bonesWithAddresses);
+                        AppendNodeSetOutputDiagnostics(diagnostics, firstPose, bytecodeDestinationsByStream, tracksByAddress);
                     }
                     catch (Exception diagnosticsEx)
                     {
                         diagnostics.AppendLine($"  Frame-zero destination diagnostics failed without affecting bake: {diagnosticsEx.GetType().Name}: {diagnosticsEx.Message}");
                         Console.WriteLine($"[CHPR] Frame-zero destination diagnostics failed; continuing bake: {diagnosticsEx.GetType().Name}: {diagnosticsEx.Message}");
+                    }
+
+                    try
+                    {
+                        AppendTransformBindingCandidateDiagnostics(
+                            diagnostics, characterInfo, firstPose);
+                    }
+                    catch (Exception diagnosticsEx)
+                    {
+                        diagnostics.AppendLine(
+                            $"Transform binding diagnostics failed without affecting bake: " +
+                            $"{diagnosticsEx.GetType().Name}: {diagnosticsEx.Message}");
                     }
 
                     foreach (int poseAddress in firstPose.Transforms.Keys)
@@ -446,6 +421,201 @@ namespace EvilWithin2Tool
             return true;
         }
 
+
+        private static Dictionary<int, List<BoneTrack>> BuildAnimationNodeSetTracks(
+            CHPR.CharacterInfo characterInfo,
+            IEnumerable<Node> gltfNodes,
+            StringBuilder diagnostics,
+            out int nodeMatches)
+        {
+            var tracksByAddress = new Dictionary<int, List<BoneTrack>>();
+            nodeMatches = 0;
+
+            int unresolvedNameCount = 0;
+            int missingGltfNodeCount = 0;
+            int missingBoneDataCount = 0;
+            int ambiguousAddressCount = 0;
+            int ambiguousGltfNameCount = 0;
+
+            if (characterInfo?.AnimContext?.NodeSet?.NodeIDs == null ||
+                characterInfo.NamePool == null)
+            {
+                diagnostics.AppendLine(
+                    "NODESET MAP ERROR: AnimContext.NodeSet.NodeIDs or NamePool is unavailable.");
+                return tracksByAddress;
+            }
+
+            CHPR.SNodeSet nodeSet = characterInfo.AnimContext.NodeSet;
+
+            // Index exported glTF nodes by name.
+            // Retain all nodes sharing a name so duplicates can be rejected safely.
+            var gltfNodesByName = (gltfNodes ?? Enumerable.Empty<Node>())
+                .Where(n => n != null && !string.IsNullOrWhiteSpace(n.Name))
+                .GroupBy(n => n.Name, StringComparer.Ordinal)
+                .ToDictionary(
+                    group => group.Key,
+                    group => group.ToList(),
+                    StringComparer.Ordinal);
+
+            // Index parsed CHPR bones by name.
+            var bonesByName = characterInfo.Bones
+                .Where(b => !string.IsNullOrWhiteSpace(b.Name))
+                .GroupBy(b => b.Name, StringComparer.Ordinal)
+                .ToDictionary(
+                    group => group.Key,
+                    group => group.ToList(),
+                    StringComparer.Ordinal);
+
+            // Collect every NodeSet entry that produces the same candidate
+            // CompStream destination when its packed ID is reduced to 16 bits.
+            var indicesByAddress = new Dictionary<int, List<int>>();
+
+            for (int i = 0; i < nodeSet.NodeIDs.Length; i++)
+            {
+                int address = (int)(nodeSet.NodeIDs[i] & 0xFFFFu);
+
+                if (!indicesByAddress.TryGetValue(address, out List<int> indices))
+                {
+                    indices = new List<int>();
+                    indicesByAddress.Add(address, indices);
+                }
+
+                indices.Add(i);
+            }
+
+            foreach (var entry in indicesByAddress.OrderBy(pair => pair.Key))
+            {
+                int address = entry.Key;
+                List<int> indices = entry.Value;
+
+                // More than one NodeSet entry has this candidate destination.
+                // Do not guess which node the animation should control.
+                if (indices.Count != 1)
+                {
+                    ambiguousAddressCount++;
+
+                    diagnostics.AppendLine(
+                        $"NODESET MAP: address=0x{address:X4}; " +
+                        $"matchingNodeSetEntries={indices.Count}; skipped as ambiguous.");
+
+                    continue;
+                }
+
+                int nodeSetIndex = indices[0];
+
+                // Resolve the name using the NodeSet's associated NameSet
+                // and the original NodeSet index.
+                string nodeName = characterInfo.NamePool.GetString(
+                    nodeSet.NameSet, nodeSetIndex);
+
+                if (string.IsNullOrWhiteSpace(nodeName))
+                {
+                    unresolvedNameCount++;
+
+                    diagnostics.AppendLine(
+                        $"NODESET MAP: address=0x{address:X4}; " +
+                        $"nodeSetIndex={nodeSetIndex}; unresolved name.");
+
+                    continue;
+                }
+
+                // The resolved name must identify exactly one exported glTF node.
+                if (!gltfNodesByName.TryGetValue(nodeName, out List<Node> matchingNodes))
+                {
+                    missingGltfNodeCount++;
+
+                    diagnostics.AppendLine(
+                        $"NODESET MAP: address=0x{address:X4}; " +
+                        $"name=\"{nodeName}\"; no matching glTF node.");
+
+                    continue;
+                }
+
+                if (matchingNodes.Count != 1)
+                {
+                    ambiguousGltfNameCount++;
+
+                    diagnostics.AppendLine(
+                        $"NODESET MAP: address=0x{address:X4}; " +
+                        $"name=\"{nodeName}\"; matchingGltfNodes={matchingNodes.Count}; skipped.");
+
+                    continue;
+                }
+
+                // Use the parsed CHPR bone's bind transform.
+                // A missing or duplicated bone name is not safe to resolve by guessing.
+                if (!bonesByName.TryGetValue(nodeName, out List<CHPR.BoneData> matchingBones) ||
+                    matchingBones.Count != 1)
+                {
+                    missingBoneDataCount++;
+
+                    diagnostics.AppendLine(
+                        $"NODESET MAP: address=0x{address:X4}; " +
+                        $"name=\"{nodeName}\"; " +
+                        $"matchingBoneRecords={matchingBones?.Count ?? 0}; skipped.");
+
+                    continue;
+                }
+
+                CHPR.BoneData bone = matchingBones[0];
+                Node node = matchingNodes[0];
+
+                if (!Matrix4x4.Decompose(
+                        bone.LocalTransform,
+                        out Vector3 bindScale,
+                        out Quaternion bindRotation,
+                        out Vector3 bindTranslation))
+                {
+                    bindScale = Vector3.One;
+                    bindRotation = Quaternion.Identity;
+                    bindTranslation = Vector3.Zero;
+                }
+
+                // Keep the existing BoneTrack type and bind-pose representation.
+                tracksByAddress.Add(
+                    address,
+                    new List<BoneTrack>
+                    {
+                new BoneTrack
+                {
+                    Bone = bone,
+                    Node = node,
+                    BindTranslation = bindTranslation,
+                    BindRotation = SafeNormalize(
+                        bindRotation, Quaternion.Identity),
+                    BindScale = bindScale
+                }
+                    });
+
+                nodeMatches++;
+            }
+
+            diagnostics.AppendLine(
+                "NODESET MAP SUMMARY: " +
+                $"nodeSetEntries={nodeSet.NodeIDs.Length}; " +
+                $"mappedDestinations={tracksByAddress.Count}; " +
+                $"matchedNodes={nodeMatches}; " +
+                $"unresolvedNames={unresolvedNameCount}; " +
+                $"missingGltfNodes={missingGltfNodeCount}; " +
+                $"missingBoneRecords={missingBoneDataCount}; " +
+                $"ambiguousAddresses={ambiguousAddressCount}; " +
+                $"ambiguousGltfNames={ambiguousGltfNameCount}.");
+
+            Console.WriteLine(
+                "[CHPR] NodeSet map: " +
+                $"entries={nodeSet.NodeIDs.Length}, " +
+                $"mappedDestinations={tracksByAddress.Count}, " +
+                $"matchedNodes={nodeMatches}, " +
+                $"unresolvedNames={unresolvedNameCount}, " +
+                $"missingGltfNodes={missingGltfNodeCount}, " +
+                $"missingBoneRecords={missingBoneDataCount}, " +
+                $"ambiguousAddresses={ambiguousAddressCount}, " +
+                $"ambiguousGltfNames={ambiguousGltfNameCount}.");
+
+            return tracksByAddress;
+        }
+
+
         private static void SaveDiagnosticsFile(string path, StringBuilder diagnostics)
         {
             try
@@ -463,13 +633,7 @@ namespace EvilWithin2Tool
             }
         }
 
-        private static void AppendRawCompStreamDiagnostics(
-            StringBuilder diagnostics,
-            string rawDiagnosticsDirectory,
-            int entryIndex,
-            uint outputSlot,
-            string gameName,
-            CHPRCompStreamAnimation.ParsedClip clip)
+        private static void AppendRawCompStreamDiagnostics(StringBuilder diagnostics, string rawDiagnosticsDirectory, int entryIndex, uint outputSlot, string gameName, CHPRCompStreamAnimation.ParsedClip clip)
         {
             byte[] data = clip.RawCompStream;
             diagnostics.AppendLine("  RAW COMPSTREAM DATA");
@@ -547,8 +711,7 @@ namespace EvilWithin2Tool
             diagnostics.AppendLine();
         }
 
-        private static void AppendSamplingBytecodeRangeListing(
-            StringBuilder diagnostics, byte[] data, int start, int end, int streamIndex, int depth)
+        private static void AppendSamplingBytecodeRangeListing(StringBuilder diagnostics, byte[] data, int start, int end, int streamIndex, int depth)
         {
             const int MaxNestedBlocks = 16;
             if (depth > MaxNestedBlocks)
@@ -624,8 +787,7 @@ namespace EvilWithin2Tool
             return BitConverter.ToString(data, offset, length).Replace("-", " ");
         }
 
-        private static void TryAppendSampledOutputValueDiagnostics(
-            StringBuilder diagnostics, int frameIndex, CHPRCompStreamAnimation.Pose pose)
+        private static void TryAppendSampledOutputValueDiagnostics(StringBuilder diagnostics, int frameIndex, CHPRCompStreamAnimation.Pose pose)
         {
             try
             {
@@ -637,8 +799,7 @@ namespace EvilWithin2Tool
             }
         }
 
-        private static void AppendSampledOutputValueDiagnostics(
-            StringBuilder diagnostics, int frameIndex, CHPRCompStreamAnimation.Pose pose)
+        private static void AppendSampledOutputValueDiagnostics(StringBuilder diagnostics, int frameIndex, CHPRCompStreamAnimation.Pose pose)
         {
             if (pose == null || pose.Transforms == null)
             {
@@ -660,13 +821,7 @@ namespace EvilWithin2Tool
                 diagnostics.AppendLine($"    ... {entries.Count - count} additional destinations omitted by diagnostic output cap.");
         }
 
-        private static void AppendBoneAddressDiagnostics(
-            StringBuilder diagnostics,
-            IReadOnlyList<CHPR.BoneData> allBones,
-            IReadOnlyList<CHPR.BoneData> bonesWithAddresses,
-            IReadOnlyDictionary<string, Node> nodesByName,
-            IReadOnlyDictionary<int, List<BoneTrack>> tracksByAddress,
-            int matchedNodeCount)
+        private static void AppendBoneAddressDiagnostics(StringBuilder diagnostics, IReadOnlyList<CHPR.BoneData> allBones, IReadOnlyList<CHPR.BoneData> bonesWithAddresses, IReadOnlyDictionary<string, Node> nodesByName, IReadOnlyDictionary<int, List<BoneTrack>> tracksByAddress, int matchedNodeCount)
         {
             diagnostics.AppendLine("BONE ADDRESS MAP");
             diagnostics.AppendLine($"  skeletonBones={allBones.Count}; bonesWithPoseAddress={bonesWithAddresses.Count}; " +
@@ -703,9 +858,7 @@ namespace EvilWithin2Tool
             diagnostics.AppendLine();
         }
 
-        private static Dictionary<int, List<int>> AppendStreamDestinationDiagnostics(
-            StringBuilder diagnostics,
-            CHPRCompStreamAnimation.ParsedClip clip)
+        private static Dictionary<int, List<int>> AppendStreamDestinationDiagnostics(StringBuilder diagnostics, CHPRCompStreamAnimation.ParsedClip clip)
         {
             diagnostics.AppendLine("  STREAM SAMPLING-BYTECODE DESTINATIONS");
             var byStream = new Dictionary<int, List<int>>();
@@ -748,9 +901,7 @@ namespace EvilWithin2Tool
         /// Mirrors the sampling-bytecode instruction stepping used by CHPRCompStreamPlayer, but only
         /// extracts transform destinations for diagnostics. It never changes playback or bone mapping.
         /// </summary>
-        private static List<int> ReadTransformDestinationsFromBytecode(
-            CHPRCompStreamAnimation.ParsedClip clip,
-            CHPRCompStreamAnimation.StreamInfo stream)
+        private static List<int> ReadTransformDestinationsFromBytecode(CHPRCompStreamAnimation.ParsedClip clip, CHPRCompStreamAnimation.StreamInfo stream)
         {
             byte[] data = clip.RawCompStream;
             int start = stream.SamplingBytecodeOffset;
@@ -768,13 +919,7 @@ namespace EvilWithin2Tool
         /// nested instruction stream. The native handler evaluates that nested stream
         /// and stops this dispatch pass; it is not a fixed three-byte preamble.
         /// </summary>
-        private static void ScanSamplingBytecodeRange(
-            byte[] data,
-            int start,
-            int end,
-            List<int> result,
-            int depth,
-            int streamOffset)
+        private static void ScanSamplingBytecodeRange(byte[] data, int start, int end, List<int> result, int depth, int streamOffset)
         {
             const int MaxInstructions = 100000;
             const int MaxNestedBlocks = 16;
@@ -894,11 +1039,7 @@ namespace EvilWithin2Tool
                 $"0x{destination:X4}(slot={destination & 0x3F},element={destination >> 6})"));
         }
 
-        private static void AppendSampledPoseDiagnostics(
-            StringBuilder diagnostics,
-            CHPRCompStreamAnimation.Pose firstPose,
-            IReadOnlyDictionary<int, List<int>> bytecodeDestinationsByStream,
-            IReadOnlyList<CHPR.BoneData> bonesWithAddresses)
+        private static void AppendSampledPoseDiagnostics(StringBuilder diagnostics, CHPRCompStreamAnimation.Pose firstPose, IReadOnlyDictionary<int, List<int>> bytecodeDestinationsByStream, IReadOnlyList<CHPR.BoneData> bonesWithAddresses)
         {
             List<int> sampledDestinations = firstPose.Transforms.Keys.OrderBy(value => value).ToList();
             List<int> bytecodeDestinations = bytecodeDestinationsByStream.Values
@@ -994,8 +1135,7 @@ namespace EvilWithin2Tool
             return new string(chars, 0, length).Trim('_', '-', '.');
         }
 
-        private static void ApplySample(BoneTrack track, float[] sample,
-            out Vector3 translation, out Quaternion rotation, out Vector3 scale)
+        private static void ApplySample(BoneTrack track, float[] sample, out Vector3 translation, out Quaternion rotation, out Vector3 scale)
         {
             translation = track.BindTranslation;
             rotation = track.BindRotation;
@@ -1072,6 +1212,164 @@ namespace EvilWithin2Tool
                 pools[pool.Unknown1] = pool.Unknowns2;
             }
             return pools;
+        }
+
+        private static void AppendTransformBindingCandidateDiagnostics(StringBuilder diagnostics, CHPR.CharacterInfo characterInfo, CHPRCompStreamAnimation.Pose pose)
+        {
+            diagnostics.AppendLine();
+            diagnostics.AppendLine("TRANSFORM INDEX / SKELETON BINDING CANDIDATES (diagnostic-only)");
+
+            if (characterInfo == null)
+            {
+                diagnostics.AppendLine("CharacterInfo is null.");
+                return;
+            }
+
+            diagnostics.AppendLine($"NumModels={characterInfo.NumModels}; ModelNodes={characterInfo.ModelNodes?.Count ?? 0}; " +
+                $"RenderContexts={characterInfo.RenderContexts?.Count ?? 0}; SkinnedBones={characterInfo.SkinnedBones?.Count ?? 0}.");
+
+            AppendNodeSetSample(diagnostics, "AnimContext", characterInfo, characterInfo.AnimContext?.NodeSet);
+
+            AppendNodeSetSample(diagnostics, "AbsContext", characterInfo, characterInfo.AbsContext?.NodeSet);
+
+            if (characterInfo.AbsContext != null)
+            {
+                diagnostics.AppendLine($"AbsContext.Section5 entries={characterInfo.AbsContext.Section5?.Length ?? 0}.");
+            }
+
+            // Opcode 2 outputs ten-float transforms. In the native destination
+            // format, each transform occupies five eight-byte offset units.
+            var rows = new List<(int Address, int Element, int Index)>();
+
+            if (pose?.Transforms != null)
+            {
+                rows = pose.Transforms
+                    .Where(pair =>
+                        (pair.Key & 0x3F) == 2 &&
+                        pair.Value != null &&
+                        pair.Value.Length == 10)
+                    .Select(pair =>
+                    {
+                        int element = (pair.Key >> 6) & 0x3FF;
+
+                        return (Address: pair.Key, Element: element, Index: element % 5 == 0 ? element / 5 : -1);
+                    })
+                    .OrderBy(row => row.Element)
+                    .ToList();
+            }
+
+            bool denseIndices = rows.Count > 0;
+
+            for (int i = 0; i < rows.Count; i++)
+            {
+                if (rows[i].Index != i)
+                {
+                    denseIndices = false;
+                    break;
+                }
+            }
+
+            diagnostics.AppendLine($"Slot-2 transform rows={rows.Count}; indicesAreDenseFromZero={denseIndices}.");
+
+            var contexts = characterInfo.RenderContexts ?? new List<CHPR.SRenderContext>();
+
+            for (int contextIndex = 0; contextIndex < contexts.Count; contextIndex++)
+            {
+                CHPR.SRenderContext context = contexts[contextIndex];
+
+                if (context == null)
+                {
+                    diagnostics.AppendLine($"RenderContext[{contextIndex}] is null.");
+                    continue;
+                }
+
+                ushort[] boneIDs = context.SkinnedMatrixBoneIDs ?? Array.Empty<ushort>();
+
+                int inverseMatrixCount = context.SkinnedInverseMatrices?.Length ?? 0;
+
+                bool countMatches = denseIndices && boneIDs.Length == rows.Count;
+
+                diagnostics.AppendLine($"RenderContext[{contextIndex}]: SkinnedMatrixBoneIDs={boneIDs.Length}; SkinnedInverseMatrices={inverseMatrixCount}; transformRowCountMatches={countMatches}.");
+
+                // Print all rows only when the count matches; otherwise keep the
+                // diagnostic short and show a sample without implying alignment.
+                int rowsToPrint = countMatches ? rows.Count : Math.Min(12, Math.Min(rows.Count, boneIDs.Length));
+
+                for (int i = 0; i < rowsToPrint; i++)
+                {
+                    var row = rows[i];
+
+                    int nodeIndex = characterInfo.AbsContext?.NodeSet ?.FindIndex(boneIDs[i]) ?? -1;
+
+                    string nodeName = "(unresolved)";
+
+                    if (nodeIndex >= 0 && characterInfo.AbsContext?.NodeSet != null && characterInfo.NamePool != null)
+                    {
+                        nodeName = characterInfo.NamePool.GetString(characterInfo.AbsContext.NodeSet.NameSet, nodeIndex);
+
+                        if (string.IsNullOrEmpty(nodeName))
+                            nodeName = "(empty name)";
+                    }
+
+                    diagnostics.AppendLine($"  outputRow={row.Index}; destination=0x{row.Address:X4}; " +
+                        $"element={row.Element}; contextEntry={i}; boneID=0x{boneIDs[i]:X4}; " +
+                        $"absNodeIndex={nodeIndex}; absNodeName=\"{nodeName}\".");
+                }
+            }
+
+            diagnostics.AppendLine("NOTE: These comparisons are candidates only; no transform-to-bone mapping or animation behavior was changed.");
+            diagnostics.AppendLine();
+        }
+
+        private static void AppendNodeSetSample(StringBuilder diagnostics, string label, CHPR.CharacterInfo characterInfo, CHPR.SNodeSet nodeSet)
+        {
+            if (nodeSet?.NodeIDs == null)
+            {
+                diagnostics.AppendLine($"{label}.NodeSet is unavailable.");
+                return;
+            }
+
+            diagnostics.AppendLine($"{label}.NodeSet: count={nodeSet.NodeIDs.Length}; nameSet={nodeSet.NameSet}.");
+            int sampleCount = Math.Min(12, nodeSet.NodeIDs.Length);
+            for (int i = 0; i < sampleCount; i++)
+            {
+                string name = characterInfo.NamePool == null ? string.Empty : characterInfo.NamePool.GetString(nodeSet.NameSet, i);
+
+                diagnostics.AppendLine($"  {label}[{i}]: nodeID=0x{nodeSet.NodeIDs[i]:X8}; low16=0x{(nodeSet.NodeIDs[i] & 0xFFFF):X4}; name=\"{name}\".");
+            }
+        }
+
+        private static void AppendNodeSetOutputDiagnostics(StringBuilder diagnostics, CHPRCompStreamAnimation.Pose pose, IReadOnlyDictionary<int, List<int>> bytecodeDestinationsByStream, IReadOnlyDictionary<int, List<BoneTrack>> tracksByAddress)
+        {
+            List<int> sampledDestinations = pose.Transforms.Keys.OrderBy(address => address).ToList();
+
+            List<int> bytecodeDestinations = bytecodeDestinationsByStream.Values.SelectMany(addresses => addresses).Distinct().OrderBy(address => address).ToList();
+
+            List<int> mappedDestinations = sampledDestinations.Where(address => tracksByAddress.ContainsKey(address)).ToList();
+
+            List<int> unmappedDestinations = sampledDestinations.Except(mappedDestinations).ToList();
+
+            diagnostics.AppendLine();
+            diagnostics.AppendLine("SAMPLED DESTINATIONS VS ANIM CONTEXT NODESET");
+
+            diagnostics.AppendLine($"SampledTransformDestinations={sampledDestinations.Count}; BytecodeDestinationUnion={bytecodeDestinations.Count}; MappedNodeSetDestinations={mappedDestinations.Count}; UnmappedSampledDestinations={unmappedDestinations.Count}.");
+
+            foreach (int address in sampledDestinations)
+            {
+                if (!tracksByAddress.TryGetValue(address, out List<BoneTrack> tracks))
+                {
+                    diagnostics.AppendLine($"  UNMAPPED destination=0x{address:X4}; " +
+                        $"slot={address & 0x3F}; element={(address >> 6) & 0x3FF}.");
+
+                    continue;
+                }
+
+                string names = string.Join(", ", tracks.Select(track => track.Node.Name));
+
+                diagnostics.AppendLine($"  MATCHED destination=0x{address:X4}; slot={address & 0x3F}; element={(address >> 6) & 0x3FF}; nodes=[{names}].");
+            }
+
+            diagnostics.AppendLine();
         }
     }
 }

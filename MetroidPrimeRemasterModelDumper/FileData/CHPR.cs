@@ -114,10 +114,14 @@ namespace DKCTF
         private void ReadCharacterProject(FileReader reader, long bodyEnd, long payloadStart)
         {
             for (int i = 0; i < arrayCount1; i++)
+            {
                 array1.Add(UnknownArrayEntry.Read(reader));
+            }
 
             for (int i = 0; i < storedAnimationCount; i++)
+            {
                 animationClipArray.Add(AnimationArrayEntry.Read(reader));
+            }
 
             if (reader.Position > bodyEnd)
             {
@@ -243,7 +247,6 @@ namespace DKCTF
 
             public List<BoneData> Bones = new List<BoneData>();
             public List<SkinnedBoneData> SkinnedBones = new List<SkinnedBoneData>();
-
 
             public CharacterInfo(FileReader reader)
             {
@@ -374,7 +377,6 @@ namespace DKCTF
                 FinalGuid1 = IOFileExtension.ReadID(reader);
                 FinalGuid2 = IOFileExtension.ReadID(reader);
 
-
                 // The Absolute Context defines one skeleton. Render contexts only provide
                 // skinned-bone subsets and matrices for that skeleton; they do not each
                 // define another complete rig.
@@ -386,12 +388,19 @@ namespace DKCTF
 
                     string parentName = "";
                     if (parentIndex >= 0)
+                    {
                         parentName = NamePool.GetString(AbsContext.NodeSet.NameSet, parentIndex);
+                    }
 
                     Bones.Add(new BoneData()
                     {
+                        SkeletonIndex = i,
+                        NativeNodeID = AbsContext.NodeSet.NodeIDs[i],
+
                         Name = boneName,
                         Parent = parentName,
+                        ParentIndex = parentIndex >= 0 ? (uint)parentIndex : uint.MaxValue,
+
                         InverseTransform = Matrix4x4.Identity,
                         WorldTransform = Matrix4x4.Identity,
                         LocalTransform = Matrix4x4.Identity
@@ -415,8 +424,15 @@ namespace DKCTF
                         {
                             Name = boneName,
                             BoneID = boneID,
-                            NodeIDX = nodeIndex
+                            NodeIDX = nodeIndex,
+                            RenderContextIndex = r,
+                            SkinMatrixIndex = i
                         });
+
+                        if (nodeIndex < 0)
+                        {
+                            Console.WriteLine($"[CHPR] WARNING: Render context {r}, skin matrix {i} references unknown skeleton node ID 0x{boneID:X4}.");
+                        }
                     }
 
                     for (int i = 0; i < renderContext.SkinnedMatrixBoneIDs.Length; i++)
@@ -424,14 +440,13 @@ namespace DKCTF
                         ushort boneID = renderContext.SkinnedMatrixBoneIDs[i];
                         int nodeIndex = AbsContext.NodeSet.FindIndex(boneID);
 
-                        if (nodeIndex < 0 || nodeIndex >= Bones.Count ||
-                            i >= renderContext.SkinnedInverseMatrices.Length)
+                        if (nodeIndex < 0 || nodeIndex >= Bones.Count || i >= renderContext.SkinnedInverseMatrices.Length)
+                        {
                             continue;
+                        }
 
                         skinnedBoneIndices.Add(nodeIndex);
-                        Matrix4x4.Invert(
-                            Matrix4x4.Transpose(renderContext.SkinnedInverseMatrices[i]),
-                            out Matrix4x4 worldSpace);
+                        Matrix4x4.Invert(Matrix4x4.Transpose(renderContext.SkinnedInverseMatrices[i]), out Matrix4x4 worldSpace);
 
                         Bones[nodeIndex].InverseTransform = renderContext.SkinnedInverseMatrices[i];
                         // Preserve the previous render-context order: a later context may
@@ -452,7 +467,10 @@ namespace DKCTF
 
                     for (int i = 0; i < Bones.Count; i++)
                     {
-                        if (skinnedBoneIndices.Contains(i)) continue;
+                        if (skinnedBoneIndices.Contains(i))
+                        {
+                            continue;
+                        }
 
                         List<Vector3> translations = new List<Vector3>();
                         List<Quaternion> rotations = new List<Quaternion>();
@@ -471,44 +489,52 @@ namespace DKCTF
                         foreach (var child in children)
                         {
                             if (child.WorldTransform == Matrix4x4.Identity)
+                            {
                                 continue;
+                            }
 
                             if (Matrix4x4.Decompose(child.WorldTransform, out _, out Quaternion cRot, out Vector3 cTrans))
                             {
                                 translations.Add(cTrans);
 
                                 if (rotations.Count > 0 && Quaternion.Dot(rotations[0], cRot) < 0)
-                                    cRot = Quaternion.Inverse(cRot); // Preserve the existing hemisphere behavior.
+                                {
+                                    cRot = new Quaternion(
+                                        -cRot.X,
+                                        -cRot.Y,
+                                        -cRot.Z,
+                                        -cRot.W);
+                                }
 
                                 rotations.Add(cRot);
                             }
                         }
 
                         if (translations.Count == 0)
+                        {
                             continue;
+                        }
 
                         Vector3 avgPos = Vector3.Zero;
                         foreach (Vector3 translation in translations)
+                        {
                             avgPos += translation;
+                        }
                         avgPos /= translations.Count;
 
                         Quaternion avgRot = rotations[0];
                         if (rotations.Count > 1)
                         {
-                            Vector4 accumulated = new Vector4(
-                                rotations[0].X, rotations[0].Y, rotations[0].Z, rotations[0].W);
+                            Vector4 accumulated = new Vector4(rotations[0].X, rotations[0].Y, rotations[0].Z, rotations[0].W);
                             for (int x = 1; x < rotations.Count; x++)
                             {
-                                accumulated += new Vector4(
-                                    rotations[x].X, rotations[x].Y, rotations[x].Z, rotations[x].W);
+                                accumulated += new Vector4(rotations[x].X, rotations[x].Y, rotations[x].Z, rotations[x].W);
                             }
                             accumulated /= rotations.Count;
-                            avgRot = Quaternion.Normalize(new Quaternion(
-                                accumulated.X, accumulated.Y, accumulated.Z, accumulated.W));
+                            avgRot = Quaternion.Normalize(new Quaternion(accumulated.X, accumulated.Y, accumulated.Z, accumulated.W));
                         }
 
-                        Matrix4x4 newWorld = Matrix4x4.CreateFromQuaternion(avgRot) *
-                            Matrix4x4.CreateTranslation(avgPos);
+                        Matrix4x4 newWorld = Matrix4x4.CreateFromQuaternion(avgRot) * Matrix4x4.CreateTranslation(avgPos);
                         if (Vector3.Distance(Bones[i].WorldTransform.Translation, avgPos) > 0.001f)
                         {
                             Bones[i].WorldTransform = newWorld;
@@ -548,9 +574,7 @@ namespace DKCTF
                 // and an entry within that record. It is NOT an animation-context node ID.
                 // The earlier implementation incorrectly searched AnimContext.NodeSet using
                 // packedCode & 0xFFFF, which rejected almost every bone in the test log.
-                if (AbsContext?.NodeSet?.NodeIDs == null ||
-                    NamePool == null ||
-                    ActionData?.Events == null || ActionData.Events.Count == 0)
+                if (AbsContext?.NodeSet?.NodeIDs == null || NamePool == null || ActionData?.Events == null || ActionData.Events.Count == 0)
                 {
                     Console.WriteLine("[CHPR] Native pose-address map unavailable: absolute-context node data, names, or action-event data is absent.");
                     return;
@@ -578,9 +602,7 @@ namespace DKCTF
                     // Bones are created in SAbsContext.NodeSet order, so this hash-list
                     // index corresponds to the current bone. FUN_7100e548e0 performs the
                     // reverse name-hash lookup in the native implementation.
-                    if (!NamePool.TryGetStringHashFromHashList(
-                        AbsContext.NodeSet.NameSet, boneIndex, out uint nameHash) ||
-                        !AbsContext.TryFindPackedNodeCode(nameHash, NamePool, out uint packedCode))
+                    if (!NamePool.TryGetStringHashFromHashList(AbsContext.NodeSet.NameSet, boneIndex, out uint nameHash) || !AbsContext.TryFindPackedNodeCode(nameHash, NamePool, out uint packedCode))
                     {
                         missingPackedCodes++;
                         continue;
@@ -600,8 +622,7 @@ namespace DKCTF
                     // native event-address table this way.
                     int type5Start = AbsContext.FirstType5RecordIndex;
                     int type5EndExclusive = type5Start + AbsContext.FirstType5RecordCount;
-                    if (recordIndex < type5Start || recordIndex >= type5EndExclusive ||
-                        AbsContext.Section1[recordIndex].Type != 5)
+                    if (recordIndex < type5Start || recordIndex >= type5EndExclusive || AbsContext.Section1[recordIndex].Type != 5)
                     {
                         nonType5RecordCodes++;
                         continue;
@@ -640,8 +661,7 @@ namespace DKCTF
                 }
 
                 int duplicateAddressGroups = addressCounts.Count(pair => pair.Value > 1);
-                Console.WriteLine(
-                    $"[CHPR] Native pose-address map: bones={Bones.Count}, candidates={candidateCount}, " +
+                Console.WriteLine($"[CHPR] Native pose-address map: bones={Bones.Count}, candidates={candidateCount}, " +
                     $"type5RecordMatches={type5RecordMatches}, mapped={mappedCount}, missingPackedCodes={missingPackedCodes}, " +
                     $"invalidRecordIndices={invalidRecordIndices}, nonType5RecordCodes={nonType5RecordCodes}, " +
                     $"invalidEntryIndices={invalidEntryIndices}, invalidEventIndices={invalidEventIndices}, " +
@@ -652,12 +672,18 @@ namespace DKCTF
         #region Bones
         public class BoneData
         {
+            // Index in AbsContext.NodeSet.
+            public int SkeletonIndex;
+
+            // Original native node ID from AbsContext.NodeSet.
+            public uint NativeNodeID;
+
             public string Name;
             public string Parent;
             public uint ParentIndex;
 
-            // Raw CHPR animation output address: slot | (index << 6).
-            // -1 means no trustworthy hierarchy mapping was recovered.
+            // Raw CHPR animation output address.
+            // -1 means no trustworthy mapping was recovered.
             public int PoseAddress = -1;
             public byte PoseAddressRecordType;
 
@@ -669,8 +695,18 @@ namespace DKCTF
         public class SkinnedBoneData
         {
             public string Name;
+
+            // Original native node ID referenced by the render context.
             public uint BoneID;
+
+            // Index in AbsContext.NodeSet.
             public int NodeIDX;
+
+            // Index of the render context that supplied this entry.
+            public int RenderContextIndex;
+
+            // Index within that context's SkinnedMatrixBoneIDs array.
+            public int SkinMatrixIndex;
         }
         #endregion
 
@@ -691,9 +727,10 @@ namespace DKCTF
                 for (int i = 0; i < NodeIDs.Length; i++)
                 {
                     if ((NodeIDs[i] & 0xFFFF) == id)
+                    {
                         return i;
+                    }
                 }
-
                 return -1;
             }
         }
@@ -2420,10 +2457,7 @@ namespace DKCTF
                 long requiredLinkBytes = (long)LinkCount * 9;
                 if (requiredLinkBytes > remainingBytes)
                 {
-                    throw new InvalidDataException(
-                        $"Embedded animation link record at 0x{recordStart:X8} declares " +
-                        $"{LinkCount} links ({requiredLinkBytes} bytes), but only " +
-                        $"{remainingBytes} bytes remain in the stream.");
+                    throw new InvalidDataException($"Embedded animation link record at 0x{recordStart:X8} declares {LinkCount} links ({requiredLinkBytes} bytes), but only {remainingBytes} bytes remain in the stream.");
                 }
 
                 for (int i = 0; i < LinkCount; i++)
@@ -2726,25 +2760,32 @@ namespace DKCTF
         private static byte[] ReadExactBytes(FileReader reader, int length, string label)
         {
             if (length < 0)
+            {
                 throw new InvalidDataException($"Negative byte count while reading {label}: {length}.");
-
+            }
             byte[] bytes = reader.ReadBytes(length);
             if (bytes.Length != length)
+            {
                 throw new EndOfStreamException($"Unexpected end of stream while reading {label}.");
+            }
             return bytes;
         }
 
         private static int CheckedCount(uint count, string label, uint maximum = 1_000_000)
         {
             if (count > maximum)
+            {
                 throw new InvalidDataException($"Unreasonable {label} count: {count}.");
+            }
             return checked((int)count);
         }
 
         private static int CheckedByteLength(uint length, string label, uint maximum = 64 * 1024 * 1024)
         {
             if (length > maximum)
+            {
                 throw new InvalidDataException($"Unreasonable {label} byte length: {length}.");
+            }
             return checked((int)length);
         }
         #endregion
