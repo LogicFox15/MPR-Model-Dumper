@@ -25,7 +25,7 @@ namespace DKCTF
         /// Leave false for routine batch exports; set true when investigating a specific asset.
         /// This does not affect normal parsing, reconstruction, or model/animation export files.
         /// </summary>
-        public static bool DiagnosticsEnabled { get; set; } = true;
+        public static bool DiagnosticsEnabled { get; set; } = false;
 
         private static void DiagnosticLog(string message)
         {

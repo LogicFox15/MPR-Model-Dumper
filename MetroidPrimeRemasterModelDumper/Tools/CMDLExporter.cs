@@ -1,4 +1,4 @@
-using AvaloniaToolbox.Core;
+﻿using AvaloniaToolbox.Core;
 using DKCTF;
 using IONET;
 using IONET.Collada.Core.Geometry;
@@ -114,7 +114,64 @@ namespace EvilWithin2Tool
                 }
             }
 
+            // Some character CHPRs contain root.move in the animation NodeSet,
+            // but not in CharacterInfo.Bones. CompStream can still animate it
+            // (typically via slot 3), so export a synthetic identity root and
+            // parent every existing hierarchy root beneath it. Only do this
+            // when the parsed AnimContext explicitly names root.move: some
+            // cooked CHPRs are generated for non-character assets and should
+            // not receive a speculative character root.
+            bool hasRootMoveBone = firstBoneByName.ContainsKey("root.move");
+            if (!hasRootMoveBone && HasAnimationNodeName(characterInfo, "root.move"))
+            {
+                IOBone rootMove = new IOBone
+                {
+                    Name = "root.move",
+                    Rotation = Quaternion.Identity,
+                    Scale = Vector3.One,
+                    Translation = Vector3.Zero
+                };
+
+                List<IOBone> existingRoots = bones
+                    .Where(bone => bone.Parent == null)
+                    .ToList();
+
+                foreach (IOBone root in existingRoots)
+                    rootMove.AddChild(root);
+
+                bones.Insert(0, rootMove);
+                Console.WriteLine(
+                    $"[CHPR] Added synthetic root.move above {existingRoots.Count} existing rig root(s), " +
+                    "because AnimContext.NodeSet contains root.move but the parsed skeleton does not.");
+            }
+
             return bones;
+        }
+
+        private static bool HasAnimationNodeName(CHPR.CharacterInfo characterInfo, string targetName)
+        {
+            CHPR.SNodeSet nodeSet = characterInfo?.AnimContext?.NodeSet;
+            if (nodeSet?.NodeIDs == null || characterInfo.NamePool == null)
+                return false;
+
+            for (int i = 0; i < nodeSet.NodeIDs.Length; i++)
+            {
+                string nodeName;
+                try
+                {
+                    nodeName = characterInfo.NamePool.GetString(nodeSet.NameSet, i);
+                }
+                catch
+                {
+                    // A malformed name-pool entry must not prevent the model export.
+                    continue;
+                }
+
+                if (string.Equals(nodeName, targetName, StringComparison.Ordinal))
+                    return true;
+            }
+
+            return false;
         }
 
         public static void Export(CMDL cmdl, string path, CHPR charProject = null, bool saveLODs = false, bool appendAnimations = true)

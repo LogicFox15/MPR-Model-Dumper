@@ -568,11 +568,39 @@ namespace EvilWithin2Tool
                     continue;
                 }
 
-                // Use the parsed CHPR bone's bind transform.
-                // A missing or duplicated bone name is not safe to resolve by guessing.
+                Node node = matchingNodes[0];
+
+                // root.move may be an animation-only NodeSet entry rather than a
+                // serialized CharacterInfo.Bones record. CMDLExporter creates its
+                // synthetic glTF node only when this name is present in AnimContext.
+                // Give that node an identity bind transform so its CompStream values
+                // animate the character root and naturally propagate to the rig below.
                 if (!bonesByName.TryGetValue(nodeName, out List<CHPR.BoneData> matchingBones) ||
                     matchingBones.Count != 1)
                 {
+                    if (string.Equals(nodeName, "root.move", StringComparison.Ordinal))
+                    {
+                        tracksByAddress.Add(
+                            address,
+                            new List<BoneTrack>
+                            {
+                                new BoneTrack
+                                {
+                                    Bone = null,
+                                    Node = node,
+                                    BindTranslation = Vector3.Zero,
+                                    BindRotation = Quaternion.Identity,
+                                    BindScale = Vector3.One
+                                }
+                            });
+
+                        nodeMatches++;
+                        diagnostics.AppendLine(
+                            $"NODESET MAP: address=0x{address:X4}; name=\"root.move\"; " +
+                            "using identity bind for the synthetic animation root.");
+                        continue;
+                    }
+
                     missingBoneDataCount++;
 
                     diagnostics.AppendLine(
@@ -584,7 +612,6 @@ namespace EvilWithin2Tool
                 }
 
                 CHPR.BoneData bone = matchingBones[0];
-                Node node = matchingNodes[0];
 
                 if (!Matrix4x4.Decompose(
                         bone.LocalTransform,
