@@ -50,7 +50,7 @@ namespace MetroidPrimeRemasterModelDumper
                 Console.WriteLine("    TERR = Dump TERR (Sol Valley Terrain Resource)");
                 Console.WriteLine("    TECM = Dump TECM (Sol Valley Clip Map Resource)");
                 Console.WriteLine("    ROOM = Dump ROOM and several related files");
-                Console.WriteLine("    TEST = CHPR File Test");
+                //Console.WriteLine("    TEST = CHPR File Test");
                 Console.WriteLine("");
                 Console.WriteLine("WARNING: LOD identification is still buggy. Also, there are still");
                 Console.WriteLine("issues with the UV maps. Dumps may not be 100% accurate.");
@@ -118,6 +118,7 @@ namespace MetroidPrimeRemasterModelDumper
                                 ProcessRoomTest(fileInfo.FileData, fileInfo, pak);
                             savedMode = "ROOM";
                             break;
+                            /*
                         case "TEST":
                             if (fileInfo.AssetEntry.Type == "CHPR")
                                 ExtractCharacterProjectTest(fileInfo.FileData, fileInfo, pak);
