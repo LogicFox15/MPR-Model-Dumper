@@ -471,9 +471,9 @@ namespace DKCTF
                         vert.Position = new Vector3(XCoord, 0, -ZCoord);
                         tileVerts.Add(vert);
 
-                        XCoord += 1;
+                        XCoord += 2;
                     }
-                    ZCoord += 1;
+                    ZCoord += 2;
                 }
             }
         }
